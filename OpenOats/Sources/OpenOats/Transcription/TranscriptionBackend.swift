@@ -4,12 +4,13 @@ import Foundation
 enum BackendStatus: Equatable, Sendable {
     case ready
     case needsDownload(prompt: String)
-    case preparing(status: String)
-    case failed(message: String)
 }
 
 /// Unified interface for all transcription backends (local and cloud).
 /// Each backend handles its own model lifecycle and transcription logic.
+///
+/// Conforming types receive raw audio samples. This protocol is internal
+/// and backends are instantiated only via TranscriptionModel.makeBackend().
 protocol TranscriptionBackend: Sendable {
     /// Human-readable name for UI display.
     var displayName: String { get }
@@ -18,7 +19,7 @@ protocol TranscriptionBackend: Sendable {
     func checkStatus() -> BackendStatus
 
     /// Prepare the backend for use (download models, validate API keys, etc.).
-    /// Called once before the first transcription. May be long-running.
+    /// Must be called exactly once, and must complete before any call to transcribe().
     func prepare(onStatus: @Sendable (String) -> Void) async throws
 
     /// Transcribe a segment of Float32 audio samples at 16kHz mono.

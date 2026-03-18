@@ -2,6 +2,7 @@ import FluidAudio
 import Foundation
 
 /// Transcription backend for Parakeet-TDT models (v2 English-only, v3 multilingual).
+/// @unchecked Sendable: asrManager is written once in prepare() before any transcribe() calls.
 final class ParakeetBackend: TranscriptionBackend, @unchecked Sendable {
     let displayName: String
     private let version: AsrModelVersion
