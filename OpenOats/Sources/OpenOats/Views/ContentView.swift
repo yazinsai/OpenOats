@@ -139,7 +139,7 @@ struct ContentView: View {
             if knowledgeBase == nil {
                 let kb = KnowledgeBase(settings: settings)
                 knowledgeBase = kb
-                transcriptionEngine = TranscriptionEngine(transcriptStore: transcriptStore)
+                transcriptionEngine = TranscriptionEngine(transcriptStore: transcriptStore, settings: settings)
                 suggestionEngine = SuggestionEngine(
                     transcriptStore: transcriptStore,
                     knowledgeBase: kb,

@@ -34,6 +34,20 @@ enum EmbeddingProvider: String, CaseIterable, Identifiable {
     }
 }
 
+enum AsrModelVersionSetting: String, CaseIterable, Identifiable {
+    case v2
+    case v3
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .v2: "Parakeet TDT v2 (English only)"
+        case .v3: "Parakeet TDT v3 (25 languages)"
+        }
+    }
+}
+
 @Observable
 @MainActor
 final class AppSettings {
@@ -103,6 +117,10 @@ final class AppSettings {
         didSet { UserDefaults.standard.set(hasAcknowledgedRecordingConsent, forKey: "hasAcknowledgedRecordingConsent") }
     }
 
+    var asrModelVersion: AsrModelVersionSetting {
+        didSet { UserDefaults.standard.set(asrModelVersion.rawValue, forKey: "asrModelVersion") }
+    }
+
     /// When true, all app windows are invisible to screen sharing / recording.
     var hideFromScreenShare: Bool {
         didSet {
@@ -137,6 +155,7 @@ final class AppSettings {
         self.openAIEmbedApiKey = KeychainHelper.load(key: "openAIEmbedApiKey") ?? ""
         self.openAIEmbedModel = defaults.string(forKey: "openAIEmbedModel") ?? "text-embedding-3-small"
         self.hasAcknowledgedRecordingConsent = defaults.bool(forKey: "hasAcknowledgedRecordingConsent")
+        self.asrModelVersion = AsrModelVersionSetting(rawValue: defaults.string(forKey: "asrModelVersion") ?? "") ?? .v3
 
         // Default to true (hidden) if key has never been set
         if defaults.object(forKey: "hideFromScreenShare") == nil {

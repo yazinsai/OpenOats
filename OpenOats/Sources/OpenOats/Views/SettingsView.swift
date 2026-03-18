@@ -126,8 +126,19 @@ struct SettingsView: View {
             }
 
             Section("Transcription") {
+                Picker("ASR Model", selection: $settings.asrModelVersion) {
+                    ForEach(AsrModelVersionSetting.allCases) { version in
+                        Text(version.displayName).tag(version)
+                    }
+                }
+                .font(.system(size: 12))
+
                 TextField("Locale (e.g. en-US)", text: $settings.transcriptionLocale)
                     .font(.system(size: 12, design: .monospaced))
+
+                Text("Model change takes effect next time you start a session. v2 is English-only with highest recall. v3 supports 25 European languages including German.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
 
             Section("Privacy") {

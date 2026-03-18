@@ -32,6 +32,7 @@ final class TranscriptionEngine {
     private let systemCapture = SystemAudioCapture()
     private let micCapture = MicCapture()
     private let transcriptStore: TranscriptStore
+    private let settings: AppSettings
 
     /// Audio level from mic for the UI meter.
     var audioLevel: Float { micCapture.audioLevel }
@@ -54,10 +55,16 @@ final class TranscriptionEngine {
     /// Listens for default input device changes at the OS level.
     private var defaultDeviceListenerBlock: AudioObjectPropertyListenerBlock?
 
-    init(transcriptStore: TranscriptStore) {
+    private var asrVersion: AsrModelVersion {
+        settings.asrModelVersion == .v2 ? .v2 : .v3
+    }
+
+    init(transcriptStore: TranscriptStore, settings: AppSettings) {
         self.transcriptStore = transcriptStore
+        self.settings = settings
+        let version: AsrModelVersion = settings.asrModelVersion == .v2 ? .v2 : .v3
         self.needsModelDownload = !AsrModels.modelsExist(
-            at: AsrModels.defaultCacheDirectory(for: .v2), version: .v2
+            at: AsrModels.defaultCacheDirectory(for: version), version: version
         )
     }
 
@@ -79,7 +86,7 @@ final class TranscriptionEngine {
         assetStatus = needsModelDownload ? "Downloading ASR model (~600MB)..." : "Loading ASR model..."
         diagLog("[ENGINE-1] loading FluidAudio ASR models...")
         do {
-            let models = try await AsrModels.downloadAndLoad(version: .v2)
+            let models = try await AsrModels.downloadAndLoad(version: asrVersion)
             assetStatus = "Initializing ASR..."
             let asr = AsrManager(config: .default)
             try await asr.initialize(models: models)
@@ -166,7 +173,7 @@ final class TranscriptionEngine {
             }
         }
 
-        assetStatus = "Transcribing (Parakeet-TDT v2)"
+        assetStatus = "Transcribing (Parakeet-TDT \(settings.asrModelVersion.rawValue))"
         diagLog("[ENGINE-6] all transcription tasks started")
 
         // Install CoreAudio listener for default input device changes
