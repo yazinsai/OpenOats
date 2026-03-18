@@ -300,4 +300,39 @@ actor SessionStore {
     }
 
     var sessionsDirectoryURL: URL { sessionsDirectory }
+
+    // MARK: - Recently Deleted
+
+    private var recentlyDeletedDirectory: URL {
+        sessionsDirectory.appendingPathComponent(".recently-deleted", isDirectory: true)
+    }
+
+    /// Move a session's JSONL and sidecar files to .recently-deleted/.
+    func moveToRecentlyDeleted(sessionID: String) {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: recentlyDeletedDirectory, withIntermediateDirectories: true)
+
+        let jsonl = jsonlURL(for: sessionID)
+        let sidecar = sidecarURL(for: sessionID)
+
+        if fm.fileExists(atPath: jsonl.path) {
+            let dest = recentlyDeletedDirectory.appendingPathComponent(jsonl.lastPathComponent)
+            try? fm.moveItem(at: jsonl, to: dest)
+        }
+        if fm.fileExists(atPath: sidecar.path) {
+            let dest = recentlyDeletedDirectory.appendingPathComponent(sidecar.lastPathComponent)
+            try? fm.moveItem(at: sidecar, to: dest)
+        }
+    }
+
+    /// Permanently remove all files in the .recently-deleted/ folder.
+    func purgeRecentlyDeleted() {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(at: recentlyDeletedDirectory, includingPropertiesForKeys: nil) else {
+            return
+        }
+        for file in files {
+            try? fm.removeItem(at: file)
+        }
+    }
 }

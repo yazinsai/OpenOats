@@ -20,6 +20,7 @@ struct ExternalCommandRequest: Identifiable, Equatable {
 
 /// Shared state coordinator injected into all window scenes.
 /// Bridges the main window (transcription) and Notes window (history + generation).
+/// Owns TranscriptStore, TranscriptLogger, TranscriptionEngine, and the recording lifecycle.
 @Observable
 @MainActor
 final class AppCoordinator {
@@ -31,6 +32,9 @@ final class AppCoordinator {
 
     @ObservationIgnored private let _notesEngine = NotesEngine()
     nonisolated var notesEngine: NotesEngine { _notesEngine }
+
+    @ObservationIgnored private let _transcriptStore = TranscriptStore()
+    nonisolated var transcriptStore: TranscriptStore { _transcriptStore }
 
     @ObservationIgnored nonisolated(unsafe) private var _selectedTemplate: MeetingTemplate?
     var selectedTemplate: MeetingTemplate? {
@@ -69,14 +73,79 @@ final class AppCoordinator {
         set { withMutation(keyPath: \.sessionHistory) { _sessionHistory = newValue } }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _state: MeetingState = .idle
+    private(set) var state: MeetingState {
+        get { access(keyPath: \.state); return _state }
+        set { withMutation(keyPath: \.state) { _state = newValue } }
+    }
+
+    var transcriptLogger: TranscriptLogger?
+    var transcriptionEngine: TranscriptionEngine?
+    var refinementEngine: TranscriptRefinementEngine?
+    var audioRecorder: AudioRecorder?
+
     /// The template snapshot frozen at session start (not stop).
     private var sessionTemplateSnapshot: TemplateSnapshot?
 
-    /// Start a new recording session, optionally with a template.
-    func startSession(transcriptStore: TranscriptStore) async {
-        lastEndedSession = nil
+    /// Guard against finalization hanging forever.
+    private var finalizationTimeoutTask: Task<Void, Never>?
 
-        // Clear transcript from previous session
+    // MARK: - State Machine
+
+    /// Drive the meeting lifecycle through the state machine, then dispatch side effects.
+    func handle(_ event: MeetingEvent, settings: AppSettings? = nil) {
+        let oldState = state
+        state = transition(from: oldState, on: event)
+
+        // Only dispatch side effects when the state actually changed
+        guard state != oldState else { return }
+
+        performSideEffects(for: event, settings: settings)
+    }
+
+    // MARK: - Side Effects
+
+    private func performSideEffects(for event: MeetingEvent, settings: AppSettings?) {
+        switch event {
+        case .userStarted(let metadata):
+            Task {
+                await startTranscription(metadata: metadata, settings: settings)
+            }
+
+        case .userStopped:
+            finalizationTimeoutTask = Task {
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { return }
+                handle(.finalizationTimeout)
+            }
+            Task {
+                await finalizeCurrentSession(settings: settings)
+                finalizationTimeoutTask?.cancel()
+                finalizationTimeoutTask = nil
+                handle(.finalizationComplete)
+            }
+
+        case .userDiscarded:
+            Task {
+                transcriptionEngine?.stop()
+                await transcriptLogger?.endSession()
+                transcriptStore.clear()
+                await sessionStore.endSession()
+            }
+
+        case .finalizationComplete:
+            finalizationTimeoutTask?.cancel()
+            finalizationTimeoutTask = nil
+
+        case .finalizationTimeout:
+            finalizationTimeoutTask = nil
+        }
+    }
+
+    // MARK: - Transcription Lifecycle
+
+    private func startTranscription(metadata: MeetingMetadata, settings: AppSettings?) async {
+        lastEndedSession = nil
         transcriptStore.clear()
 
         // Freeze template choice at start time
@@ -90,21 +159,32 @@ final class AppCoordinator {
 
         let templateID = selectedTemplate?.id
         await sessionStore.startSession(templateID: templateID)
+        await transcriptLogger?.startSession()
+
+        if let settings {
+            if settings.saveAudioRecording {
+                audioRecorder?.startSession()
+                transcriptionEngine?.audioRecorder = audioRecorder
+            } else {
+                transcriptionEngine?.audioRecorder = nil
+            }
+
+            await transcriptionEngine?.start(
+                locale: settings.locale,
+                inputDeviceID: settings.inputDeviceID,
+                transcriptionModel: settings.transcriptionModel
+            )
+        }
     }
 
-    /// Gracefully stop a session: drain audio, drain JSONL writes, write sidecar, close files.
-    func finalizeSession(
-        transcriptStore: TranscriptStore,
-        transcriptionEngine: TranscriptionEngine?,
-        transcriptLogger: TranscriptLogger?,
-        audioRecorder: AudioRecorder? = nil,
-        refinementEngine: TranscriptRefinementEngine? = nil
-    ) async {
+    private func finalizeCurrentSession(settings: AppSettings? = nil) async {
         // 1. Drain audio buffers (flush final speech)
         await transcriptionEngine?.finalize()
 
         // 1b. Drain pending refinements (5-second timeout)
-        await refinementEngine?.drain(timeout: .seconds(5))
+        if let settings, settings.enableTranscriptRefinement {
+            await refinementEngine?.drain(timeout: .seconds(5))
+        }
 
         // 2. Drain delayed JSONL writes
         await sessionStore.awaitPendingWrites()
@@ -136,13 +216,17 @@ final class AppCoordinator {
         await transcriptLogger?.endSession()
 
         // 6b. Merge and encode audio recording (after all audio drained)
-        await audioRecorder?.finalizeRecording()
+        if let settings, settings.saveAudioRecording {
+            await audioRecorder?.finalizeRecording()
+        }
 
         // 7. Update UI state + refresh history so Notes window sees the new session
         lastEndedSession = index
         sessionTemplateSnapshot = nil
         await loadHistory()
     }
+
+    // MARK: - History
 
     /// Load session history from sidecars (lightweight index only).
     func loadHistory() async {
