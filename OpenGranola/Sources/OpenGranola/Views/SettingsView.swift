@@ -15,7 +15,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Knowledge Base") {
-                Text("Point this to a folder of notes, docs, or reference material (.md, .txt). During meetings, OpenGranola searches this folder to surface relevant context and talking points.")
+                Text("Point this to a folder of notes, docs, or reference material (.md, .txt). During meetings, OpenOats searches this folder to surface relevant context and talking points.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
 

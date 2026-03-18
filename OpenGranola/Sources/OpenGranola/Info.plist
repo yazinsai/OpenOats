@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>OpenGranola</string>
+    <string>OpenOats</string>
     <key>CFBundleDisplayName</key>
-    <string>OpenGranola</string>
+    <string>OpenOats</string>
     <key>CFBundleIdentifier</key>
-    <string>com.opengranola.app</string>
+    <string>com.openoats.app</string>
     <key>CFBundleVersion</key>
     <string>2.0.0</string>
     <key>CFBundleShortVersionString</key>
     <string>2.0.0</string>
     <key>CFBundleExecutable</key>
-    <string>OpenGranola</string>
+    <string>OpenOats</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>
@@ -21,13 +21,13 @@
     <key>LSMinimumSystemVersion</key>
     <string>26.0</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>OpenGranola needs microphone access to transcribe your voice in real-time during conversations.</string>
+    <string>OpenOats needs microphone access to transcribe your voice in real-time during conversations.</string>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>OpenGranola needs screen capture permission to capture system audio from other participants.</string>
+    <string>OpenOats needs screen capture permission to capture system audio from other participants.</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>SUFeedURL</key>
-    <string>https://raw.githubusercontent.com/yazinsai/OpenGranola/gh-pages/appcast.xml</string>
+    <string>https://raw.githubusercontent.com/yazinsai/OpenOats/gh-pages/appcast.xml</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>SUPublicEDKey</key>

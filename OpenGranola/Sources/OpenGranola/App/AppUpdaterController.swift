@@ -4,11 +4,11 @@ import Sparkle
 @MainActor
 final class AppUpdaterController {
     let updater: SPUUpdater
-    private let userDriver: OpenGranolaUserDriver
+    private let userDriver: OpenOatsUserDriver
 
     init() {
         let hostBundle = Bundle.main
-        userDriver = OpenGranolaUserDriver(hostBundle: hostBundle, delegate: nil)
+        userDriver = OpenOatsUserDriver(hostBundle: hostBundle, delegate: nil)
         updater = SPUUpdater(
             hostBundle: hostBundle,
             applicationBundle: hostBundle,
@@ -26,13 +26,13 @@ final class AppUpdaterController {
     private func presentStartupError() {
         let alert = NSAlert()
         alert.messageText = "Unable to Check For Updates"
-        alert.informativeText = "The updater failed to start. Please verify you have the latest version of OpenGranola and contact the developer if the issue persists."
+        alert.informativeText = "The updater failed to start. Please verify you have the latest version of OpenOats and contact the developer if the issue persists."
         alert.runModal()
     }
 }
 
 @MainActor
-final class OpenGranolaUserDriver: SPUStandardUserDriver {
+final class OpenOatsUserDriver: SPUStandardUserDriver {
     private static let sparkleErrorDomain = "SUSparkleErrorDomain"
     private static let installationErrorCode = 4005
     private static let installationWriteNoPermissionErrorCode = 4012

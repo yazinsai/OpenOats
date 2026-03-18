@@ -13,7 +13,7 @@ struct OverlayContent: View {
                 Circle()
                     .fill(isGenerating ? Color.orange : Color.green)
                     .frame(width: 6, height: 6)
-                Text("OpenGranola")
+                Text("OpenOats")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()

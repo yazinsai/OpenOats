@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "OpenGranola",
+    name: "OpenOats",
     platforms: [.macOS(.v26)],
     dependencies: [
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.7.9"),
@@ -11,7 +11,7 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "OpenGranola",
+            name: "OpenOats",
             dependencies: [
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "Sparkle", package: "Sparkle"),

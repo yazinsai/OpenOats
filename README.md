@@ -1,19 +1,17 @@
-# OpenGranola
+# OpenOats
 
 A meeting note-taker that talks back.
 
 <p align="center">
-  <a href="https://github.com/yazinsai/OpenGranola/releases/latest">
+  <a href="https://github.com/yazinsai/OpenOats/releases/latest">
     <img src="https://img.shields.io/badge/Download_for_Mac-DMG-black?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" />
   </a>
 </p>
 
-OpenGranola sits next to your call, transcribes both sides of the conversation in real time, and searches your own notes to surface things worth saying — right when you need them.
-
-Think of it as Granola on steroids: it doesn't just take notes, it reads the room, digs through your knowledge base, and hands you the perfect talking point before the moment passes.
+OpenOats sits next to your call, transcribes both sides of the conversation in real time, and searches your own notes to surface things worth saying — right when you need them.
 
 <p align="center">
-  <img src="assets/screenshot.png" width="360" alt="OpenGranola during an investor call — suggestions drawn from your own notes appear at the top, live transcript below" />
+  <img src="assets/screenshot.png" width="360" alt="OpenOats during a call — suggestions drawn from your own notes appear at the top, live transcript below" />
 </p>
 
 ## Features
@@ -29,13 +27,27 @@ Think of it as Granola on steroids: it doesn't just take notes, it reads the roo
 ## How it works
 
 1. You start a call and hit **Live**
-2. OpenGranola transcribes both speakers locally on your Mac
+2. OpenOats transcribes both speakers locally on your Mac
 3. When the conversation hits a moment that matters — a question, a decision point, a claim worth backing up — it searches your notes and surfaces relevant talking points
 4. You sound prepared because you are
 
+## Recording Consent & Legal Disclaimer
+
+**Important:** OpenOats records and transcribes audio from your microphone and system audio. Many jurisdictions have laws requiring consent from some or all participants before a conversation may be recorded (e.g., two-party/all-party consent states in the U.S., GDPR in the EU).
+
+**By using this software, you acknowledge and agree that:**
+
+- **You are solely responsible** for determining whether recording is lawful in your jurisdiction and for obtaining any required consent from all participants before starting a session.
+- **The developers and contributors of OpenOats provide no legal advice** and make no representations about the legality of recording in any jurisdiction.
+- **The developers accept no liability** for any unauthorized or unlawful recording conducted using this software.
+
+**Do not use this software to record conversations without proper consent where required by law.**
+
+The app will ask you to acknowledge these obligations before your first recording session.
+
 ## Download
 
-Grab the latest DMG from the [Releases page](https://github.com/yazinsai/OpenGranola/releases/latest).
+Grab the latest DMG from the [Releases page](https://github.com/yazinsai/OpenOats/releases/latest).
 
 Or build from source:
 
@@ -45,7 +57,7 @@ Or build from source:
 
 ## Quick start
 
-1. Open the DMG and drag OpenGranola to Applications
+1. Open the DMG and drag OpenOats to Applications
 2. Launch the app and grant microphone + screen capture permissions
 3. Open Settings (`Cmd+,`) and pick your providers:
    - **Cloud**: add your OpenRouter and Voyage AI API keys
@@ -64,7 +76,7 @@ The first run downloads the local speech model (~600 MB).
 
 ## Knowledge base
 
-Point the app at a folder of Markdown or plain text files. That's it. OpenGranola chunks, embeds, and caches them locally. When the conversation shifts, it searches your notes and only surfaces what's actually relevant.
+Point the app at a folder of Markdown or plain text files. That's it. OpenOats chunks, embeds, and caches them locally. When the conversation shifts, it searches your notes and only surfaces what's actually relevant.
 
 Works well with meeting prep docs, research notes, pitch decks, competitive analysis, customer briefs — anything you'd want at your fingertips during a call.
 
@@ -75,7 +87,7 @@ Works well with meeting prep docs, research notes, pitch decks, competitive anal
 - **With cloud providers**: KB chunks are sent to Voyage AI for embedding (text only, no audio), and conversation context is sent to OpenRouter for suggestions
 - API keys are stored in your Mac's Keychain
 - The app window is hidden from screen sharing by default
-- Transcripts are saved locally to `~/Documents/OpenGranola/`
+- Transcripts are saved locally to `~/Documents/OpenOats/`
 
 ## Build
 

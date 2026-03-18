@@ -7,7 +7,7 @@ struct OnboardingView: View {
     private let steps: [(icon: String, title: String, body: String)] = [
         (
             "waveform.circle",
-            "Welcome to OpenGranola",
+            "Welcome to OpenOats",
             "A real-time meeting copilot that listens to your conversations and generates smart talking points — all running locally on your Mac."
         ),
         (
@@ -18,7 +18,7 @@ struct OnboardingView: View {
         (
             "lightbulb",
             "AI Suggestions",
-            "As the conversation progresses, OpenGranola pulls relevant context from your knowledge base and suggests talking points. The best suggestions surface automatically."
+            "As the conversation progresses, OpenOats pulls relevant context from your knowledge base and suggests talking points. The best suggestions surface automatically."
         ),
         (
             "rectangle.on.rectangle",

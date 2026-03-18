@@ -3,7 +3,7 @@ import AppKit
 import Sparkle
 
 @main
-struct OpenGranolaApp: App {
+struct OpenOatsApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var settings = AppSettings()
     @State private var coordinator = AppCoordinator()

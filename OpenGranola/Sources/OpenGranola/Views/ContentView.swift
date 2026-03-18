@@ -14,6 +14,7 @@ struct ContentView: View {
     @AppStorage("isTranscriptExpanded") private var isTranscriptExpanded = true
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var showOnboarding = false
+    @State private var showConsentSheet = false
     @State private var audioLevel: Float = 0
 
     var body: some View {
@@ -112,10 +113,23 @@ struct ContentView: View {
                 OnboardingView(isPresented: $showOnboarding)
                     .transition(.opacity)
             }
+            if showConsentSheet {
+                RecordingConsentView(
+                    isPresented: $showConsentSheet,
+                    settings: settings
+                )
+                .transition(.opacity)
+            }
         }
         .onChange(of: showOnboarding) {
             if !showOnboarding {
                 hasCompletedOnboarding = true
+            }
+        }
+        .onChange(of: showConsentSheet) {
+            // Auto-start session after consent is acknowledged
+            if !showConsentSheet && settings.hasAcknowledgedRecordingConsent && !isRunning {
+                startSession()
             }
         }
         .task {
@@ -171,7 +185,7 @@ struct ContentView: View {
         VStack(spacing: 6) {
             // Row 1: App name + KB folder
             HStack {
-                Text("OpenGranola")
+                Text("OpenOats")
                     .font(.system(size: 13, weight: .semibold))
 
                 Spacer()
@@ -295,6 +309,14 @@ struct ContentView: View {
     }
 
     private func startSession() {
+        // Gate recording behind consent acknowledgment
+        guard settings.hasAcknowledgedRecordingConsent else {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showConsentSheet = true
+            }
+            return
+        }
+
         Task {
             suggestionEngine?.clear()
             await coordinator.startSession(transcriptStore: transcriptStore)
