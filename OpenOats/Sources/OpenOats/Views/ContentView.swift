@@ -1,6 +1,6 @@
 import SwiftUI
-import Combine
 
+@MainActor
 struct ContentView: View {
     @Bindable var settings: AppSettings
     @Environment(AppCoordinator.self) private var coordinator
@@ -170,7 +170,9 @@ struct ContentView: View {
         }
         .onChange(of: settings.inputDeviceID) {
             if isRunning {
-                transcriptionEngine?.restartMic(inputDeviceID: settings.inputDeviceID)
+                Task {
+                    await transcriptionEngine?.restartMic(inputDeviceID: settings.inputDeviceID)
+                }
             }
         }
         .onChange(of: transcriptStore.utterances.count) {
@@ -180,15 +182,22 @@ struct ContentView: View {
             overlayManager.hide()
             return .handled
         }
-        .onReceive(Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()) { _ in
-            guard let engine = transcriptionEngine else {
-                if audioLevel != 0 { audioLevel = 0 }
-                return
-            }
-            if engine.isRunning {
-                audioLevel = engine.audioLevel
-            } else if audioLevel != 0 {
-                audioLevel = 0
+        .task {
+            // Poll audio level in a proper MainActor Swift Task context.
+            // Using .onReceive(Timer.publish) runs in a Combine/GCD context that
+            // doesn't satisfy Swift's MainActor executor check when accessing
+            // @MainActor-isolated properties, causing EXC_BAD_ACCESS crashes.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard let engine = transcriptionEngine else {
+                    if audioLevel != 0 { audioLevel = 0 }
+                    continue
+                }
+                if engine.isRunning {
+                    audioLevel = engine.audioLevel
+                } else if audioLevel != 0 {
+                    audioLevel = 0
+                }
             }
         }
     }

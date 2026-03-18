@@ -9,10 +9,12 @@ private let micLog = Logger(subsystem: "com.openoats", category: "MicCapture")
 final class MicCapture: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let _audioLevel = AudioLevel()
+    private let _hasCapturedFrames = SyncBool()
     private let _error = SyncString()
     private let _streamContinuation = OSAllocatedUnfairLock<AsyncStream<AVAudioPCMBuffer>.Continuation?>(uncheckedState: nil)
 
     var audioLevel: Float { _audioLevel.value }
+    var hasCapturedFrames: Bool { _hasCapturedFrames.value }
     var captureError: String? { _error.value }
 
     /// Set a specific input device by its AudioDeviceID. Pass nil to use system default.
@@ -31,34 +33,89 @@ final class MicCapture: @unchecked Sendable {
     }
 
     func bufferStream(deviceID: AudioDeviceID? = nil) -> AsyncStream<AVAudioPCMBuffer> {
+        // Defensive cleanup of any prior state
+        _streamContinuation.withLock { $0?.finish(); $0 = nil }
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+
         let level = _audioLevel
         let errorHolder = _error
 
         return AsyncStream { continuation in
             self._streamContinuation.withLock { $0 = continuation }
             errorHolder.value = nil
+            self._hasCapturedFrames.value = false
 
             diagLog("[MIC-1] bufferStream called, deviceID=\(String(describing: deviceID))")
 
-            // Set input device before accessing inputNode format
+            // Resolve the target device ID (explicit or system default)
+            let targetDevID: AudioDeviceID
             if let id = deviceID {
-                let inputNode = self.engine.inputNode
-                let audioUnit = inputNode.audioUnit!
-                var devID = id
-                let status = AudioUnitSetProperty(
-                    audioUnit,
+                targetDevID = id
+            } else if let defaultID = Self.defaultInputDeviceID() {
+                targetDevID = defaultID
+            } else {
+                let msg = "No input device available"
+                diagLog("[MIC-2-FAIL] \(msg)")
+                errorHolder.value = msg
+                continuation.finish()
+                return
+            }
+
+            // Prepare the engine first so audioUnit properties are available.
+            // reset() destroys audio units, so we must prepare() before
+            // accessing .audioUnit on any node.
+            self.engine.reset()
+            self.engine.prepare()
+
+            let inputNode = self.engine.inputNode
+
+            // Set input device before accessing inputNode format
+            guard let inAU = inputNode.audioUnit else {
+                let msg = "inputNode has no audio unit after prepare"
+                diagLog("[MIC-2-FAIL] \(msg)")
+                errorHolder.value = msg
+                continuation.finish()
+                return
+            }
+
+            var devID = targetDevID
+            let outputChannels = Self.channelCount(for: targetDevID, scope: kAudioDevicePropertyScopeOutput)
+            // For input-only devices, explicit AU device binding is fragile and
+            // repeatedly fails at engine.start (-10875 / !dev). Let AVAudioEngine
+            // negotiate routing itself instead of forcing CurrentDevice.
+            let shouldBindDevices = outputChannels > 0
+            if shouldBindDevices {
+                let inStatus = AudioUnitSetProperty(
+                    inAU,
                     kAudioOutputUnitProperty_CurrentDevice,
                     kAudioUnitScope_Global,
                     0,
                     &devID,
                     UInt32(MemoryLayout<AudioDeviceID>.size)
                 )
-                diagLog("[MIC-2] setInputDevice status=\(status) (0=ok)")
+                diagLog("[MIC-2] setInputDevice status=\(inStatus) (0=ok)")
             } else {
-                diagLog("[MIC-2] no deviceID, using system default")
+                diagLog("[MIC-2] skipping explicit input device set for input-only target")
             }
 
-            let inputNode = self.engine.inputNode
+            // Only force outputNode device when the selected mic device can output.
+            // Input-only devices trigger engine.start failures if assigned to output.
+            if shouldBindDevices, let outAU = self.engine.outputNode.audioUnit {
+                devID = targetDevID
+                let outStatus = AudioUnitSetProperty(
+                    outAU,
+                    kAudioOutputUnitProperty_CurrentDevice,
+                    kAudioUnitScope_Global,
+                    0,
+                    &devID,
+                    UInt32(MemoryLayout<AudioDeviceID>.size)
+                )
+                diagLog("[MIC-2b] setOutputDevice status=\(outStatus) (0=ok)")
+            } else {
+                diagLog("[MIC-2b] skipping output device set (outputChannels=\(outputChannels))")
+            }
+
             let format = inputNode.outputFormat(forBus: 0)
 
             diagLog("[MIC-3] inputNode format: sr=\(format.sampleRate) ch=\(format.channelCount) interleaved=\(format.isInterleaved) commonFormat=\(format.commonFormat.rawValue)")
@@ -84,9 +141,21 @@ final class MicCapture: @unchecked Sendable {
 
             diagLog("[MIC-4] tapFormat: sr=\(tapFormat.sampleRate) ch=\(tapFormat.channelCount)")
 
+            if shouldBindDevices {
+                // Connect inputNode → mainMixerNode to establish the audio pull chain.
+                // Use nil format so CoreAudio negotiates the hardware-native stream format.
+                let mixer = self.engine.mainMixerNode
+                self.engine.connect(inputNode, to: mixer, format: nil)
+                mixer.volume = 0   // Don't play mic input through speakers
+                diagLog("[MIC-4b] connected inputNode → mainMixer (volume=0)")
+            } else {
+                diagLog("[MIC-4b] skipping inputNode → mainMixer connect for input-only routing")
+            }
+
             var tapCallCount = 0
-            inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { buffer, _ in
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { buffer, _ in
                 tapCallCount += 1
+                self._hasCapturedFrames.value = true
                 let rms = Self.normalizedRMS(from: buffer)
                 level.value = min(rms * 25, 1.0)
 
@@ -106,8 +175,7 @@ final class MicCapture: @unchecked Sendable {
             }
 
             do {
-                self.engine.prepare()
-                diagLog("[MIC-7] engine prepared, starting...")
+                diagLog("[MIC-7] starting engine...")
                 try self.engine.start()
                 diagLog("[MIC-8] engine started successfully, isRunning=\(self.engine.isRunning)")
             } catch {
@@ -126,9 +194,12 @@ final class MicCapture: @unchecked Sendable {
     }
 
     func stop() {
+        finishStream()
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        engine.reset()
         _audioLevel.value = 0
+        _hasCapturedFrames.value = false
     }
 
     private static func normalizedRMS(from buffer: AVAudioPCMBuffer) -> Float {
@@ -256,12 +327,12 @@ final class MicCapture: @unchecked Sendable {
                 mScope: kAudioObjectPropertyScopeGlobal,
                 mElement: kAudioObjectPropertyElementMain
             )
-            var name: CFString = "" as CFString
-            var nameSize = UInt32(MemoryLayout<CFString>.size)
-            status = AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &name)
-            guard status == noErr else { continue }
+            var nameRef: Unmanaged<CFString>?
+            var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+            status = AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &nameRef)
+            guard status == noErr, let nameVal = nameRef?.takeUnretainedValue() else { continue }
 
-            result.append((id: deviceID, name: name as String))
+            result.append((id: deviceID, name: nameVal as String))
         }
 
         return result
@@ -274,10 +345,10 @@ final class MicCapture: @unchecked Sendable {
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var uid: CFString = "" as CFString
-        var size = UInt32(MemoryLayout<CFString>.size)
-        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &uid)
-        return status == noErr ? uid as String : nil
+        var uidRef: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &uidRef)
+        return status == noErr ? uidRef?.takeUnretainedValue() as String? : nil
     }
 
     static func defaultInputDeviceID() -> AudioDeviceID? {
@@ -296,6 +367,27 @@ final class MicCapture: @unchecked Sendable {
             &deviceID
         )
         return status == noErr ? deviceID : nil
+    }
+
+    private static func channelCount(for deviceID: AudioDeviceID, scope: AudioObjectPropertyScope) -> Int {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: scope,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var bufferListSize: UInt32 = 0
+        let sizeStatus = AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &bufferListSize)
+        guard sizeStatus == noErr, bufferListSize > 0 else { return 0 }
+
+        let bufferListPtr = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: 1)
+        defer { bufferListPtr.deallocate() }
+
+        var mutableSize = bufferListSize
+        let dataStatus = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &mutableSize, bufferListPtr)
+        guard dataStatus == noErr else { return 0 }
+
+        let bufferList = UnsafeMutableAudioBufferListPointer(bufferListPtr)
+        return bufferList.reduce(0) { $0 + Int($1.mNumberChannels) }
     }
 }
 
@@ -316,6 +408,17 @@ final class SyncString: @unchecked Sendable {
     private let lock = NSLock()
 
     var value: String? {
+        get { lock.withLock { _value } }
+        set { lock.withLock { _value = newValue } }
+    }
+}
+
+/// Simple thread-safe bool holder.
+final class SyncBool: @unchecked Sendable {
+    private var _value = false
+    private let lock = NSLock()
+
+    var value: Bool {
         get { lock.withLock { _value } }
         set { lock.withLock { _value = newValue } }
     }

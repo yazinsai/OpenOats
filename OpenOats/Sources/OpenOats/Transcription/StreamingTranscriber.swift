@@ -165,7 +165,7 @@ final class StreamingTranscriber: @unchecked Sendable {
         ) else { return nil }
 
         var error: NSError?
-        var consumed = false
+        nonisolated(unsafe) var consumed = false
         converter.convert(to: outputBuffer, error: &error) { _, outStatus in
             if consumed {
                 outStatus.pointee = .noDataNow

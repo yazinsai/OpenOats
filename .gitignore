@@ -9,3 +9,11 @@ OpenOats/.build/
 data/
 CLAUDE.md
 AGENTS.md
+
+# Local OS/editor artifacts
+.DS_Store
+.cursor/*.log
+
+# Local crash and package artifacts
+*.ips
+*.dmg
