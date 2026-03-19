@@ -28,5 +28,12 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Run package smoke check
-        run: bash ./scripts/package_smoke_check.sh
+      - name: Build and assemble app bundle (no sign, no install)
+        run: SKIP_SIGN=1 SKIP_INSTALL=1 ./scripts/build_swift_app.sh
+
+      - name: Verify app bundle structure
+        run: |
+          test -f dist/OpenOats.app/Contents/MacOS/OpenOats
+          test -f dist/OpenOats.app/Contents/Info.plist
+          test -f dist/OpenOats.app/Contents/PkgInfo
+          echo "App bundle structure verified"
