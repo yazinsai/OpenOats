@@ -2,53 +2,57 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
-    #[serde(default = "default_model")]
+    #[serde(default = "default_model", alias = "selected_model")]
     pub selected_model: String,
 
-    #[serde(default = "default_locale")]
+    #[serde(default = "default_locale", alias = "transcription_locale")]
     pub transcription_locale: String,
 
-    #[serde(default = "default_transcription_model")]
+    #[serde(default = "default_transcription_model", alias = "transcription_model")]
     pub transcription_model: String,
 
-    #[serde(default)]
+    #[serde(default, alias = "input_device_name")]
     pub input_device_name: Option<String>,
 
-    #[serde(default = "default_llm_provider")]
+    #[serde(default = "default_llm_provider", alias = "llm_provider")]
     pub llm_provider: String,
 
-    #[serde(default = "default_embedding_provider")]
+    #[serde(default = "default_embedding_provider", alias = "embedding_provider")]
     pub embedding_provider: String,
 
-    #[serde(default = "default_ollama_url")]
+    #[serde(default = "default_ollama_url", alias = "ollama_base_url")]
     pub ollama_base_url: String,
 
-    #[serde(default = "default_ollama_llm_model")]
+    #[serde(default = "default_ollama_llm_model", alias = "ollama_llm_model")]
     pub ollama_llm_model: String,
 
-    #[serde(default = "default_ollama_embed_model")]
+    #[serde(default = "default_ollama_embed_model", alias = "ollama_embed_model")]
     pub ollama_embed_model: String,
 
-    #[serde(default = "default_openai_embed_url")]
+    #[serde(default = "default_openai_llm_url", alias = "open_ai_llm_base_url")]
+    pub open_ai_llm_base_url: String,
+
+    #[serde(default = "default_openai_embed_url", alias = "open_ai_embed_base_url")]
     pub open_ai_embed_base_url: String,
 
-    #[serde(default = "default_openai_embed_model")]
+    #[serde(default = "default_openai_embed_model", alias = "open_ai_embed_model")]
     pub open_ai_embed_model: String,
 
-    #[serde(default)]
+    #[serde(default, alias = "kb_folder_path")]
     pub kb_folder_path: Option<String>,
 
-    #[serde(default = "default_notes_folder")]
+    #[serde(default = "default_notes_folder", alias = "notes_folder_path")]
     pub notes_folder_path: String,
 
-    #[serde(default)]
+    #[serde(default, alias = "has_acknowledged_recording_consent")]
     pub has_acknowledged_recording_consent: bool,
 
-    #[serde(default = "default_true")]
+    #[serde(default = "default_true", alias = "hide_from_screen_share")]
     pub hide_from_screen_share: bool,
 
-    #[serde(default)]
+    #[serde(default, alias = "has_completed_onboarding")]
     pub has_completed_onboarding: bool,
 }
 
@@ -102,6 +106,7 @@ impl Default for AppSettings {
             ollama_base_url: default_ollama_url(),
             ollama_llm_model: default_ollama_llm_model(),
             ollama_embed_model: default_ollama_embed_model(),
+            open_ai_llm_base_url: default_openai_llm_url(),
             open_ai_embed_base_url: default_openai_embed_url(),
             open_ai_embed_model: default_openai_embed_model(),
             kb_folder_path: None,
@@ -121,6 +126,7 @@ fn default_embedding_provider() -> String { "voyage".into() }
 fn default_ollama_url() -> String { "http://localhost:11434".into() }
 fn default_ollama_llm_model() -> String { "qwen3:8b".into() }
 fn default_ollama_embed_model() -> String { "nomic-embed-text".into() }
+fn default_openai_llm_url() -> String { "http://localhost:1234".into() }
 fn default_openai_embed_url() -> String { "http://localhost:8080".into() }
 fn default_openai_embed_model() -> String { "text-embedding-3-small".into() }
 fn default_true() -> bool { true }

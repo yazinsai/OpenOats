@@ -29,6 +29,7 @@ export interface AppSettings {
   ollamaBaseUrl: string;
   ollamaLlmModel: string;
   ollamaEmbedModel: string;
+  openAiLlmBaseUrl: string;
   openAiEmbedBaseUrl: string;
   openAiEmbedModel: string;
   kbFolderPath: string | null;
@@ -36,6 +37,13 @@ export interface AppSettings {
   hasAcknowledgedRecordingConsent: boolean;
   hideFromScreenShare: boolean;
   hasCompletedOnboarding: boolean;
+}
+
+export interface ApiKeys {
+  openRouterApiKey: string;
+  voyageApiKey: string;
+  openAiLlmApiKey: string;
+  openAiEmbedApiKey: string;
 }
 
 export interface SessionRecord {

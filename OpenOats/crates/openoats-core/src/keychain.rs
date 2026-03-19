@@ -17,6 +17,7 @@ impl KeyEntry {
 
     pub fn open_router_api_key() -> Self { Self::new("openRouterApiKey") }
     pub fn voyage_api_key() -> Self { Self::new("voyageApiKey") }
+    pub fn open_ai_llm_api_key() -> Self { Self::new("openAILLMApiKey") }
     pub fn open_ai_embed_api_key() -> Self { Self::new("openAIEmbedApiKey") }
 
     pub fn save(&self, value: &str) -> Result<(), keyring::Error> {

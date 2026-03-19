@@ -23,6 +23,15 @@ pub struct TranscriptPayload {
     pub speaker: String,
 }
 
+#[derive(Clone, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiKeysPayload {
+    pub open_router_api_key: String,
+    pub voyage_api_key: String,
+    pub open_ai_llm_api_key: String,
+    pub open_ai_embed_api_key: String,
+}
+
 // ── AppState ────────────────────────────────────────────────────────────────
 
 pub struct AppState {
@@ -66,11 +75,19 @@ impl AppState {
 // ── LLM / Embed resolver helpers ─────────────────────────────────────────────
 
 fn llm_base_url_and_key(settings: &AppSettings) -> (String, Option<String>) {
-    if settings.llm_provider == "ollama" {
-        (format!("{}/v1", settings.ollama_base_url.trim_end_matches('/')), None)
-    } else {
-        let key = keychain::KeyEntry::open_router_api_key().load();
-        ("https://openrouter.ai/api/v1".into(), key)
+    match settings.llm_provider.as_str() {
+        "ollama" => (
+            format!("{}/v1", settings.ollama_base_url.trim_end_matches('/')),
+            None,
+        ),
+        "openai" => (
+            normalize_openai_base_url(&settings.open_ai_llm_base_url),
+            keychain::KeyEntry::open_ai_llm_api_key().load(),
+        ),
+        _ => {
+            let key = keychain::KeyEntry::open_router_api_key().load();
+            ("https://openrouter.ai/api/v1".into(), key)
+        }
     }
 }
 
@@ -83,12 +100,25 @@ fn embed_config(settings: &AppSettings) -> (String, Option<String>, String) {
         ),
         "openai" => {
             let key = keychain::KeyEntry::open_ai_embed_api_key().load();
-            (settings.open_ai_embed_base_url.clone(), key, settings.open_ai_embed_model.clone())
+            (
+                normalize_openai_base_url(&settings.open_ai_embed_base_url),
+                key,
+                settings.open_ai_embed_model.clone(),
+            )
         }
         _ => {
             let key = keychain::KeyEntry::voyage_api_key().load();
             ("https://api.voyageai.com/v1".into(), key, "voyage-3-lite".into())
         }
+    }
+}
+
+fn normalize_openai_base_url(base_url: &str) -> String {
+    let trimmed = base_url.trim_end_matches('/');
+    if trimmed.ends_with("/v1") {
+        trimmed.into()
+    } else {
+        format!("{trimmed}/v1")
     }
 }
 
@@ -108,6 +138,33 @@ pub fn get_model_path(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub fn get_settings(state: tauri::State<'_, Arc<AppState>>) -> AppSettings {
     state.settings.lock().unwrap().clone()
+}
+
+#[tauri::command]
+pub fn get_api_keys() -> ApiKeysPayload {
+    ApiKeysPayload {
+        open_router_api_key: keychain::KeyEntry::open_router_api_key().load().unwrap_or_default(),
+        voyage_api_key: keychain::KeyEntry::voyage_api_key().load().unwrap_or_default(),
+        open_ai_llm_api_key: keychain::KeyEntry::open_ai_llm_api_key().load().unwrap_or_default(),
+        open_ai_embed_api_key: keychain::KeyEntry::open_ai_embed_api_key().load().unwrap_or_default(),
+    }
+}
+
+#[tauri::command]
+pub fn save_api_keys(new_keys: ApiKeysPayload) -> Result<(), String> {
+    keychain::KeyEntry::open_router_api_key()
+        .save(&new_keys.open_router_api_key)
+        .map_err(|e| e.to_string())?;
+    keychain::KeyEntry::voyage_api_key()
+        .save(&new_keys.voyage_api_key)
+        .map_err(|e| e.to_string())?;
+    keychain::KeyEntry::open_ai_llm_api_key()
+        .save(&new_keys.open_ai_llm_api_key)
+        .map_err(|e| e.to_string())?;
+    keychain::KeyEntry::open_ai_embed_api_key()
+        .save(&new_keys.open_ai_embed_api_key)
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
