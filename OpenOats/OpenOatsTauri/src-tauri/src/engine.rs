@@ -943,6 +943,18 @@ pub fn set_overlay_position(app: AppHandle, x: i32, y: i32) -> Result<(), String
 }
 
 #[tauri::command]
+pub fn set_overlay_size(app: AppHandle, width: u32, height: u32) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("overlay") {
+        w.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: width as f64,
+            height: height as f64,
+        }))
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn set_content_protection(app: AppHandle, enabled: bool) -> Result<(), String> {
     for label in ["main", "overlay"] {
         if let Some(w) = app.get_webview_window(label) {

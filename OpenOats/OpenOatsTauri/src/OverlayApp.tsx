@@ -2,7 +2,6 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { LogicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useOverlayKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { colors } from "./theme";
@@ -42,19 +41,10 @@ export function OverlayApp() {
     startWindowX: number;
     startWindowY: number;
   } | null>(null);
-  const resizeStateRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    startWidth: number;
-    startHeight: number;
-  } | null>(null);
   const dragHandleRef = useRef<HTMLDivElement | null>(null);
-  const resizeHandleRef = useRef<HTMLDivElement | null>(null);
   const pendingPositionRef = useRef<{ x: number; y: number } | null>(null);
   const frameRef = useRef<number | null>(null);
   const measureCardRef = useRef<HTMLDivElement | null>(null);
-  const manualSizeRef = useRef(DEFAULT_SIZE);
 
   const dismiss = () => {
     setSuggestion(null);
@@ -123,9 +113,10 @@ export function OverlayApp() {
       return;
     }
 
-    getCurrentWindow()
-      .setSize(new LogicalSize(Math.round(size.width), Math.round(size.height)))
-      .catch(() => {});
+    invoke("set_overlay_size", {
+      width: Math.round(size.width),
+      height: Math.round(size.height),
+    }).catch(() => {});
   }, [size, suggestion]);
 
   useLayoutEffect(() => {
@@ -138,8 +129,8 @@ export function OverlayApp() {
     const measuredHeight = Math.ceil(measureCardRef.current.scrollHeight);
 
     const nextSize = {
-      width: clamp(Math.max(manualSizeRef.current.width, measuredWidth), MIN_SIZE.width, maxWidth),
-      height: clamp(Math.max(manualSizeRef.current.height, measuredHeight), MIN_SIZE.height, maxHeight),
+      width: clamp(measuredWidth, MIN_SIZE.width, maxWidth),
+      height: clamp(measuredHeight, MIN_SIZE.height, maxHeight),
     };
 
     setSize((current) =>
@@ -172,18 +163,6 @@ export function OverlayApp() {
       dragHandleRef.current.hasPointerCapture(pointerId)
     ) {
       dragHandleRef.current.releasePointerCapture(pointerId);
-    }
-  };
-
-  const stopResizing = (pointerId?: number) => {
-    resizeStateRef.current = null;
-
-    if (
-      resizeHandleRef.current &&
-      pointerId !== undefined &&
-      resizeHandleRef.current.hasPointerCapture(pointerId)
-    ) {
-      resizeHandleRef.current.releasePointerCapture(pointerId);
     }
   };
 
@@ -263,55 +242,6 @@ export function OverlayApp() {
     }
   };
 
-  const startResize = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-
-    const pointerId = e.pointerId;
-    resizeHandleRef.current = e.currentTarget;
-    e.currentTarget.setPointerCapture(pointerId);
-
-    resizeStateRef.current = {
-      pointerId,
-      startX: e.screenX,
-      startY: e.screenY,
-      startWidth: size.width,
-      startHeight: size.height,
-    };
-  };
-
-  const resize = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if ((e.buttons & 1) === 0) {
-      stopResizing(e.pointerId);
-      return;
-    }
-
-    const resizeState = resizeStateRef.current;
-    if (!resizeState || resizeState.pointerId !== e.pointerId) {
-      return;
-    }
-
-    const { maxWidth, maxHeight } = getOverlayBounds();
-    const newWidth = clamp(
-      resizeState.startWidth + (e.screenX - resizeState.startX),
-      MIN_SIZE.width,
-      maxWidth,
-    );
-    const newHeight = clamp(
-      resizeState.startHeight + (e.screenY - resizeState.startY),
-      MIN_SIZE.height,
-      maxHeight,
-    );
-
-    manualSizeRef.current = { width: newWidth, height: newHeight };
-    setSize({ width: newWidth, height: newHeight });
-  };
-
-  const endResize = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (resizeStateRef.current?.pointerId === e.pointerId) {
-      stopResizing(e.pointerId);
-    }
-  };
-
   return (
     <div style={containerStyle}>
       <div style={{ ...cardStyle, width: size.width, height: size.height }}>
@@ -342,20 +272,6 @@ export function OverlayApp() {
           >
             ×
           </button>
-        </div>
-
-        <div
-          ref={resizeHandleRef}
-          onPointerDown={startResize}
-          onPointerMove={resize}
-          onPointerUp={endResize}
-          onPointerCancel={endResize}
-          style={resizeHandleStyle}
-          title="Resize"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <path d="M1 9L9 1M5 9L9 5M9 9L9 9" stroke={`${colors.text}40`} strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
         </div>
       </div>
       <div style={measurementWrapperStyle}>
@@ -396,7 +312,7 @@ const containerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "flex-start",
   justifyContent: "center",
-  padding: "20px 24px",
+  padding: 0,
   boxSizing: "border-box",
   overflow: "hidden",
   background: "transparent",
@@ -406,7 +322,7 @@ const cardStyle: React.CSSProperties = {
   background: colors.overlay.background,
   border: `1px solid ${colors.overlay.border}`,
   borderRadius: 18,
-  padding: "12px 16px 14px",
+  padding: "18px",
   minWidth: 300,
   overflow: "hidden",
   boxShadow: colors.overlay.shadow,
@@ -423,8 +339,8 @@ const headerStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 8,
-  marginBottom: 12,
-  paddingBottom: 10,
+  marginBottom: 14,
+  paddingBottom: 12,
   borderBottom: `1px solid ${colors.overlay.border}`,
   cursor: "grab",
 };
@@ -451,7 +367,8 @@ const bodyStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "flex-start",
-  gap: 8,
+  gap: 12,
+  paddingBottom: 14,
 };
 
 const contentStyle: React.CSSProperties = {
@@ -462,6 +379,7 @@ const contentStyle: React.CSSProperties = {
   minWidth: 0,
   minHeight: 0,
   paddingRight: 4,
+  paddingBottom: 4,
   overflowY: "auto",
   cursor: "text",
 };
@@ -487,18 +405,6 @@ const closeBtn: React.CSSProperties = {
   padding: "0 4px",
   flexShrink: 0,
   transition: "color 0.2s",
-};
-
-const resizeHandleStyle: React.CSSProperties = {
-  position: "absolute",
-  right: 4,
-  bottom: 4,
-  width: 16,
-  height: 16,
-  cursor: "nwse-resize",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
 };
 
 const measurementWrapperStyle: React.CSSProperties = {

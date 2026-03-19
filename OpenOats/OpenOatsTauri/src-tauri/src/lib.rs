@@ -32,6 +32,7 @@ pub fn run() {
             engine::show_overlay,
             engine::hide_overlay,
             engine::set_overlay_position,
+            engine::set_overlay_size,
             engine::set_content_protection,
             engine::choose_folder,
             engine::list_templates,
