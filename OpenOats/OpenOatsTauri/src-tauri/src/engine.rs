@@ -634,11 +634,10 @@ pub fn start_transcription(
                         text: suggestion.text.clone(),
                         kb_hits: suggestion.kb_hits.clone(),
                     };
+                    suggestion_app.emit("suggestion", &payload).ok();
                     if let Some(overlay) = suggestion_app.get_webview_window("overlay") {
-                        let _ = overlay.emit("suggestion", &payload);
                         let _ = overlay.show();
                     }
-                    suggestion_app.emit("suggestion", &payload).ok();
                 }
 
                 suggestion_app
