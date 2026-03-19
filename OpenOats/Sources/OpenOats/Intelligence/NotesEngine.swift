@@ -56,6 +56,10 @@ final class NotesEngine {
             }
             baseURL = ollamaURL
             model = settings.ollamaLLMModel
+        case .minimax:
+            apiKey = settings.minimaxApiKey.isEmpty ? nil : settings.minimaxApiKey
+            baseURL = URL(string: "https://api.minimax.io/v1/chat/completions")
+            model = settings.minimaxModel
         }
 
         let transcriptText = formatTranscript(transcript)

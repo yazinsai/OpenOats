@@ -19,7 +19,7 @@ OpenOats sits next to your call, transcribes both sides of the conversation in r
 - **Invisible to the other side** — the app window is hidden from screen sharing by default, so no one knows you're using it
 - **Fully offline transcription** — speech recognition runs entirely on your Mac; no audio ever leaves the device
 - **Runs 100% locally** — pair with [Ollama](https://ollama.com/) for LLM suggestions and local embeddings, and nothing touches the network at all
-- **Pick any LLM** — use [OpenRouter](https://openrouter.ai/) for cloud models (GPT-4o, Claude, Gemini) or Ollama for local ones (Llama, Qwen, Mistral)
+- **Pick any LLM** — use [OpenRouter](https://openrouter.ai/) for cloud models (GPT-4o, Claude, Gemini), [MiniMax](https://platform.minimax.io/) for MiniMax-M2.7, or Ollama for local ones (Llama, Qwen, Mistral)
 - **Live transcript** — see both sides of the conversation as it happens, copy the whole thing with one click
 - **Auto-saved sessions** — every conversation is automatically saved as a plain-text transcript and a structured session log, no manual export needed
 - **Knowledge base search** — point it at a folder of notes and it pulls in what's relevant using [Voyage AI](https://www.voyageai.com/) embeddings, local Ollama embeddings, or any OpenAI-compatible endpoint (llama.cpp, llamaswap, LiteLLM, vLLM, etc.)
@@ -73,7 +73,7 @@ Or build from source:
 1. Open the DMG and drag OpenOats to Applications
 2. Launch the app and grant microphone + system audio recording permissions
 3. Open Settings (`Cmd+,`) and pick your providers:
-   - **Cloud**: add your OpenRouter and Voyage AI API keys
+   - **Cloud**: add your OpenRouter and Voyage AI API keys, or select MiniMax and add your [MiniMax API key](https://platform.minimax.io/)
    - **Local**: select Ollama as your LLM and embedding provider (make sure Ollama is running)
    - **OpenAI-compatible**: select "OpenAI Compatible" as your embedding provider and point it at any `/v1/embeddings` endpoint
 4. Point it at a folder of `.md` or `.txt` files — that's your knowledge base
@@ -85,7 +85,7 @@ The first run downloads the local speech model (~600 MB).
 
 - Apple Silicon Mac, macOS 15+
 - Xcode 26 / Swift 6.2
-- **For cloud mode**: [OpenRouter](https://openrouter.ai/) API key + [Voyage AI](https://www.voyageai.com/) API key
+- **For cloud mode**: [OpenRouter](https://openrouter.ai/) API key + [Voyage AI](https://www.voyageai.com/) API key, or [MiniMax](https://platform.minimax.io/) API key
 - **For local mode**: [Ollama](https://ollama.com/) running locally with your preferred models (e.g. `qwen3:8b` for suggestions, `nomic-embed-text` for embeddings)
 - **For OpenAI-compatible embeddings**: any server implementing `/v1/embeddings` (llama.cpp, llamaswap, LiteLLM, vLLM, etc.)
 
@@ -99,7 +99,7 @@ Works well with meeting prep docs, research notes, pitch decks, competitive anal
 
 - Speech is transcribed locally — audio never leaves your Mac
 - **With Ollama**: everything stays on your machine. Zero network calls.
-- **With cloud providers**: KB chunks are sent to Voyage AI (or your chosen OpenAI-compatible endpoint) for embedding (text only, no audio), and conversation context is sent to OpenRouter for suggestions
+- **With cloud providers**: KB chunks are sent to Voyage AI (or your chosen OpenAI-compatible endpoint) for embedding (text only, no audio), and conversation context is sent to your chosen LLM provider (OpenRouter or MiniMax) for suggestions
 - API keys are stored in your Mac's Keychain
 - The app window is hidden from screen sharing by default
 - Transcripts are saved locally to `~/Documents/OpenOats/`

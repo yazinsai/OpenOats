@@ -75,18 +75,28 @@ struct SettingsView: View {
                 }
                 .font(.system(size: 12))
 
-                if settings.llmProvider == .openRouter {
+                switch settings.llmProvider {
+                case .openRouter:
                     SecureField("API Key", text: $settings.openRouterApiKey)
                         .font(.system(size: 12, design: .monospaced))
 
                     TextField("Model", text: $settings.selectedModel, prompt: Text("e.g. google/gemini-3-flash-preview"))
                         .font(.system(size: 12, design: .monospaced))
-                } else {
+                case .ollama:
                     TextField("Ollama URL", text: $settings.ollamaBaseURL, prompt: Text("http://localhost:11434"))
                         .font(.system(size: 12, design: .monospaced))
 
                     TextField("Model", text: $settings.ollamaLLMModel, prompt: Text("e.g. qwen3:8b"))
                         .font(.system(size: 12, design: .monospaced))
+                case .minimax:
+                    SecureField("API Key", text: $settings.minimaxApiKey)
+                        .font(.system(size: 12, design: .monospaced))
+
+                    Picker("Model", selection: $settings.minimaxModel) {
+                        Text("MiniMax-M2.7").tag("MiniMax-M2.7")
+                        Text("MiniMax-M2.7-highspeed").tag("MiniMax-M2.7-highspeed")
+                    }
+                    .font(.system(size: 12))
                 }
             }
 

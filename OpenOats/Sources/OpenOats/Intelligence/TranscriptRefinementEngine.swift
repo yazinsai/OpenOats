@@ -99,6 +99,8 @@ actor TranscriptRefinementEngine {
         let openRouterKey = await MainActor.run { settings.openRouterApiKey }
         let ollamaURL = await MainActor.run { settings.ollamaBaseURL }
         let ollamaModel = await MainActor.run { settings.ollamaLLMModel }
+        let minimaxKey = await MainActor.run { settings.minimaxApiKey }
+        let minimaxModelName = await MainActor.run { settings.minimaxModel }
 
         switch provider {
         case .openRouter:
@@ -114,6 +116,10 @@ actor TranscriptRefinementEngine {
             }
             baseURL = url
             model = ollamaModel
+        case .minimax:
+            apiKey = minimaxKey.isEmpty ? nil : minimaxKey
+            baseURL = URL(string: "https://api.minimax.io/v1/chat/completions")
+            model = minimaxModelName
         }
 
         let messages: [OpenRouterClient.Message] = [

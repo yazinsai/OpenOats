@@ -7,6 +7,7 @@ import CoreAudio
 enum LLMProvider: String, CaseIterable, Identifiable {
     case openRouter
     case ollama
+    case minimax
 
     var id: String { rawValue }
 
@@ -14,6 +15,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
         switch self {
         case .openRouter: "OpenRouter"
         case .ollama: "Ollama"
+        case .minimax: "MiniMax"
         }
     }
 }
@@ -301,6 +303,28 @@ final class AppSettings {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _minimaxApiKey: String
+    var minimaxApiKey: String {
+        get { access(keyPath: \.minimaxApiKey); return _minimaxApiKey }
+        set {
+            withMutation(keyPath: \.minimaxApiKey) {
+                _minimaxApiKey = newValue
+                KeychainHelper.save(key: "minimaxApiKey", value: newValue)
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _minimaxModel: String
+    var minimaxModel: String {
+        get { access(keyPath: \.minimaxModel); return _minimaxModel }
+        set {
+            withMutation(keyPath: \.minimaxModel) {
+                _minimaxModel = newValue
+                UserDefaults.standard.set(newValue, forKey: "minimaxModel")
+            }
+        }
+    }
+
     /// Whether the user has acknowledged their obligation to comply with recording consent laws.
     @ObservationIgnored nonisolated(unsafe) private var _hasAcknowledgedRecordingConsent: Bool
     var hasAcknowledgedRecordingConsent: Bool {
@@ -392,6 +416,8 @@ final class AppSettings {
         self._openAIEmbedBaseURL = defaults.string(forKey: "openAIEmbedBaseURL") ?? "http://localhost:8080"
         self._openAIEmbedApiKey = KeychainHelper.load(key: "openAIEmbedApiKey") ?? ""
         self._openAIEmbedModel = defaults.string(forKey: "openAIEmbedModel") ?? "text-embedding-3-small"
+        self._minimaxApiKey = KeychainHelper.load(key: "minimaxApiKey") ?? ""
+        self._minimaxModel = defaults.string(forKey: "minimaxModel") ?? "MiniMax-M2.7"
         self._hasAcknowledgedRecordingConsent = defaults.bool(forKey: "hasAcknowledgedRecordingConsent")
         self._saveAudioRecording = defaults.bool(forKey: "saveAudioRecording")
         self._enableTranscriptRefinement = defaults.bool(forKey: "enableTranscriptRefinement")
@@ -621,6 +647,7 @@ final class AppSettings {
         switch llmProvider {
         case .openRouter: raw = selectedModel
         case .ollama: raw = ollamaLLMModel
+        case .minimax: raw = minimaxModel
         }
         return raw.split(separator: "/").last.map(String.init) ?? raw
     }

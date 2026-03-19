@@ -60,6 +60,7 @@ final class SuggestionEngine {
         switch settings.llmProvider {
         case .openRouter: settings.openRouterApiKey
         case .ollama: nil
+        case .minimax: settings.minimaxApiKey
         }
     }
 
@@ -75,6 +76,8 @@ final class SuggestionEngine {
                 return nil
             }
             return url
+        case .minimax:
+            return URL(string: "https://api.minimax.io/v1/chat/completions")
         }
     }
 
@@ -83,6 +86,7 @@ final class SuggestionEngine {
         switch settings.llmProvider {
         case .openRouter: settings.selectedModel
         case .ollama: settings.ollamaLLMModel
+        case .minimax: settings.minimaxModel
         }
     }
 
@@ -100,6 +104,8 @@ final class SuggestionEngine {
             guard !settings.openRouterApiKey.isEmpty else { return }
         case .ollama:
             guard llmBaseURL != nil else { return }
+        case .minimax:
+            guard !settings.minimaxApiKey.isEmpty else { return }
         }
 
         currentTask = Task {
