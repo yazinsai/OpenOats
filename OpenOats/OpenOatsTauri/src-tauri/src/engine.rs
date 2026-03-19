@@ -422,6 +422,12 @@ pub fn update_kb_folder(
 }
 
 #[tauri::command]
+pub fn suggestion_feedback(suggestion_id: String, helpful: bool) {
+    log::info!("suggestion_feedback: id={} helpful={}", suggestion_id, helpful);
+    // TODO: persist feedback to session sidecar for fine-tuning / analytics
+}
+
+#[tauri::command]
 pub fn show_overlay(app: AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window("overlay") {
         w.show().map_err(|e| e.to_string())?;

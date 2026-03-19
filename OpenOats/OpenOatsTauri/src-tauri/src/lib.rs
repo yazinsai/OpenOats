@@ -24,6 +24,7 @@ pub fn run() {
             engine::generate_notes,
             engine::index_kb,
             engine::update_kb_folder,
+            engine::suggestion_feedback,
             engine::show_overlay,
             engine::hide_overlay,
             engine::set_content_protection,
