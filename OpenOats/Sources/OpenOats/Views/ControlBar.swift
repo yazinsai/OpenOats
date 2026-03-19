@@ -11,8 +11,6 @@ struct ControlBar: View {
     let onToggle: () -> Void
     let onConfirmDownload: () -> Void
 
-    @State private var isHoveringToggle = false
-
     var body: some View {
         VStack(spacing: 0) {
             // Error banner
@@ -83,13 +81,13 @@ struct ControlBar: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
-                    .background(isRunning
-                        ? Color.green.opacity(isHoveringToggle ? 0.18 : 0.1)
-                        : Color.accentColor.opacity(isHoveringToggle ? 0.85 : 1.0))
+                    // Avoid hover-driven local state here. On macOS 26 / Swift 6.2,
+                    // switching this button from Start to Live while the pointer is
+                    // over it can trip a SwiftUI executor crash in onHover handling.
+                    .background(isRunning ? Color.green.opacity(0.1) : Color.accentColor)
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .onHover { hovering in isHoveringToggle = hovering }
 
                 // Audio level bars when running
                 if isRunning {
