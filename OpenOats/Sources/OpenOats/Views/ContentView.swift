@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var transcriptionEngine: TranscriptionEngine?
     @State private var suggestionEngine: SuggestionEngine?
     @State private var transcriptLogger: TranscriptLogger?
+    @State private var audioRecorder: AudioRecorder?
     @State private var overlayManager = OverlayManager()
     @AppStorage("isTranscriptExpanded") private var isTranscriptExpanded = true
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
@@ -152,6 +153,9 @@ struct ContentView: View {
                 transcriptLogger = TranscriptLogger(
                     directory: URL(fileURLWithPath: settings.notesFolderPath)
                 )
+                audioRecorder = AudioRecorder(
+                    outputDirectory: URL(fileURLWithPath: settings.notesFolderPath)
+                )
             }
             indexKBIfNeeded()
         }
@@ -163,11 +167,11 @@ struct ContentView: View {
             }
         }
         .onChange(of: settings.notesFolderPath) {
+            let url = URL(fileURLWithPath: settings.notesFolderPath)
             Task {
-                await transcriptLogger?.updateDirectory(
-                    URL(fileURLWithPath: settings.notesFolderPath)
-                )
+                await transcriptLogger?.updateDirectory(url)
             }
+            audioRecorder?.updateDirectory(url)
         }
         .onChange(of: settings.voyageApiKey) {
             indexKBIfNeeded()
@@ -342,6 +346,12 @@ struct ContentView: View {
             suggestionEngine?.clear()
             await coordinator.startSession(transcriptStore: transcriptStore)
             await transcriptLogger?.startSession()
+            if settings.saveAudioRecording {
+                audioRecorder?.startSession()
+                transcriptionEngine?.audioRecorder = audioRecorder
+            } else {
+                transcriptionEngine?.audioRecorder = nil
+            }
             await transcriptionEngine?.start(
                 locale: settings.locale,
                 inputDeviceID: settings.inputDeviceID,
@@ -355,7 +365,8 @@ struct ContentView: View {
             await coordinator.finalizeSession(
                 transcriptStore: transcriptStore,
                 transcriptionEngine: transcriptionEngine,
-                transcriptLogger: transcriptLogger
+                transcriptLogger: transcriptLogger,
+                audioRecorder: settings.saveAudioRecording ? audioRecorder : nil
             )
         }
     }

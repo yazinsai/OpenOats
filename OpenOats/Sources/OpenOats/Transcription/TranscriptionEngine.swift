@@ -51,6 +51,9 @@ final class TranscriptionEngine {
     private var vadManager: VadManager?
     private var currentTranscriptionModel: TranscriptionModel?
 
+    /// Audio recorder for tapping streams (set by ContentView when recording is enabled).
+    var audioRecorder: AudioRecorder?
+
     /// Tracks the resolved mic device ID currently in use.
     private var currentMicDeviceID: AudioDeviceID = 0
 
@@ -193,7 +196,13 @@ final class TranscriptionEngine {
         let store = transcriptStore
 
         // 4. Start system audio transcription
-        if let sysStream = sysStreams?.systemAudio {
+        if var sysStream = sysStreams?.systemAudio {
+            if let recorder = audioRecorder {
+                sysStream = Self.tappedStream(sysStream) { buffer in
+                    recorder.writeSysBuffer(buffer)
+                }
+            }
+            let sysStream = sysStream  // rebind as let for capture
             let sysTranscriber = makeTranscriber(
                 locale: locale,
                 speaker: .them,
@@ -407,7 +416,12 @@ final class TranscriptionEngine {
         vadManager: VadManager,
         deviceID: AudioDeviceID
     ) {
-        let micStream = micCapture.bufferStream(deviceID: deviceID)
+        var micStream = micCapture.bufferStream(deviceID: deviceID)
+        if let recorder = audioRecorder {
+            micStream = Self.tappedStream(micStream) { buffer in
+                recorder.writeMicBuffer(buffer)
+            }
+        }
         let store = transcriptStore
         let micTranscriber = makeTranscriber(
             locale: locale,
@@ -496,6 +510,27 @@ final class TranscriptionEngine {
         case .qwen3ASR06B:
             return !Qwen3AsrModels.modelsExist(at: Qwen3AsrModels.defaultCacheDirectory())
         }
+    }
+
+    /// Wrap an audio stream to forward each buffer to a synchronous tap before yielding it downstream.
+    /// Safety: the tap copies buffer data to a file (no retained references), and yield transfers
+    /// ownership to the downstream consumer. No concurrent access occurs.
+    private nonisolated static func tappedStream(
+        _ stream: AsyncStream<AVAudioPCMBuffer>,
+        tap: @escaping @Sendable (AVAudioPCMBuffer) -> Void
+    ) -> AsyncStream<AVAudioPCMBuffer> {
+        struct Box: @unchecked Sendable { let stream: AsyncStream<AVAudioPCMBuffer> }
+        let box = Box(stream: stream)
+        let (output, continuation) = AsyncStream<AVAudioPCMBuffer>.makeStream()
+        Task {
+            for await buffer in box.stream {
+                tap(buffer)
+                nonisolated(unsafe) let b = buffer
+                continuation.yield(b)
+            }
+            continuation.finish()
+        }
+        return output
     }
 
     private func localeMismatchMessage(

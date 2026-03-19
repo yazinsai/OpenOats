@@ -42,7 +42,8 @@ final class AppCoordinator {
     func finalizeSession(
         transcriptStore: TranscriptStore,
         transcriptionEngine: TranscriptionEngine?,
-        transcriptLogger: TranscriptLogger?
+        transcriptLogger: TranscriptLogger?,
+        audioRecorder: AudioRecorder? = nil
     ) async {
         // 1. Drain audio buffers (flush final speech)
         await transcriptionEngine?.finalize()
@@ -75,6 +76,9 @@ final class AppCoordinator {
 
         // 6. Close plain-text archive (after drain so final utterances are captured)
         await transcriptLogger?.endSession()
+
+        // 6b. Merge and encode audio recording (after all audio drained)
+        await audioRecorder?.finalizeRecording()
 
         // 7. Update UI state + refresh history so Notes window sees the new session
         lastEndedSession = index

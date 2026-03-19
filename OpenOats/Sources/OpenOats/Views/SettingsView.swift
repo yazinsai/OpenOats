@@ -130,6 +130,14 @@ struct SettingsView: View {
                 .font(.system(size: 12))
             }
 
+            Section("Recording") {
+                Toggle("Save audio recording", isOn: $settings.saveAudioRecording)
+                    .font(.system(size: 12))
+                Text("Save a local audio file (.m4a) alongside each transcript. Audio never leaves your device.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Transcription") {
                 Picker("Model", selection: $settings.transcriptionModel) {
                     ForEach(TranscriptionModel.allCases) { model in
