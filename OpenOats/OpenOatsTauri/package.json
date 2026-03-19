@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "node ./scripts/vite-dev.mjs",
+    "build": "tsc -b ./tsconfig.app.json && node ./scripts/vite-build.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "node ./scripts/run-tauri.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",

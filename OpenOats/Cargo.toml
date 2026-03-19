@@ -4,3 +4,6 @@ members = [
     "OpenOatsTauri/src-tauri",
 ]
 resolver = "2"
+
+[patch.crates-io]
+whisper-rs = { path = ".build/whisper-rs" }
