@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::Mutex as AsyncMutex;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_dialog::DialogExt;
 
 // ── Payloads ────────────────────────────────────────────────────────────────
 
@@ -455,13 +456,16 @@ pub fn set_content_protection(app: AppHandle, enabled: bool) -> Result<(), Strin
 
 #[tauri::command]
 pub async fn choose_folder(app: AppHandle) -> Option<String> {
-    use tauri_plugin_dialog::DialogExt;
-    use std::sync::mpsc;
-    let (tx, rx) = mpsc::channel::<Option<String>>();
-    app.dialog().file().pick_folder(move |folder| {
-        tx.send(folder.map(|f| f.to_string())).ok();
-    });
-    rx.recv().ok().flatten()
+    tokio::task::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .blocking_pick_folder()
+            .and_then(|f| f.into_path().ok())
+            .map(|p| p.to_string_lossy().into_owned())
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 #[cfg(test)]
