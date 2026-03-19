@@ -20,8 +20,12 @@ If you are using a packaged build, install the latest Windows release. If you ar
 git clone https://github.com/romeroej2/OpenOats.git
 cd OpenOats\OpenOatsTauri
 npm install
-cargo tauri build
+npm run tauri -- build
 ```
+
+This repo builds through the local Tauri CLI in `OpenOatsTauri\node_modules`, so `cargo tauri build` is not required unless you separately installed the global `cargo-tauri` subcommand.
+
+On Windows PowerShell, prefer `npm.cmd install` and either `npm.cmd run tauri -- build` or `cmd.exe /d /s /c .\node_modules\.bin\tauri.cmd build` if your `npm` or `npx` shim is misconfigured.
 
 After the app starts for the first time, grant microphone permissions when prompted.
 

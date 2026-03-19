@@ -73,10 +73,12 @@ cd OpenOats
 # Build the Tauri app
 cd OpenOatsTauri
 npm install
-cargo tauri build
+npm run tauri -- build
 ```
 
-On Windows PowerShell, prefer `npm.cmd ci` and `npx.cmd tauri build` if your global `npm` PowerShell shim is misconfigured.
+This project uses the local Tauri CLI from `OpenOatsTauri/node_modules`, so `cargo tauri build` is not required and will fail unless you separately install the `cargo-tauri` subcommand globally.
+
+On Windows PowerShell, prefer `npm.cmd ci` and either `npm.cmd run tauri -- build` or `cmd.exe /d /s /c .\node_modules\.bin\tauri.cmd build` if your global `npm` or `npx` shim is misconfigured.
 
 The installers are output to `OpenOatsTauri/src-tauri/target/release/bundle/`.
 
