@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState } from "react"; // used by BulletRow
+import { invoke } from "@tauri-apps/api/core";
+import { emitTo } from "@tauri-apps/api/event";
 import type { Suggestion } from "../types";
 
 const colors = {
@@ -37,8 +39,8 @@ interface Props {
   kbFileCount?: number;
   lastCheckedAt?: string | null;
   lastCheckSurfaced?: boolean | null;
-  onFeedback?: (id: string, helpful: boolean) => void;
-  onCopy?: (text: string) => void;
+  onDismiss?: (id: string) => void;
+  onInjectTest?: (suggestion: { id: string; kind: string; text: string; kbHits: any[] }) => void;
 }
 
 interface ParsedBullet {
@@ -305,12 +307,10 @@ function BulletRow({ bullet }: { bullet: ParsedBullet }) {
 function SuggestionCard({
   suggestion,
   isPrimary,
-  onCopy,
   onDismiss,
 }: {
   suggestion: Suggestion;
   isPrimary: boolean;
-  onCopy: (text: string) => void;
   onDismiss: () => void;
 }) {
   const bullets = parseBullets(suggestion.text);
@@ -395,28 +395,7 @@ function SuggestionCard({
         </div>
       )}
 
-      <div
-        style={{
-          display: "flex",
-          gap: spacing[2],
-          marginTop: spacing[3],
-        }}
-      >
-        <button
-          onClick={() => onCopy(suggestion.text)}
-          style={{
-            padding: `${spacing[1]}px ${spacing[2]}px`,
-            background: isSmartQuestion ? colors.them : colors.accent,
-            color: "#fff",
-            border: "none",
-            borderRadius: 4,
-            fontSize: typography.sm,
-            cursor: "pointer",
-            fontWeight: 500,
-          }}
-        >
-          {isSmartQuestion ? "Ask this" : "Use this"}
-        </button>
+      <div style={{ display: "flex", gap: spacing[2], marginTop: spacing[3] }}>
         <button
           onClick={onDismiss}
           style={{
@@ -443,23 +422,23 @@ export function SuggestionsView({
   kbFileCount = 0,
   lastCheckedAt = null,
   lastCheckSurfaced = null,
-  onFeedback,
-  onCopy,
+  onDismiss,
+  onInjectTest,
 }: Props) {
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const visibleSuggestions = suggestions.filter((s) => !dismissed.has(s.id));
 
-  const handleDismiss = (id: string) => {
-    setDismissed((prev) => new Set([...prev, id]));
-    onFeedback?.(id, false);
+  const handleInjectTest = async () => {
+    const fake = {
+      id: crypto.randomUUID(),
+      kind: "smart_question",
+      text: "• Have you considered what their timeline looks like?\n> Understanding urgency helps prioritize the conversation.",
+      kbHits: [],
+    };
+    onInjectTest?.(fake);
+    await invoke("show_overlay").catch(() => {});
+    await emitTo("overlay", "overlay-test-suggestion", { id: fake.id, text: fake.text }).catch(() => {});
   };
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    onCopy?.(text);
-  };
-
-  if (visibleSuggestions.length === 0 && !isGenerating) {
+  if (suggestions.length === 0 && !isGenerating) {
     return (
       <div
         style={{
@@ -468,6 +447,22 @@ export function SuggestionsView({
           background: colors.background,
         }}
       >
+        <div style={{ padding: spacing[3] }}>
+          <button
+            onClick={handleInjectTest}
+            style={{
+              padding: `${spacing[1]}px ${spacing[2]}px`,
+              background: "transparent",
+              color: colors.textMuted,
+              border: `1px dashed ${colors.border}`,
+              borderRadius: 4,
+              fontSize: typography.xs,
+              cursor: "pointer",
+            }}
+          >
+            ⚡ Test overlay
+          </button>
+        </div>
         <EmptyState
           kbConnected={kbConnected}
           kbFileCount={kbFileCount}
@@ -487,6 +482,22 @@ export function SuggestionsView({
         background: colors.background,
       }}
     >
+      <button
+        onClick={handleInjectTest}
+        style={{
+          marginBottom: spacing[3],
+          padding: `${spacing[1]}px ${spacing[2]}px`,
+          background: "transparent",
+          color: colors.textMuted,
+          border: `1px dashed ${colors.border}`,
+          borderRadius: 4,
+          fontSize: typography.xs,
+          cursor: "pointer",
+        }}
+      >
+        ⚡ Test overlay
+      </button>
+
       {isGenerating && (
         <div
           style={{
@@ -540,7 +551,7 @@ export function SuggestionsView({
         </div>
       )}
 
-      {visibleSuggestions.length > 0 && (
+      {suggestions.length > 0 && (
         <div style={{ marginBottom: spacing[2] }}>
           <div
             style={{
@@ -552,15 +563,14 @@ export function SuggestionsView({
               fontWeight: 600,
             }}
           >
-            Suggestions · {visibleSuggestions.length}
+            Suggestions · {suggestions.length}
           </div>
-          {visibleSuggestions.map((suggestion, index) => (
+          {suggestions.map((suggestion, index) => (
             <SuggestionCard
               key={suggestion.id}
               suggestion={suggestion}
               isPrimary={index === 0}
-              onCopy={handleCopy}
-              onDismiss={() => handleDismiss(suggestion.id)}
+              onDismiss={() => onDismiss?.(suggestion.id)}
             />
           ))}
         </div>

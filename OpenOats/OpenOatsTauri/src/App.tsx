@@ -218,15 +218,10 @@ function App() {
     setVolatileThemText("");
   };
 
-  const handleSuggestionFeedback = useCallback((id: string, helpful: boolean) => {
-    // Send feedback to backend
-    invoke("suggestion_feedback", { sessionId: currentSessionId, suggestionId: id, helpful }).catch(console.error);
+  const handleDismissSuggestion = useCallback((id: string) => {
+    setSuggestions((prev) => prev.filter((s) => s.id !== id));
+    invoke("suggestion_feedback", { sessionId: currentSessionId, suggestionId: id, helpful: false }).catch(console.error);
   }, [currentSessionId]);
-
-  const handleSuggestionCopy = useCallback((text: string) => {
-    // Optional: track copy events or show toast
-    console.log("Copied suggestion:", text.substring(0, 50) + "...");
-  }, []);
 
   const activeWhisperModel = resolveWhisperModel(settings);
 
@@ -408,8 +403,8 @@ function App() {
             kbFileCount={0}
             lastCheckedAt={lastSuggestionCheckAt}
             lastCheckSurfaced={lastSuggestionCheckSurfaced}
-            onFeedback={handleSuggestionFeedback}
-            onCopy={handleSuggestionCopy}
+            onDismiss={handleDismissSuggestion}
+            onInjectTest={(s) => setSuggestions((prev) => [...prev, { ...s, timestamp: new Date().toISOString() }])}
           />
         )}
         {tab === "settings" && (
