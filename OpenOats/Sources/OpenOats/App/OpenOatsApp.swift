@@ -16,6 +16,10 @@ struct OpenOatsApp: App {
                 .onAppear {
                     settings.applyScreenShareVisibility()
                 }
+                .onOpenURL { url in
+                    guard let command = OpenOatsDeepLink.parse(url) else { return }
+                    coordinator.queueExternalCommand(command)
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)

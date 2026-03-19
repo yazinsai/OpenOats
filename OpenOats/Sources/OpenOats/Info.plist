@@ -16,6 +16,17 @@
     <string>OpenOats</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.opengranola.app</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>openoats</string>
+            </array>
+        </dict>
+    </array>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>

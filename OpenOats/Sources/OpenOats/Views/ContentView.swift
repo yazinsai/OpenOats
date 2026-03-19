@@ -18,6 +18,10 @@ struct ContentView: View {
     @State private var audioLevel: Float = 0
 
     var body: some View {
+        bodyWithModifiers
+    }
+
+    private var rootContent: some View {
         VStack(spacing: 0) {
             // Compact header
             topBar
@@ -107,9 +111,20 @@ struct ContentView: View {
                 onConfirmDownload: confirmDownloadAndStart
             )
         }
-        .frame(minWidth: 360, maxWidth: 600, minHeight: 400)
-        .background(.ultraThinMaterial)
-        .overlay {
+    }
+
+    private var bodyWithModifiers: some View {
+        contentWithEventHandlers
+    }
+
+    private var sizedRootContent: some View {
+        rootContent
+            .frame(minWidth: 360, maxWidth: 600, minHeight: 400)
+            .background(.ultraThinMaterial)
+    }
+
+    private var contentWithOverlay: some View {
+        sizedRootContent.overlay {
             if showOnboarding {
                 OnboardingView(isPresented: $showOnboarding)
                     .transition(.opacity)
@@ -122,6 +137,10 @@ struct ContentView: View {
                 .transition(.opacity)
             }
         }
+    }
+
+    private var contentWithEventHandlers: some View {
+        contentWithOverlay
         .onChange(of: showOnboarding) {
             if !showOnboarding {
                 hasCompletedOnboarding = true
@@ -154,6 +173,10 @@ struct ContentView: View {
                 )
             }
             indexKBIfNeeded()
+            handlePendingExternalCommandIfPossible()
+        }
+        .onChange(of: coordinator.pendingExternalCommand?.id) {
+            handlePendingExternalCommandIfPossible()
         }
         .onChange(of: settings.kbFolderPath) {
             if settings.kbFolderPath.isEmpty {
@@ -397,6 +420,29 @@ struct ContentView: View {
         }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+    }
+
+    private func handlePendingExternalCommandIfPossible() {
+        guard let request = coordinator.pendingExternalCommand else { return }
+
+        switch request.command {
+        case .startSession:
+            guard transcriptionEngine != nil, suggestionEngine != nil, transcriptLogger != nil else {
+                return
+            }
+            if !isRunning {
+                startSession()
+            }
+        case .stopSession:
+            if isRunning {
+                stopSession()
+            }
+        case .openNotes(let sessionID):
+            coordinator.queueSessionSelection(sessionID)
+            openWindow(id: "notes")
+        }
+
+        coordinator.completeExternalCommand(request.id)
     }
 
     private func handleNewUtterance() {

@@ -2,6 +2,22 @@ import Foundation
 import Observation
 import SwiftUI
 
+enum ExternalCommand: Equatable {
+    case startSession
+    case stopSession
+    case openNotes(sessionID: String?)
+}
+
+struct ExternalCommandRequest: Identifiable, Equatable {
+    let id: UUID
+    let command: ExternalCommand
+
+    init(command: ExternalCommand) {
+        self.id = UUID()
+        self.command = command
+    }
+}
+
 /// Shared state coordinator injected into all window scenes.
 /// Bridges the main window (transcription) and Notes window (history + generation).
 @Observable
@@ -13,6 +29,8 @@ final class AppCoordinator {
 
     var selectedTemplate: MeetingTemplate?
     var lastEndedSession: SessionIndex?
+    var pendingExternalCommand: ExternalCommandRequest?
+    var requestedSessionSelectionID: String?
     private(set) var sessionHistory: [SessionIndex] = []
 
     /// The template snapshot frozen at session start (not stop).
@@ -85,5 +103,23 @@ final class AppCoordinator {
     /// Load session history from sidecars (lightweight index only).
     func loadHistory() async {
         sessionHistory = await sessionStore.loadSessionIndex()
+    }
+
+    func queueExternalCommand(_ command: ExternalCommand) {
+        pendingExternalCommand = ExternalCommandRequest(command: command)
+    }
+
+    func completeExternalCommand(_ requestID: UUID) {
+        guard pendingExternalCommand?.id == requestID else { return }
+        pendingExternalCommand = nil
+    }
+
+    func queueSessionSelection(_ sessionID: String?) {
+        requestedSessionSelectionID = sessionID
+    }
+
+    func consumeRequestedSessionSelection() -> String? {
+        defer { requestedSessionSelectionID = nil }
+        return requestedSessionSelectionID
     }
 }
