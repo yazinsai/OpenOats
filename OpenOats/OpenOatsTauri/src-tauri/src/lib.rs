@@ -1,3 +1,4 @@
+#[cfg(target_os = "macos")]
 mod audio_macos;
 mod audio_windows;
 mod engine;
