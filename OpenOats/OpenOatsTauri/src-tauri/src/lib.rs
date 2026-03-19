@@ -42,6 +42,7 @@ pub fn run() {
             engine::delete_template,
             engine::list_sessions,
             engine::load_session,
+            engine::load_session_notes,
             engine::save_transcript,
         ])
         .setup(move |app| {

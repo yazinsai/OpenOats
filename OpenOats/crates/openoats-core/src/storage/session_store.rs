@@ -75,6 +75,7 @@ impl SessionStore {
 
     pub fn save_notes(&self, session_id: &str, notes: EnhancedNotes) {
         let mut sidecar = self.read_sidecar_or_stub(session_id);
+        sidecar.index.template_snapshot = Some(notes.template.clone());
         sidecar.notes = Some(notes);
         sidecar.index.has_notes = true;
         self.write_sidecar(&sidecar);
@@ -87,11 +88,8 @@ impl SessionStore {
     }
 
     fn read_sidecar_or_stub(&self, session_id: &str) -> SessionSidecar {
-        let path = self.sessions_dir.join(format!("{}.meta.json", session_id));
-        if let Ok(data) = fs::read_to_string(&path) {
-            if let Ok(s) = serde_json::from_str::<SessionSidecar>(&data) {
-                return s;
-            }
+        if let Some(sidecar) = self.load_sidecar(session_id) {
+            return sidecar;
         }
         let started_at = Self::parse_date_from_id(session_id);
         let utterance_count = self.load_transcript(session_id).len();
@@ -108,6 +106,16 @@ impl SessionStore {
             notes: None,
             suggestion_feedback: Vec::new(),
         }
+    }
+
+    pub fn load_sidecar(&self, session_id: &str) -> Option<SessionSidecar> {
+        let path = self.sessions_dir.join(format!("{}.meta.json", session_id));
+        let data = fs::read_to_string(path).ok()?;
+        serde_json::from_str::<SessionSidecar>(&data).ok()
+    }
+
+    pub fn load_notes(&self, session_id: &str) -> Option<EnhancedNotes> {
+        self.load_sidecar(session_id).and_then(|sidecar| sidecar.notes)
     }
 
     pub fn load_session_index(&self) -> Vec<SessionIndex> {

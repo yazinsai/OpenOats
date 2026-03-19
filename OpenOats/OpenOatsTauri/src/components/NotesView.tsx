@@ -1,6 +1,7 @@
 import { Fragment, type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { EnhancedNotes } from "../types";
 import { colors, typography, spacing } from "../theme";
 
 const TEMPLATES = [
@@ -14,6 +15,8 @@ const TEMPLATES = [
 
 interface Props {
   sessionId?: string;
+  initialNotes?: EnhancedNotes | null;
+  onNotesChange?: (notes: EnhancedNotes | null) => void;
 }
 
 type MarkdownBlock =
@@ -24,7 +27,7 @@ type MarkdownBlock =
   | { type: "blockquote"; lines: string[] }
   | { type: "code"; code: string };
 
-export function NotesView({ sessionId }: Props) {
+export function NotesView({ sessionId, initialNotes, onNotesChange }: Props) {
   const [selectedTemplate, setSelectedTemplate] = useState(TEMPLATES[0].id);
   const [markdown, setMarkdown] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -40,6 +43,27 @@ export function NotesView({ sessionId }: Props) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!sessionId) {
+      setMarkdown("");
+      setSelectedTemplate(TEMPLATES[0].id);
+      setError(null);
+      setShowThoughts(false);
+      return;
+    }
+
+    if (initialNotes) {
+      setMarkdown(initialNotes.markdown);
+      setSelectedTemplate(initialNotes.template.id);
+    } else {
+      setMarkdown("");
+      setSelectedTemplate(TEMPLATES[0].id);
+    }
+
+    setError(null);
+    setShowThoughts(false);
+  }, [sessionId, initialNotes]);
+
   const handleGenerate = async () => {
     if (!sessionId) return;
     setMarkdown("");
@@ -48,6 +72,12 @@ export function NotesView({ sessionId }: Props) {
     setShowThoughts(false);
     try {
       await invoke("generate_notes", { sessionId, templateId: selectedTemplate });
+      const persistedNotes = await invoke<EnhancedNotes | null>("load_session_notes", { id: sessionId });
+      if (persistedNotes) {
+        setMarkdown(persistedNotes.markdown);
+        setSelectedTemplate(persistedNotes.template.id);
+        onNotesChange?.(persistedNotes);
+      }
     } catch (e) {
       setError(String(e));
     } finally {

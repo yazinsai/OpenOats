@@ -14,7 +14,7 @@ use openoats_core::{
         suggestion_engine::SuggestionEngine,
     },
     keychain,
-    models::{MeetingTemplate, SessionRecord, Speaker, SuggestionFeedbackEntry},
+    models::{EnhancedNotes, MeetingTemplate, SessionRecord, Speaker, SuggestionFeedbackEntry},
     settings::AppSettings,
     storage::{
         session_store::SessionStore, template_store::TemplateStore,
@@ -102,6 +102,13 @@ pub struct SuggestionPayload {
 pub struct SuggestionCheckPayload {
     pub checked_at: String,
     pub surfaced: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDetailsPayload {
+    pub transcript: Vec<SessionRecord>,
+    pub notes: Option<EnhancedNotes>,
 }
 
 // ── AppState ────────────────────────────────────────────────────────────────
@@ -1083,8 +1090,20 @@ pub fn list_sessions(
 pub fn load_session(
     id: String,
     state: tauri::State<'_, Arc<AppState>>,
-) -> Vec<openoats_core::models::SessionRecord> {
-    state.session_store.lock().unwrap().load_transcript(&id)
+) -> SessionDetailsPayload {
+    let store = state.session_store.lock().unwrap();
+    SessionDetailsPayload {
+        transcript: store.load_transcript(&id),
+        notes: store.load_notes(&id),
+    }
+}
+
+#[tauri::command]
+pub fn load_session_notes(
+    id: String,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Option<EnhancedNotes> {
+    state.session_store.lock().unwrap().load_notes(&id)
 }
 
 #[tauri::command]

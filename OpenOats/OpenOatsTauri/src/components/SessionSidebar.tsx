@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { SessionRecord } from "../types";
 import { colors, typography, spacing } from "../theme";
 
@@ -53,6 +54,22 @@ export function SessionSidebar({ currentSessionId, onSelectSession, isOpen, onCl
   useEffect(() => {
     loadSessions();
   }, []);
+
+  useEffect(() => {
+    const unlisteners = [
+      listen("notes-ready", loadSessions),
+    ];
+
+    return () => {
+      unlisteners.forEach((listener) => listener.then((dispose) => dispose()));
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadSessions();
+    }
+  }, [isOpen]);
 
   const loadSessions = async () => {
     setIsLoading(true);

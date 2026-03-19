@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { Utterance, Suggestion, AppSettings } from "./types";
+import type { Utterance, Suggestion, AppSettings, EnhancedNotes, SessionDetails } from "./types";
 import { ControlBar } from "./components/ControlBar";
 import { TranscriptView } from "./components/TranscriptView";
 import { SuggestionsView } from "./components/SuggestionsView";
@@ -73,6 +73,7 @@ function App() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [tab, setTab] = useState<Tab>("transcript");
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>();
+  const [currentSessionNotes, setCurrentSessionNotes] = useState<EnhancedNotes | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [isGeneratingSuggestion, setIsGeneratingSuggestion] = useState(false);
   const [lastSuggestionCheckAt, setLastSuggestionCheckAt] = useState<string | null>(null);
@@ -231,6 +232,7 @@ function App() {
       setCurrentSessionId(sessionId);
       setUtterances([]);
       setSuggestions([]);
+      setCurrentSessionNotes(null);
       setVolatileYouText("");
       setVolatileThemText("");
       setIsRunning(true);
@@ -273,8 +275,9 @@ function App() {
 
   const handleLoadSession = async (sessionId: string) => {
     try {
-      const sessionData = await invoke<Utterance[]>("load_session", { id: sessionId });
-      setUtterances(sessionData);
+      const sessionData = await invoke<SessionDetails>("load_session", { id: sessionId });
+      setUtterances(sessionData.transcript);
+      setCurrentSessionNotes(sessionData.notes ?? null);
       setCurrentSessionId(sessionId);
       setTab("transcript");
     } catch (err) {
@@ -480,7 +483,13 @@ function App() {
         {tab === "settings" && (
           <SettingsView settings={settings} onSettingsChange={handleSettingsChange} />
         )}
-        {tab === "notes" && <NotesView sessionId={currentSessionId} />}
+        {tab === "notes" && (
+          <NotesView
+            sessionId={currentSessionId}
+            initialNotes={currentSessionNotes}
+            onNotesChange={setCurrentSessionNotes}
+          />
+        )}
       </div>
 
       {/* Bottom Status Bar */}

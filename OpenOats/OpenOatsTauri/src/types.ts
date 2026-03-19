@@ -58,3 +58,23 @@ export interface SessionRecord {
   hasNotes: boolean;
   title: string | null;
 }
+
+export interface TemplateSnapshot {
+  id: string;
+  name: string;
+  icon: string;
+  systemPrompt?: string;
+  system_prompt?: string;
+}
+
+export interface EnhancedNotes {
+  template: TemplateSnapshot;
+  generatedAt?: string;
+  generated_at?: string;
+  markdown: string;
+}
+
+export interface SessionDetails {
+  transcript: Utterance[];
+  notes: EnhancedNotes | null;
+}
