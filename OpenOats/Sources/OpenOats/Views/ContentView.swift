@@ -214,116 +214,32 @@ struct ContentView: View {
     // MARK: - Top Bar
 
     private var topBar: some View {
-        VStack(spacing: 6) {
-            // Row 1: App name + KB folder
-            HStack {
-                Text("OpenOats")
-                    .font(.system(size: 13, weight: .semibold))
+        HStack {
+            Text("OpenOats")
+                .font(.system(size: 13, weight: .semibold))
 
-                Spacer()
+            Spacer()
 
-                // KB status
-                if let kb = knowledgeBase {
-                    if !kb.indexingProgress.isEmpty {
-                        Text(kb.indexingProgress)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    } else if kb.isIndexed {
-                        HStack(spacing: 4) {
-                            Image(systemName: "folder")
-                                .font(.system(size: 10))
-                            Text("\(kb.fileCount) files")
-                                .font(.system(size: 11))
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-                }
+            // KB indexing status (subtle, read-only)
+            if let kb = knowledgeBase, !kb.indexingProgress.isEmpty {
+                Text(kb.indexingProgress)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
 
-                Button {
-                    openWindow(id: "notes")
-                } label: {
+            Button {
+                openWindow(id: "notes")
+            } label: {
+                HStack(spacing: 4) {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 11))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("Past Meetings")
-
-                if settings.kbFolderPath.isEmpty {
-                    Button("Set KB Folder...") {
-                        chooseKBFolder()
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.accentTeal)
-                } else {
-                    HStack(spacing: 4) {
-                        Button {
-                            NSWorkspace.shared.open(URL(fileURLWithPath: settings.kbFolderPath))
-                        } label: {
-                            Image(systemName: "folder")
-                                .font(.system(size: 10))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .help("Open in Finder")
-
-                        Button("Change...") {
-                            chooseKBFolder()
-                        }
-                        .buttonStyle(.plain)
+                    Text("Past Meetings")
                         .font(.system(size: 11))
-                        .foregroundStyle(Color.accentTeal)
-                    }
                 }
             }
-
-            // Row 2: Template picker
-            HStack {
-                @Bindable var coord = coordinator
-                Menu {
-                    Button {
-                        coordinator.selectedTemplate = nil
-                    } label: {
-                        HStack {
-                            Text("None")
-                            if coordinator.selectedTemplate == nil {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                    Divider()
-                    ForEach(coordinator.templateStore.templates) { template in
-                        Button {
-                            coordinator.selectedTemplate = template
-                        } label: {
-                            Label(template.name, systemImage: template.icon)
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        if let template = coordinator.selectedTemplate {
-                            Image(systemName: template.icon)
-                                .font(.system(size: 10))
-                            Text(template.name)
-                                .font(.system(size: 11))
-                        } else {
-                            Image(systemName: "doc.text")
-                                .font(.system(size: 10))
-                            Text("Template")
-                                .font(.system(size: 11))
-                        }
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8))
-                    }
-                    .foregroundStyle(.secondary)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-
-                Spacer()
-            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -394,18 +310,6 @@ struct ContentView: View {
             volatileThemText: transcriptStore.volatileThemText
         )
         overlayManager.toggle(content: content)
-    }
-
-    private func chooseKBFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose your knowledge base folder"
-
-        if panel.runModal() == .OK, let url = panel.url {
-            settings.kbFolderPath = url.path
-        }
     }
 
     private func indexKBIfNeeded() {

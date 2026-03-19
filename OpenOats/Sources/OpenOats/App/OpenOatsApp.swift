@@ -5,6 +5,7 @@ import Sparkle
 @main
 struct OpenOatsApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @Environment(\.openWindow) private var openWindow
     @State private var settings = AppSettings()
     @State private var coordinator = AppCoordinator()
     private let updaterController = AppUpdaterController()
@@ -23,6 +24,13 @@ struct OpenOatsApp: App {
         .commands {
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesView(updater: updaterController.updater)
+
+                Divider()
+
+                Button("Past Meetings") {
+                    openNotesWindow()
+                }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
             }
         }
 
@@ -36,6 +44,12 @@ struct OpenOatsApp: App {
             SettingsView(settings: settings, updater: updaterController.updater)
                 .environment(coordinator)
         }
+    }
+}
+
+extension OpenOatsApp {
+    private func openNotesWindow() {
+        openWindow(id: "notes")
     }
 }
 

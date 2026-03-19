@@ -258,5 +258,36 @@ actor SessionStore {
         writeSidecar(sidecar)
     }
 
+    func deleteSession(sessionID: String) {
+        let fm = FileManager.default
+        try? fm.removeItem(at: jsonlURL(for: sessionID))
+        try? fm.removeItem(at: sidecarURL(for: sessionID))
+    }
+
+    func renameSession(sessionID: String, newTitle: String) {
+        let url = sidecarURL(for: sessionID)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        guard let data = try? Data(contentsOf: url),
+              var sidecar = try? decoder.decode(SessionSidecar.self, from: data) else { return }
+
+        let idx = sidecar.index
+        sidecar = SessionSidecar(
+            index: SessionIndex(
+                id: idx.id,
+                startedAt: idx.startedAt,
+                endedAt: idx.endedAt,
+                templateSnapshot: idx.templateSnapshot,
+                title: newTitle.isEmpty ? nil : newTitle,
+                utteranceCount: idx.utteranceCount,
+                hasNotes: idx.hasNotes
+            ),
+            notes: sidecar.notes
+        )
+
+        writeSidecar(sidecar)
+    }
+
     var sessionsDirectoryURL: URL { sessionsDirectory }
 }
