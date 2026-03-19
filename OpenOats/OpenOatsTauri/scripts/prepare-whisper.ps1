@@ -36,6 +36,26 @@ $bindingsText = [regex]::Replace(
   '',
   [System.Text.RegularExpressions.RegexOptions]::Multiline
 )
+$bindingsText = $bindingsText.Replace(
+  'unsafe { ::std::mem::transmute(self._bitfield_1.get(0usize, 24u8) as u32) }',
+  'self._bitfield_1.get(0usize, 24u8) as u32 as ::std::os::raw::c_int'
+)
+$bindingsText = $bindingsText.Replace(
+  "unsafe {\r`n            let val: u32 = ::std::mem::transmute(val);\r`n            self._bitfield_1.set(0usize, 24u8, val as u64)\r`n        }",
+  "let val = val as u32;\r`n        self._bitfield_1.set(0usize, 24u8, val as u64)"
+)
+$bindingsText = $bindingsText.Replace(
+  "unsafe {\r`n            ::std::mem::transmute(<__BindgenBitfieldUnit<[u8; 3usize]>>::raw_get(\r`n                ::std::ptr::addr_of!((*this)._bitfield_1),\r`n                0usize,\r`n                24u8,\r`n            ) as u32)\r`n        }",
+  "<__BindgenBitfieldUnit<[u8; 3usize]>>::raw_get(\r`n            ::std::ptr::addr_of!((*this)._bitfield_1),\r`n            0usize,\r`n            24u8,\r`n        ) as u32 as ::std::os::raw::c_int"
+)
+$bindingsText = $bindingsText.Replace(
+  "unsafe {\r`n            let val: u32 = ::std::mem::transmute(val);\r`n            <__BindgenBitfieldUnit<[u8; 3usize]>>::raw_set(\r`n                ::std::ptr::addr_of_mut!((*this)._bitfield_1),\r`n                0usize,\r`n                24u8,\r`n                val as u64,\r`n            )\r`n        }",
+  "let val = val as u32;\r`n        <__BindgenBitfieldUnit<[u8; 3usize]>>::raw_set(\r`n            ::std::ptr::addr_of_mut!((*this)._bitfield_1),\r`n            0usize,\r`n            24u8,\r`n            val as u64,\r`n        )"
+)
+$bindingsText = $bindingsText.Replace(
+  'let _flags2: u32 = unsafe { ::std::mem::transmute(_flags2) };',
+  'let _flags2 = _flags2 as u32;'
+)
 Set-Content -Path $sysBindings -Value $bindingsText -NoNewline
 
 $commonLoggingText = Get-Content $commonLogging -Raw
