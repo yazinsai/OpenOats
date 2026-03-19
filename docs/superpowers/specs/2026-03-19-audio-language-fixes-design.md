@@ -32,7 +32,16 @@ Three related issues in the OpenOats Tauri app:
 | `systemAudioDeviceName` | `Option<String>` / `string \| null` | `null` | Selected loopback device. `null` = system default. |
 | `whisperModel` | `String` / `string` | `"base-en"` | `"base-en"` or `"base"`. Controls which model file is used. |
 
-Both new fields **must use `#[serde(default)]`** on the Rust side so that existing settings files that predate these fields deserialize without error. The `Default` impl for each field must match the defaults above.
+Both new fields must be handled carefully on the Rust side:
+
+- `systemAudioDeviceName: Option<String>` — use `#[serde(default)]`. `Option<String>` derives `Default` as `None`, which matches the intended default.
+- `whisperModel: String` — **do NOT use plain `#[serde(default)]`**. `String::default()` is `""`, not `"base-en"`. Use `#[serde(default = "default_whisper_model")]` with a named function:
+
+  ```rust
+  fn default_whisper_model() -> String { "base-en".to_string() }
+  ```
+
+  This ensures existing settings files without this key deserialize to `"base-en"` correctly.
 
 ### Model filenames
 
@@ -60,11 +69,20 @@ list_sys_audio_devices() -> Vec<String>
 
 ### Updated Tauri command: `check_model(model: String) -> Result<bool, String>`
 
-The existing `check_model` command is updated to accept an explicit `model` parameter (`"base-en"` or `"base"`). It resolves the filename via `model_filename(model)` and checks existence. This replaces the current no-argument version. The frontend calls it once per model variant on mount to populate badge state for both radio options independently.
+The existing `check_model` command is updated to accept an explicit `model` parameter (`"base-en"` or `"base"`). It resolves the filename via `model_filename(model)` and checks existence. This replaces the current no-argument version.
+
+**Existing call sites to update** — there are two in `App.tsx`:
+- Line ~46: `invoke<boolean>("check_model")` — on-boot model check. Update to pass the current `whisperModel` setting. Since settings may not yet be loaded at this point, read settings first (already done via `get_settings` in the same effect) and pass `settings.whisperModel ?? "base-en"`.
+- The `SettingsView` on-mount calls described below are new additions, not updates to existing calls.
+
+The frontend calls it once per model variant in `SettingsView` on mount to populate badge state for both radio options independently.
 
 ### Updated Tauri command: `download_model(model: String) -> Result<(), String>`
 
-The existing `download_model` command gains an explicit `model` parameter. It resolves the target filename via `model_filename(model)` and downloads only that file. The current hardcoded `MODEL_URL` constant in `download.rs` becomes a function of the model variant:
+The existing `download_model` command gains an explicit `model` parameter. It resolves the target filename via `model_filename(model)` and downloads only that file.
+
+**Existing call site to update** — one in `App.tsx`:
+- Line ~119: `invoke("download_model")` — triggered by the "Download Model" button on the missing-model screen. Update to pass the currently selected `settings.whisperModel ?? "base-en"`. The current hardcoded `MODEL_URL` constant in `download.rs` becomes a function of the model variant:
 
 | Model | URL |
 |---|---|
@@ -75,8 +93,10 @@ Both URLs are from the canonical `ggerganov/whisper.cpp` Hugging Face repository
 
 ### Model filename helper
 
+The helper lives in `openoats-core/src/download.rs` as a `pub fn` so both `download.rs` internally and `engine.rs` (via `openoats_core::download::model_filename`) can call it:
+
 ```rust
-fn model_filename(whisper_model: &str) -> &'static str {
+pub fn model_filename(whisper_model: &str) -> &'static str {
     match whisper_model {
         "base" => "ggml-base.bin",
         _ => "ggml-base.en.bin",  // default / "base-en"
@@ -84,7 +104,7 @@ fn model_filename(whisper_model: &str) -> &'static str {
 }
 ```
 
-`check_model` and `download_model` both call this helper with their `model` argument.
+`check_model` (in `engine.rs`) and `download_model` (in `download.rs`) both call this helper with their `model` argument.
 
 ### `SystemAudioCapture` — optional device selection
 
