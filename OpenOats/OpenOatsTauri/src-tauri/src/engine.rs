@@ -186,18 +186,30 @@ pub fn list_mic_devices() -> Vec<String> {
 pub fn start_transcription(
     app: AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let model_path = AppState::model_path(&app)?;
     if !download::model_exists(&model_path) {
         return Err("Whisper model not found. Download it first.".into());
     }
 
     let mut running = state.is_running.lock().unwrap();
-    if *running { return Ok(()); }
+    if *running {
+        let session_id = state.session_store.lock().unwrap()
+            .current_session_id()
+            .map(str::to_owned)
+            .ok_or_else(|| "Transcription is already running, but no active session ID was found.".to_string())?;
+        return Ok(session_id);
+    }
     *running = true;
     drop(running);
 
-    state.session_store.lock().unwrap().start_session();
+    let session_id = {
+        let mut session_store = state.session_store.lock().unwrap();
+        session_store.start_session();
+        session_store.current_session_id()
+            .map(str::to_owned)
+            .ok_or_else(|| "Failed to create a recording session.".to_string())?
+    };
     state.transcript_logger.lock().unwrap().start_session();
     state.suggestion_engine.lock().unwrap().clear();
 
@@ -274,7 +286,7 @@ pub fn start_transcription(
     });
 
     *state.audio_task.lock().unwrap() = Some(handle);
-    Ok(())
+    Ok(session_id)
 }
 
 #[tauri::command]
@@ -303,16 +315,28 @@ pub async fn download_model(app: AppHandle) -> Result<(), String> {
 pub async fn generate_notes(
     app: AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
+    session_id: String,
+    template_id: Option<String>,
 ) -> Result<String, String> {
     let settings = state.settings.lock().unwrap().clone();
-    let session_id = state.session_store.lock().unwrap()
-        .current_session_id()
-        .map(|s| s.to_owned());
-    let records = session_id
-        .map(|id| state.session_store.lock().unwrap().load_transcript(&id))
-        .unwrap_or_default();
+    let records = state.session_store.lock().unwrap().load_transcript(&session_id);
+    let transcript_chars: usize = records.iter().map(|record| record.text.len()).sum();
+    log::info!(
+        "generate_notes requested: session_id={}, template_id={:?}, utterances={}, transcript_chars={}",
+        session_id,
+        template_id,
+        records.len(),
+        transcript_chars
+    );
+    if records.is_empty() {
+        log::warn!("generate_notes aborted: transcript is empty for session_id={}", session_id);
+        return Err(format!("No transcript found for session `{session_id}`."));
+    }
 
-    let template = MeetingTemplate::built_ins().into_iter().next().unwrap();
+    let template = template_id
+        .as_deref()
+        .and_then(|id| MeetingTemplate::built_ins().into_iter().find(|template| template.id.to_string() == id))
+        .unwrap_or_else(|| MeetingTemplate::built_ins().into_iter().next().unwrap());
     let (base_url, api_key) = llm_base_url_and_key(&settings);
     let model = if settings.llm_provider == "ollama" {
         settings.ollama_llm_model.clone()
@@ -331,6 +355,15 @@ pub async fn generate_notes(
         &model,
         on_chunk,
     ).await?;
+
+    state.session_store.lock().unwrap().save_notes(
+        &session_id,
+        openoats_core::models::EnhancedNotes {
+            template: (&template).into(),
+            generated_at: chrono::Utc::now(),
+            markdown: result.clone(),
+        },
+    );
 
     app.emit("notes-ready", ()).ok();
     Ok(result)

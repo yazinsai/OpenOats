@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Utterance, Suggestion } from "./types";
@@ -19,7 +19,6 @@ function App() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [tab, setTab] = useState<Tab>("transcript");
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>();
-  const sessionCounter = useRef(0);
 
   useEffect(() => {
     invoke<boolean>("check_model").then((ok) =>
@@ -68,12 +67,11 @@ function App() {
 
   const handleStart = async () => {
     try {
-      await invoke("start_transcription");
-      sessionCounter.current += 1;
-      setCurrentSessionId(`session_${sessionCounter.current}`);
-      setIsRunning(true);
+      const sessionId = await invoke<string>("start_transcription");
+      setCurrentSessionId(sessionId);
       setUtterances([]);
       setSuggestions([]);
+      setIsRunning(true);
     } catch (e) {
       alert(`Failed to start: ${e}`);
     }
