@@ -147,7 +147,31 @@ pub fn strip_fences(s: &str) -> &str {
     let s = s.strip_prefix("```json").unwrap_or(s);
     let s = s.strip_prefix("```").unwrap_or(s);
     let s = s.strip_suffix("```").unwrap_or(s);
-    s.trim()
+    let s = s.trim();
+
+    let first_object = s.find('{');
+    let first_array = s.find('[');
+    let start = match (first_object, first_array) {
+        (Some(obj), Some(arr)) => obj.min(arr),
+        (Some(obj), None) => obj,
+        (None, Some(arr)) => arr,
+        (None, None) => return s,
+    };
+
+    let last_object = s.rfind('}');
+    let last_array = s.rfind(']');
+    let end = match (last_object, last_array) {
+        (Some(obj), Some(arr)) => obj.max(arr),
+        (Some(obj), None) => obj,
+        (None, Some(arr)) => arr,
+        (None, None) => return s,
+    };
+
+    if start <= end {
+        s[start..=end].trim()
+    } else {
+        s
+    }
 }
 
 #[cfg(test)]
@@ -164,6 +188,12 @@ mod tests {
     fn strip_fences_passthrough_plain() {
         let raw = "{\"key\": \"val\"}";
         assert_eq!(strip_fences(raw), raw);
+    }
+
+    #[test]
+    fn strip_fences_extracts_json_after_think_block() {
+        let raw = "<think>reasoning</think>\n{\"key\": \"val\"}";
+        assert_eq!(strip_fences(raw), "{\"key\": \"val\"}");
     }
 
     #[test]

@@ -11,7 +11,7 @@ use openoats_core::{
     download,
     intelligence::{embedding_client, knowledge_base::KnowledgeBase, notes_engine, suggestion_engine::SuggestionEngine},
     keychain,
-    models::{MeetingTemplate, SessionRecord, Speaker},
+    models::{MeetingTemplate, SessionRecord, Speaker, SuggestionFeedbackEntry},
     settings::AppSettings,
     storage::{session_store::SessionStore, template_store::TemplateStore, transcript_logger::TranscriptLogger},
     transcription::streaming_transcriber::StreamingTranscriber,
@@ -51,6 +51,7 @@ pub struct AudioLevelPayload {
 #[serde(rename_all = "camelCase")]
 pub struct SuggestionPayload {
     pub id: String,
+    pub kind: String,
     pub text: String,
     pub kb_hits: Vec<openoats_core::models::KBResult>,
 }
@@ -65,6 +66,7 @@ pub struct AppState {
     pub knowledge_base: AsyncMutex<KnowledgeBase>,
     pub suggestion_engine: AsyncMutex<SuggestionEngine>,
     pub audio_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    pub system_audio_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     pub poll_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     pub is_running: Mutex<bool>,
     pub mic_level: Arc<AtomicU32>,
@@ -88,6 +90,7 @@ impl AppState {
             transcript_logger: Mutex::new(TranscriptLogger::with_default_path()),
             settings: Mutex::new(settings),
             audio_task: Mutex::new(None),
+            system_audio_task: Mutex::new(None),
             poll_task: Mutex::new(None),
             is_running: Mutex::new(false),
             mic_level: Arc::new(AtomicU32::new(0)),
@@ -100,6 +103,32 @@ impl AppState {
             .app_data_dir()
             .map(|p| p.join(openoats_core::download::model_filename(model)))
             .map_err(|e| e.to_string())
+    }
+}
+
+fn resolve_whisper_model(settings: &AppSettings) -> &'static str {
+    let locale = settings.transcription_locale.trim().to_ascii_lowercase();
+    let is_english = locale.is_empty() || locale.starts_with("en");
+
+    match settings.whisper_model.as_str() {
+        "tiny" => {
+            if is_english { "tiny-en" } else { "tiny" }
+        }
+        "tiny-en" => "tiny-en",
+        "base" => {
+            if is_english { "base-en" } else { "base" }
+        }
+        "base-en" => "base-en",
+        "small" => {
+            if is_english { "small-en" } else { "small" }
+        }
+        "small-en" => "small-en",
+        "auto" => {
+            if is_english { "base-en" } else { "base" }
+        }
+        _ => {
+            if is_english { "base-en" } else { "base" }
+        }
     }
 }
 
@@ -224,7 +253,9 @@ pub fn start_transcription(
     app: AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<String, String> {
-    let model_path = AppState::model_path_for(&app, "base-en")?;
+    let settings = state.settings.lock().unwrap().clone();
+    let whisper_model = resolve_whisper_model(&settings);
+    let model_path = AppState::model_path_for(&app, whisper_model)?;
     if !download::model_exists(&model_path) {
         return Err("Whisper model not found. Download it first.".into());
     }
@@ -254,7 +285,6 @@ pub fn start_transcription(
     let app_clone = app.clone();
     let state_clone = Arc::clone(&state);
 
-    let settings = state.settings.lock().unwrap().clone();
     let device_name = settings.input_device_name.clone();
     let language = settings.transcription_locale
         .split('-').next().unwrap_or("en").to_string();
@@ -287,7 +317,7 @@ pub fn start_transcription(
         let them_lang = language.clone();
         let them_utterances_spawn = Arc::clone(&them_utterances);
 
-        tauri::async_runtime::spawn(async move {
+        let them_handle = tauri::async_runtime::spawn(async move {
             let sys = SystemAudioCapture::new(None);
             let them_stream = match sys.buffer_stream().await {
                 Ok(s) => s,
@@ -309,6 +339,9 @@ pub fn start_transcription(
             let state_sg = Arc::clone(&them_state);
 
             let on_them = move |text: String| {
+                if !*state_sg.is_running.lock().unwrap() {
+                    return;
+                }
                 use openoats_core::models::{Utterance, Speaker};
                 let utterance = Utterance {
                     id: uuid::Uuid::new_v4(),
@@ -407,15 +440,24 @@ pub fn start_transcription(
                     ).await {
                         let payload = SuggestionPayload {
                             id: suggestion.id.to_string(),
+                            kind: match suggestion.kind {
+                                openoats_core::models::SuggestionKind::KnowledgeBase => "knowledge_base".into(),
+                                openoats_core::models::SuggestionKind::SmartQuestion => "smart_question".into(),
+                            },
                             text: suggestion.text.clone(),
                             kb_hits: suggestion.kb_hits.clone(),
                         };
                         app_inner.emit("suggestion", &payload).ok();
                     }
+                    app_inner.emit("suggestion-finished", ()).ok();
                 });
             };
             let app_vol_t = them_app.clone();
+            let state_vol_t = Arc::clone(&them_state);
             let on_them_vol = move |_text: String| {
+                if !*state_vol_t.is_running.lock().unwrap() {
+                    return;
+                }
                 app_vol_t.emit("transcript-volatile", &TranscriptPayload {
                     text: "...".into(), speaker: "them".into(),
                 }).ok();
@@ -424,6 +466,7 @@ pub fn start_transcription(
                 .with_volatile(Box::new(on_them_vol));
             transcriber.run(them_stream_leveled).await;
         });
+        *state_clone.system_audio_task.lock().unwrap() = Some(them_handle);
 
         // ── "You" mic capture ──────────────────────────────────────────────
         let mic = CpalMicCapture::new();
@@ -438,6 +481,9 @@ pub fn start_transcription(
         let app_y = app_clone.clone();
         let state_y = Arc::clone(&state_clone);
         let on_you = move |text: String| {
+            if !*state_y.is_running.lock().unwrap() {
+                return;
+            }
             let payload = TranscriptPayload { text: text.clone(), speaker: "you".into() };
             app_y.emit("transcript", &payload).ok();
             let record = SessionRecord {
@@ -455,7 +501,11 @@ pub fn start_transcription(
 
         app_clone.emit("whisper-ready", ()).ok();
         let app_vol_y = app_clone.clone();
+        let state_vol_y = Arc::clone(&state_clone);
         let on_you_vol = move |_text: String| {
+            if !*state_vol_y.is_running.lock().unwrap() {
+                return;
+            }
             app_vol_y.emit("transcript-volatile", &TranscriptPayload {
                 text: "...".into(), speaker: "you".into(),
             }).ok();
@@ -472,6 +522,9 @@ pub fn start_transcription(
 #[tauri::command]
 pub fn stop_transcription(state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
     if let Some(handle) = state.audio_task.lock().unwrap().take() {
+        handle.abort();
+    }
+    if let Some(handle) = state.system_audio_task.lock().unwrap().take() {
         handle.abort();
     }
     if let Some(handle) = state.poll_task.lock().unwrap().take() {
@@ -601,9 +654,29 @@ pub fn update_kb_folder(
 }
 
 #[tauri::command]
-pub fn suggestion_feedback(suggestion_id: String, helpful: bool) {
+pub fn suggestion_feedback(
+    session_id: Option<String>,
+    suggestion_id: String,
+    helpful: bool,
+    state: tauri::State<'_, Arc<AppState>>,
+) {
     log::info!("suggestion_feedback: id={} helpful={}", suggestion_id, helpful);
-    // TODO: persist feedback to session sidecar for fine-tuning / analytics
+
+    let session_id = session_id.or_else(|| {
+        let session_store = state.session_store.lock().unwrap();
+        session_store.current_session_id().map(str::to_owned)
+    });
+
+    if let Some(session_id) = session_id {
+        state.session_store.lock().unwrap().save_suggestion_feedback(
+            &session_id,
+            SuggestionFeedbackEntry {
+                suggestion_id,
+                helpful,
+                created_at: chrono::Utc::now(),
+            },
+        );
+    }
 }
 
 #[tauri::command]

@@ -7,6 +7,7 @@ export interface Utterance {
 
 export interface Suggestion {
   id: string;
+  kind: "knowledge_base" | "smart_question";
   text: string;
   timestamp: string;
   kbHits: KBResult[];
@@ -23,6 +24,7 @@ export interface AppSettings {
   selectedModel: string;
   transcriptionLocale: string;
   transcriptionModel: string;
+  whisperModel: string;
   inputDeviceName: string | null;
   llmProvider: string;
   embeddingProvider: string;

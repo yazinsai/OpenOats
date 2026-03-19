@@ -38,6 +38,8 @@ interface Props {
   onStop: () => void;
   disabled?: boolean;
   modelName?: string;
+  whisperModel?: string;
+  transcriptionLocale?: string;
   kbConnected?: boolean;
   kbFileCount?: number;
   isLocalMode?: boolean;
@@ -86,6 +88,8 @@ export function ControlBar({
   onStop,
   disabled,
   modelName = "Unknown",
+  whisperModel = "base-en",
+  transcriptionLocale = "en-US",
   kbConnected = false,
   kbFileCount = 0,
   isLocalMode = true,
@@ -331,6 +335,21 @@ export function ControlBar({
           title="Active AI model"
         >
           {modelName.length > 20 ? modelName.split("/").pop() : modelName}
+        </span>
+
+        <span
+          style={{
+            padding: `${spacing[1]}px ${spacing[2]}px`,
+            background: colors.background,
+            color: colors.them,
+            borderRadius: 12,
+            fontSize: typography.xs,
+            fontWeight: 500,
+            fontFamily: "SF Mono, Monaco, monospace",
+          }}
+          title="Active Whisper transcription model"
+        >
+          {whisperModel} · {transcriptionLocale || "auto"}
         </span>
       </div>
 

@@ -144,7 +144,7 @@ function EmptyState({
             lineHeight: 1.5,
           }}
         >
-          Connect a knowledge base to get smart suggestions based on your existing notes and documents.
+          Connect a knowledge base for note-backed prompts. OpenOats can also surface smart questions when the conversation exposes missing information.
         </p>
         <div style={{ display: "flex", gap: spacing[2] }}>
           <button
@@ -216,7 +216,7 @@ function EmptyState({
           lineHeight: 1.5,
         }}
       >
-        Suggestions appear when the other person mentions topics related to your knowledge base.
+        Suggestions appear when the other person mentions topics related to your knowledge base or leaves an important question unanswered.
       </p>
       <span
         style={{
@@ -301,18 +301,48 @@ function SuggestionCard({
 }) {
   const bullets = parseBullets(suggestion.text);
   const hasSources = suggestion.kbHits && suggestion.kbHits.length > 0;
+  const isSmartQuestion = suggestion.kind === "smart_question";
 
   return (
     <div
       style={{
-        background: isPrimary ? `${colors.accent}10` : colors.surface,
-        border: `1px solid ${isPrimary ? `${colors.accent}30` : colors.border}`,
+        background: isSmartQuestion
+          ? `${colors.them}10`
+          : isPrimary
+            ? `${colors.accent}10`
+            : colors.surface,
+        border: `1px solid ${
+          isSmartQuestion
+            ? `${colors.them}30`
+            : isPrimary
+              ? `${colors.accent}30`
+              : colors.border
+        }`,
         borderRadius: 8,
         padding: spacing[3],
         marginBottom: spacing[2],
         animation: "slideIn 0.3s ease-out",
       }}
     >
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: spacing[1],
+          padding: `${spacing[1]}px ${spacing[2]}px`,
+          borderRadius: 999,
+          background: isSmartQuestion ? `${colors.them}20` : `${colors.accent}15`,
+          color: isSmartQuestion ? colors.them : colors.accentLight,
+          fontSize: typography.xs,
+          fontWeight: 600,
+          textTransform: "uppercase",
+          letterSpacing: "0.8px",
+          marginBottom: spacing[2],
+        }}
+      >
+        {isSmartQuestion ? "Smart Question" : "Talking Point"}
+      </div>
+
       {/* Suggestion content */}
       {bullets.length > 0 ? (
         bullets.map((bullet) => <BulletRow key={bullet.id} bullet={bullet} />)
@@ -363,7 +393,7 @@ function SuggestionCard({
           onClick={() => onCopy(suggestion.text)}
           style={{
             padding: `${spacing[1]}px ${spacing[2]}px`,
-            background: colors.accent,
+            background: isSmartQuestion ? colors.them : colors.accent,
             color: "#fff",
             border: "none",
             borderRadius: 4,
@@ -372,7 +402,7 @@ function SuggestionCard({
             fontWeight: 500,
           }}
         >
-          📋 Use this
+          {isSmartQuestion ? "Ask this" : "Use this"}
         </button>
         <button
           onClick={onDismiss}

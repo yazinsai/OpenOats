@@ -1,6 +1,6 @@
 use crate::intelligence::llm_client::{strip_fences, Message};
 use crate::models::{
-    ConversationState, KBResult, Suggestion, SuggestionDecision, Utterance,
+    ConversationState, KBResult, Suggestion, SuggestionDecision, SuggestionKind, Utterance,
 };
 use std::time::{Duration, Instant};
 
@@ -81,7 +81,9 @@ impl SuggestionEngine {
         }
 
         if kb_hits.is_empty() {
-            return None;
+            return self
+                .maybe_surface_smart_question(&utterance.text, recent_them_utterances, &complete_fn)
+                .await;
         }
 
         // Stage 5: LLM surfacing gate
@@ -100,7 +102,12 @@ impl SuggestionEngine {
         }
         self.last_suggestion_time = Some(Instant::now());
 
-        Some(Suggestion::new(suggestion_text, kb_hits, Some(decision)))
+        Some(Suggestion::new(
+            SuggestionKind::KnowledgeBase,
+            suggestion_text,
+            kb_hits,
+            Some(decision),
+        ))
     }
 
     pub fn clear(&mut self) {
@@ -125,12 +132,36 @@ impl SuggestionEngine {
         let lower = text.to_lowercase();
         // Explicit questions
         if lower.contains('?') { return true; }
+        let question_starters = [
+            "what ", "how ", "why ", "when ", "where ", "who ", "which ",
+            "can we", "can you", "could we", "could you", "would you",
+            "do we", "do you", "is there", "are there", "have we", "have you",
+        ];
+        if question_starters.iter().any(|w| lower.starts_with(w) || lower.contains(&format!(" {}", w))) {
+            return true;
+        }
         // Decision points
         let decision_words = ["should we", "pick between", "which option", "how do we", "what should", "best approach"];
         if decision_words.iter().any(|w| lower.contains(w)) { return true; }
         // Problem signals
         let problem_words = ["problem", "challenge", "struggle", "difficult", "can't figure", "not sure how"];
         if problem_words.iter().any(|w| lower.contains(w)) { return true; }
+        // Knowledge-gap signals that should route into smart-question generation
+        let knowledge_gap_words = [
+            "not clear",
+            "unclear",
+            "depends on",
+            "need to know",
+            "don't know",
+            "do not know",
+            "unknown",
+            "missing",
+            "haven't decided",
+            "have not decided",
+            "still figuring out",
+            "not sure yet",
+        ];
+        if knowledge_gap_words.iter().any(|w| lower.contains(w)) { return true; }
         false
     }
 
@@ -258,6 +289,85 @@ impl SuggestionEngine {
         ];
 
         complete_fn(messages).await.ok()
+    }
+
+    async fn maybe_surface_smart_question<F, Fut>(
+        &mut self,
+        utterance: &str,
+        recent_them_utterances: &[&Utterance],
+        complete_fn: &F,
+    ) -> Option<Suggestion>
+    where
+        F: Fn(Vec<Message>) -> Fut,
+        Fut: std::future::Future<Output = Result<String, String>>,
+    {
+        let recent_context = recent_them_utterances
+            .iter()
+            .rev()
+            .take(3)
+            .rev()
+            .map(|u| format!("Them: {}", u.text))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let recent = self.recent_suggestion_texts.join(", ");
+        let prompt = format!(
+            "A meeting participant may need a clarifying or probing question when there is a knowledge gap, ambiguity, \
+            missing constraint, or unstated assumption.\n\
+            Current topic: {}\n\
+            Short summary: {}\n\
+            Recent conversation:\n{}\n\n\
+            Most recent utterance: {}\n\
+            Recent suggestions: {}\n\n\
+            Return JSON: {{\"shouldSurface\": bool, \"question\": string, \"confidence\": 0-1, \
+            \"relevanceScore\": 0-1, \"helpfulnessScore\": 0-1, \"timingScore\": 0-1, \
+            \"noveltyScore\": 0-1, \"reason\": string}}.\n\
+            The question must be concise, natural, and directly ask for the missing information.",
+            self.conversation_state.current_topic,
+            self.conversation_state.short_summary,
+            recent_context,
+            utterance,
+            recent,
+        );
+
+        let messages = vec![
+            Message::system("You decide when a smart clarifying question should be suggested. Return only valid JSON."),
+            Message::user(prompt),
+        ];
+
+        let raw = complete_fn(messages).await.ok()?;
+        let clean = strip_fences(&raw);
+        let v: serde_json::Value = serde_json::from_str(clean).ok()?;
+
+        let should_surface = v["shouldSurface"].as_bool().unwrap_or(false);
+        let question = v["question"].as_str().unwrap_or("").trim().to_string();
+
+        if !should_surface || question.is_empty() {
+            return None;
+        }
+
+        let decision = SuggestionDecision {
+            should_surface,
+            confidence: v["confidence"].as_f64().unwrap_or(0.0),
+            relevance_score: v["relevanceScore"].as_f64().unwrap_or(0.0),
+            helpfulness_score: v["helpfulnessScore"].as_f64().unwrap_or(0.0),
+            timing_score: v["timingScore"].as_f64().unwrap_or(0.0),
+            novelty_score: v["noveltyScore"].as_f64().unwrap_or(0.0),
+            reason: v["reason"].as_str().unwrap_or("").to_string(),
+        };
+
+        self.recent_suggestion_texts.push(question.clone());
+        if self.recent_suggestion_texts.len() > MAX_RECENT_ANGLES {
+            self.recent_suggestion_texts.remove(0);
+        }
+        self.last_suggestion_time = Some(Instant::now());
+
+        Some(Suggestion::new(
+            SuggestionKind::SmartQuestion,
+            question,
+            Vec::new(),
+            Some(decision),
+        ))
     }
 }
 

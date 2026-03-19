@@ -126,7 +126,7 @@ impl Default for AppSettings {
     }
 }
 
-fn default_whisper_model() -> String { "base-en".into() }
+fn default_whisper_model() -> String { "auto".into() }
 fn default_model() -> String { "google/gemini-3-flash-preview".into() }
 fn default_locale() -> String { "en-US".into() }
 fn default_transcription_model() -> String { "whisper-base".into() }
@@ -176,7 +176,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("nonexistent.json");
         let s = AppSettings::load_from(path);
-        assert_eq!(s.whisper_model, "base-en");
+        assert_eq!(s.whisper_model, "auto");
     }
 
     #[test]
@@ -194,7 +194,7 @@ mod tests {
         // Write a settings file that doesn't contain whisper_model
         std::fs::write(&path, r#"{"selectedModel":"test"}"#).unwrap();
         let s = AppSettings::load_from(path);
-        assert_eq!(s.whisper_model, "base-en");
+        assert_eq!(s.whisper_model, "auto");
     }
 
     #[test]

@@ -4,6 +4,49 @@ import type { ApiKeys, AppSettings } from "../types";
 
 type Tab = "general" | "ai" | "advanced";
 
+const transcriptionLocaleOptions = [
+  { value: "en-US", label: "English (US)" },
+  { value: "en-GB", label: "English (UK)" },
+  { value: "es-ES", label: "Spanish (Spain)" },
+  { value: "es-CO", label: "Spanish (Colombia)" },
+  { value: "es-MX", label: "Spanish (Mexico)" },
+  { value: "fr-FR", label: "French" },
+  { value: "de-DE", label: "German" },
+  { value: "pt-BR", label: "Portuguese (Brazil)" },
+  { value: "it-IT", label: "Italian" },
+];
+
+const whisperModelOptions = [
+  { value: "auto", label: "Auto", description: "Base-en for English, base for other languages" },
+  { value: "tiny", label: "Tiny", description: "Fastest, less accurate" },
+  { value: "base", label: "Base", description: "Balanced speed and accuracy" },
+  { value: "small", label: "Small", description: "Better accuracy, slower" },
+];
+
+function resolveWhisperModel(
+  locale: string,
+  whisperModel: string,
+): "tiny" | "tiny-en" | "base" | "base-en" | "small" | "small-en" {
+  const isEnglish = locale.trim().toLowerCase().startsWith("en") || locale.trim() === "";
+
+  switch (whisperModel) {
+    case "tiny":
+      return isEnglish ? "tiny-en" : "tiny";
+    case "base":
+      return isEnglish ? "base-en" : "base";
+    case "small":
+      return isEnglish ? "small-en" : "small";
+    case "tiny-en":
+      return "tiny-en";
+    case "base-en":
+      return "base-en";
+    case "small-en":
+      return "small-en";
+    default:
+      return isEnglish ? "base-en" : "base";
+  }
+}
+
 interface SettingsViewProps {
   settings?: AppSettings | null;
   onSettingsChange?: (settings: AppSettings) => void;
@@ -206,6 +249,8 @@ export function SettingsView({ settings: initialSettings = null, onSettingsChang
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [kbFileCount, setKbFileCount] = useState<number>(0);
+  const [isIndexingKb, setIsIndexingKb] = useState(false);
+  const [kbStatus, setKbStatus] = useState<string | null>(null);
 
   useEffect(() => {
     invoke<ApiKeys>("get_api_keys")
@@ -236,6 +281,15 @@ export function SettingsView({ settings: initialSettings = null, onSettingsChang
       .catch((err) => setError(String(err)));
   }, [initialSettings]);
 
+  useEffect(() => {
+    if (settings?.kbFolderPath) {
+      syncKnowledgeBase();
+    } else {
+      setKbStatus(null);
+      setIsIndexingKb(false);
+    }
+  }, [settings?.kbFolderPath]);
+
   const countKBFiles = async (_path: string) => {
     try {
       // This would need a Tauri command to count files
@@ -249,6 +303,31 @@ export function SettingsView({ settings: initialSettings = null, onSettingsChang
   const flashSaved = () => {
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
+  };
+
+  const syncKnowledgeBase = async () => {
+    if (!settings?.kbFolderPath) {
+      setKbStatus(null);
+      setIsIndexingKb(false);
+      return;
+    }
+
+    try {
+      setIsIndexingKb(true);
+      setKbStatus("Indexing knowledge base...");
+      const addedChunks = await invoke<number>("index_kb");
+      setKbStatus(
+        addedChunks > 0
+          ? `Knowledge base indexed · ${addedChunks} new chunks`
+          : "Knowledge base is ready"
+      );
+      setError(null);
+    } catch (err) {
+      setKbStatus("Knowledge base indexing failed");
+      setError(String(err));
+    } finally {
+      setIsIndexingKb(false);
+    }
   };
 
   const saveSettings = async (updated: AppSettings) => {
@@ -278,7 +357,8 @@ export function SettingsView({ settings: initialSettings = null, onSettingsChang
     try {
       const selected = await invoke<string | null>("choose_folder");
       if (selected && settings) {
-        saveSettings({ ...settings, [key]: selected });
+        const updated = { ...settings, [key]: selected };
+        await saveSettings(updated);
         if (key === "kbFolderPath") {
           countKBFiles(selected);
         }
@@ -382,7 +462,11 @@ export function SettingsView({ settings: initialSettings = null, onSettingsChang
                 {settings.kbFolderPath && (
                   <button
                     style={{ ...styles.buttonSecondary, color: colors.error }}
-                    onClick={() => saveSettings({ ...settings, kbFolderPath: "" })}
+                    onClick={() => {
+                      setKbFileCount(0);
+                      setKbStatus(null);
+                      saveSettings({ ...settings, kbFolderPath: "" });
+                    }}
                   >
                     Clear
                   </button>
@@ -392,7 +476,11 @@ export function SettingsView({ settings: initialSettings = null, onSettingsChang
                 <div style={{ marginTop: spacing[2] }}>
                   <span style={styles.statusBadge("success")}>
                     <span>⚡</span>
-                    <span>KB Connected {kbFileCount > 0 && `· ${kbFileCount} files`}</span>
+                    <span>
+                      {isIndexingKb
+                        ? "Indexing knowledge base..."
+                        : kbStatus || `KB Connected ${kbFileCount > 0 ? `· ${kbFileCount} files` : ""}`}
+                    </span>
                   </span>
                 </div>
               )}
@@ -677,17 +765,40 @@ export function SettingsView({ settings: initialSettings = null, onSettingsChang
             <h4 style={styles.sectionTitle}>Transcription</h4>
             <div style={styles.fieldWrap}>
               <label style={styles.labelStyle}>Language / Locale</label>
-              <input
-                type="text"
+              <select
                 value={settings.transcriptionLocale}
                 onChange={(e) =>
                   saveSettings({ ...settings, transcriptionLocale: e.target.value })
                 }
-                style={styles.inputStyle}
-                placeholder="e.g. en-US, es-ES, fr-FR"
-              />
+                style={styles.selectStyle}
+              >
+                {transcriptionLocaleOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
               <span style={{ fontSize: typography.sm, color: colors.textMuted, marginTop: 4, display: "block" }}>
-                BCP-47 format. Leave empty for auto-detection.
+                OpenOats will download and use {resolveWhisperModel(settings.transcriptionLocale, settings.whisperModel)} for this language.
+              </span>
+            </div>
+            <div style={styles.fieldWrap}>
+              <label style={styles.labelStyle}>Whisper Model</label>
+              <select
+                value={settings.whisperModel}
+                onChange={(e) =>
+                  saveSettings({ ...settings, whisperModel: e.target.value })
+                }
+                style={styles.selectStyle}
+              >
+                {whisperModelOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <span style={{ fontSize: typography.sm, color: colors.textMuted, marginTop: 4, display: "block" }}>
+                {whisperModelOptions.find((option) => option.value === settings.whisperModel)?.description}. Effective model: `{resolveWhisperModel(settings.transcriptionLocale, settings.whisperModel)}`.
               </span>
             </div>
           </div>

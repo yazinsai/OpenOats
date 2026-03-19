@@ -20,7 +20,44 @@ const colors = {
 
 type ModelState = "checking" | "missing" | "downloading" | "ready";
 type Tab = "transcript" | "suggestions" | "notes" | "settings";
-const TRANSCRIPTION_MODEL = "base-en";
+
+type WhisperModelId = "auto" | "tiny" | "tiny-en" | "base" | "base-en" | "small" | "small-en";
+
+function resolveWhisperModel(settings: AppSettings | null): Exclude<WhisperModelId, "auto"> {
+  const configured = (settings?.whisperModel || "auto") as WhisperModelId;
+  const locale = settings?.transcriptionLocale?.trim().toLowerCase() || "";
+  const isEnglish = !locale || locale.startsWith("en");
+
+  switch (configured) {
+    case "tiny":
+      return isEnglish ? "tiny-en" : "tiny";
+    case "tiny-en":
+      return "tiny-en";
+    case "base":
+      return isEnglish ? "base-en" : "base";
+    case "base-en":
+      return "base-en";
+    case "small":
+      return isEnglish ? "small-en" : "small";
+    case "small-en":
+      return "small-en";
+    case "auto":
+    default:
+      return isEnglish ? "base-en" : "base";
+  }
+}
+
+function whisperModelLabel(model: Exclude<WhisperModelId, "auto">): string {
+  const labels: Record<Exclude<WhisperModelId, "auto">, string> = {
+    tiny: "Whisper tiny (multilingual)",
+    "tiny-en": "Whisper tiny-en (English)",
+    base: "Whisper base (multilingual)",
+    "base-en": "Whisper base-en (English)",
+    small: "Whisper small (multilingual)",
+    "small-en": "Whisper small-en (English)",
+  };
+  return labels[model];
+}
 
 function App() {
   const [modelState, setModelState] = useState<ModelState>("checking");
@@ -49,7 +86,12 @@ function App() {
 
   // Check model and set up event listeners
   useEffect(() => {
-    invoke<boolean>("check_model", { model: TRANSCRIPTION_MODEL })
+    if (!settings) {
+      return;
+    }
+
+    const transcriptionModel = resolveWhisperModel(settings);
+    invoke<boolean>("check_model", { model: transcriptionModel })
       .then((ok) => setModelState(ok ? "ready" : "missing"))
       .catch((err) => {
         setModelError(String(err));
@@ -97,12 +139,13 @@ function App() {
         setModelError(null);
       }),
 
-      listen<{ id: string; text: string; kbHits?: any[] }>("suggestion", (e) => {
+      listen<{ id: string; kind?: "knowledge_base" | "smart_question"; text: string; kbHits?: any[] }>("suggestion", (e) => {
         setIsGeneratingSuggestion(false);
         setSuggestions((prev) => [
           ...prev,
           {
             id: e.payload.id,
+            kind: e.payload.kind || "knowledge_base",
             text: e.payload.text,
             timestamp: new Date().toISOString(),
             kbHits: e.payload.kbHits || [],
@@ -116,18 +159,22 @@ function App() {
       listen("suggestion-generating", () => {
         setIsGeneratingSuggestion(true);
       }),
+
+      listen("suggestion-finished", () => {
+        setIsGeneratingSuggestion(false);
+      }),
     ];
 
     return () => {
       unlisteners.forEach((p) => p.then((f) => f()));
     };
-  }, []);
+  }, [settings]);
 
   const handleDownload = async () => {
     setModelError(null);
     setModelState("downloading");
     try {
-      await invoke("download_model", { model: TRANSCRIPTION_MODEL });
+      await invoke("download_model", { model: resolveWhisperModel(settings) });
     } catch (e) {
       setModelError(String(e));
       setModelState("missing");
@@ -158,13 +205,15 @@ function App() {
 
   const handleSuggestionFeedback = useCallback((id: string, helpful: boolean) => {
     // Send feedback to backend
-    invoke("suggestion_feedback", { suggestionId: id, helpful }).catch(console.error);
-  }, []);
+    invoke("suggestion_feedback", { sessionId: currentSessionId, suggestionId: id, helpful }).catch(console.error);
+  }, [currentSessionId]);
 
   const handleSuggestionCopy = useCallback((text: string) => {
     // Optional: track copy events or show toast
     console.log("Copied suggestion:", text.substring(0, 50) + "...");
   }, []);
+
+  const activeWhisperModel = resolveWhisperModel(settings);
 
   // Loading states
   if (modelState === "checking") {
@@ -185,7 +234,7 @@ function App() {
             Transcription Model Required
           </h3>
           <p style={{ color: colors.textSecondary, fontSize: 13, margin: "0 0 20px", lineHeight: 1.5 }}>
-            OpenOats needs the Whisper speech recognition model to transcribe conversations locally.
+            OpenOats needs {whisperModelLabel(activeWhisperModel)} to transcribe conversations locally for {settings?.transcriptionLocale || "the selected language"}.
           </p>
           {modelError && (
             <p style={{ color: "#c0392b", fontSize: 12, margin: "0 0 16px", lineHeight: 1.5 }}>
@@ -193,7 +242,7 @@ function App() {
             </p>
           )}
           <button onClick={handleDownload} style={primaryBtn}>
-            Download Model (~150 MB)
+            Download {activeWhisperModel} (~150 MB)
           </button>
         </div>
       </div>
@@ -229,7 +278,7 @@ function App() {
             </div>
           </div>
           <p style={{ color: colors.textSecondary, fontSize: 12, margin: 0 }}>
-            Downloading... {downloadProgress}%
+            Downloading {activeWhisperModel}... {downloadProgress}%
           </p>
           <p style={{ color: colors.textSecondary, fontSize: 11, margin: "8px 0 0", opacity: 0.7 }}>
             ~150 MB · 30 seconds remaining
@@ -270,6 +319,8 @@ function App() {
         onStart={handleStart}
         onStop={handleStop}
         modelName={modelName}
+        whisperModel={activeWhisperModel}
+        transcriptionLocale={settings?.transcriptionLocale || ""}
         kbConnected={kbConnected}
         kbFileCount={0} // Would come from backend
         isLocalMode={isLocalMode}

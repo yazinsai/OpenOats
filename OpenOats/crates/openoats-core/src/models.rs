@@ -72,6 +72,13 @@ pub struct SuggestionDecision {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SuggestionKind {
+    KnowledgeBase,
+    SmartQuestion,
+}
+
 // ── KBResult ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,6 +101,7 @@ impl KBResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Suggestion {
     pub id: Uuid,
+    pub kind: SuggestionKind,
     pub text: String,
     pub timestamp: DateTime<Utc>,
     pub kb_hits: Vec<KBResult>,
@@ -102,9 +110,15 @@ pub struct Suggestion {
 }
 
 impl Suggestion {
-    pub fn new(text: String, kb_hits: Vec<KBResult>, decision: Option<SuggestionDecision>) -> Self {
+    pub fn new(
+        kind: SuggestionKind,
+        text: String,
+        kb_hits: Vec<KBResult>,
+        decision: Option<SuggestionDecision>,
+    ) -> Self {
         Self {
             id: Uuid::new_v4(),
+            kind,
             text,
             timestamp: Utc::now(),
             kb_hits,
@@ -173,6 +187,13 @@ pub struct EnhancedNotes {
     pub markdown: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SuggestionFeedbackEntry {
+    pub suggestion_id: String,
+    pub helpful: bool,
+    pub created_at: DateTime<Utc>,
+}
+
 // ── SessionIndex / Sidecar ────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +211,8 @@ pub struct SessionIndex {
 pub struct SessionSidecar {
     pub index: SessionIndex,
     pub notes: Option<EnhancedNotes>,
+    #[serde(default)]
+    pub suggestion_feedback: Vec<SuggestionFeedbackEntry>,
 }
 
 // ── Built-in template prompts ─────────────────────────────────────────────────

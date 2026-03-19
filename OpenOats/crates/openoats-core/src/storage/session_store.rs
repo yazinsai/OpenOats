@@ -1,4 +1,4 @@
-use crate::models::{EnhancedNotes, SessionIndex, SessionRecord, SessionSidecar};
+use crate::models::{EnhancedNotes, SessionIndex, SessionRecord, SessionSidecar, SuggestionFeedbackEntry};
 use chrono::{DateTime, Utc};
 use serde_json;
 use std::fs::{self, File};
@@ -70,6 +70,12 @@ impl SessionStore {
         self.write_sidecar(&sidecar);
     }
 
+    pub fn save_suggestion_feedback(&self, session_id: &str, feedback: SuggestionFeedbackEntry) {
+        let mut sidecar = self.read_sidecar_or_stub(session_id);
+        sidecar.suggestion_feedback.push(feedback);
+        self.write_sidecar(&sidecar);
+    }
+
     fn read_sidecar_or_stub(&self, session_id: &str) -> SessionSidecar {
         let path = self.sessions_dir.join(format!("{}.meta.json", session_id));
         if let Ok(data) = fs::read_to_string(&path) {
@@ -90,6 +96,7 @@ impl SessionStore {
                 has_notes: false,
             },
             notes: None,
+            suggestion_feedback: Vec::new(),
         }
     }
 
