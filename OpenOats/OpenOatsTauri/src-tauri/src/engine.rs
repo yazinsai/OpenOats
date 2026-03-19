@@ -47,6 +47,14 @@ pub struct AudioLevelPayload {
     pub them: f32,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SuggestionPayload {
+    pub id: String,
+    pub text: String,
+    pub kb_hits: Vec<openoats_core::models::KBResult>,
+}
+
 // ── AppState ────────────────────────────────────────────────────────────────
 
 pub struct AppState {
@@ -54,7 +62,7 @@ pub struct AppState {
     pub session_store: Mutex<SessionStore>,
     pub transcript_logger: Mutex<TranscriptLogger>,
     pub knowledge_base: AsyncMutex<KnowledgeBase>,
-    pub suggestion_engine: Mutex<SuggestionEngine>,
+    pub suggestion_engine: AsyncMutex<SuggestionEngine>,
     pub audio_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     pub poll_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     pub is_running: Mutex<bool>,
@@ -73,7 +81,7 @@ impl AppState {
         let kb_fingerprint = format!("{}:{}", settings.embedding_provider, settings.ollama_embed_model);
         Self {
             knowledge_base: AsyncMutex::new(KnowledgeBase::new(kb_cache, kb_fingerprint)),
-            suggestion_engine: Mutex::new(SuggestionEngine::new()),
+            suggestion_engine: AsyncMutex::new(SuggestionEngine::new()),
             session_store: Mutex::new(SessionStore::with_default_path()),
             transcript_logger: Mutex::new(TranscriptLogger::with_default_path()),
             settings: Mutex::new(settings),
@@ -238,7 +246,7 @@ pub fn start_transcription(
             .ok_or_else(|| "Failed to create a recording session.".to_string())?
     };
     state.transcript_logger.lock().unwrap().start_session();
-    state.suggestion_engine.lock().unwrap().clear();
+    state.suggestion_engine.blocking_lock().clear();
 
     let model_str = model_path.to_string_lossy().into_owned();
     let app_clone = app.clone();
@@ -248,6 +256,9 @@ pub fn start_transcription(
     let device_name = settings.input_device_name.clone();
     let language = settings.transcription_locale
         .split('-').next().unwrap_or("en").to_string();
+
+    let them_utterances: Arc<Mutex<Vec<openoats_core::models::Utterance>>> =
+        Arc::new(Mutex::new(Vec::new()));
 
     let handle = tauri::async_runtime::spawn(async move {
         // Audio level polling task — runs until is_running goes false
@@ -272,6 +283,7 @@ pub fn start_transcription(
         let them_state = Arc::clone(&state_clone);
         let them_model = model_str.clone();
         let them_lang = language.clone();
+        let them_utterances_spawn = Arc::clone(&them_utterances);
 
         tauri::async_runtime::spawn(async move {
             let sys = SystemAudioCapture::new();
@@ -289,11 +301,25 @@ pub fn start_transcription(
                 sys_level_w.store(rms.to_bits(), Ordering::Relaxed);
                 chunk
             });
-            let app_t = them_app.clone();
-            let state_t = Arc::clone(&them_state);
+
+            let them_utterances_clone = Arc::clone(&them_utterances_spawn);
+            let app_sg = them_app.clone();
+            let state_sg = Arc::clone(&them_state);
+
             let on_them = move |text: String| {
+                use openoats_core::models::{Utterance, Speaker};
+                let utterance = Utterance {
+                    id: uuid::Uuid::new_v4(),
+                    text: text.clone(),
+                    speaker: Speaker::Them,
+                    timestamp: chrono::Utc::now(),
+                };
+
+                // Emit finalized transcript
                 let payload = TranscriptPayload { text: text.clone(), speaker: "them".into() };
-                app_t.emit("transcript", &payload).ok();
+                app_sg.emit("transcript", &payload).ok();
+
+                // Append to session store and logger
                 let record = SessionRecord {
                     speaker: Speaker::Them,
                     text: text.clone(),
@@ -303,8 +329,88 @@ pub fn start_transcription(
                     surfaced_suggestion_text: None,
                     conversation_state_summary: None,
                 };
-                state_t.session_store.lock().unwrap().append_record(&record).ok();
-                state_t.transcript_logger.lock().unwrap().append("Them", &text, chrono::Utc::now());
+                state_sg.session_store.lock().unwrap().append_record(&record).ok();
+                state_sg.transcript_logger.lock().unwrap().append("Them", &text, chrono::Utc::now());
+
+                // Track recent them utterances (keep last 10)
+                {
+                    let mut buf = them_utterances_clone.lock().unwrap();
+                    buf.push(utterance.clone());
+                    if buf.len() > 10 { buf.remove(0); }
+                }
+
+                // Spawn async suggestion task
+                let app_inner = app_sg.clone();
+                let state_inner = Arc::clone(&state_sg);
+                let them_buf_inner = Arc::clone(&them_utterances_clone);
+                let utterance_owned = utterance;
+                tauri::async_runtime::spawn(async move {
+                    app_inner.emit("suggestion-generating", ()).ok();
+
+                    let settings = state_inner.settings.lock().unwrap().clone();
+                    let (embed_url, embed_key, embed_model) = embed_config(&settings);
+                    let (llm_url, llm_key) = llm_base_url_and_key(&settings);
+                    let llm_model = if settings.llm_provider == "ollama" {
+                        settings.ollama_llm_model.clone()
+                    } else {
+                        settings.selected_model.clone()
+                    };
+
+                    // Snapshot KB chunks while holding async lock, then release
+                    use openoats_core::intelligence::knowledge_base::search_chunks;
+                    let kb_snapshot = state_inner.knowledge_base.lock().await.chunks.clone();
+
+                    let embed_fn = {
+                        let url = embed_url.clone();
+                        let key = embed_key.clone();
+                        let model = embed_model.clone();
+                        move |texts: Vec<String>| {
+                            let url = url.clone(); let key = key.clone(); let model = model.clone();
+                            async move {
+                                openoats_core::intelligence::embedding_client::embed(
+                                    &url, key.as_deref(), &model, &texts, None, None,
+                                ).await
+                            }
+                        }
+                    };
+
+                    let search_fn = move |emb: &[f32]| -> Vec<openoats_core::models::KBResult> {
+                        search_chunks(&kb_snapshot, emb, 5, 0.4)
+                    };
+
+                    let complete_fn = {
+                        let url = llm_url.clone();
+                        let key = llm_key.clone();
+                        let model = llm_model.clone();
+                        move |messages: Vec<openoats_core::intelligence::llm_client::Message>| {
+                            let url = url.clone(); let key = key.clone(); let model = model.clone();
+                            async move {
+                                openoats_core::intelligence::llm_client::complete(
+                                    &url, key.as_deref(), &model, messages, 512,
+                                ).await
+                            }
+                        }
+                    };
+
+                    let recent_buf = them_buf_inner.lock().unwrap().clone();
+                    let recent_refs: Vec<&openoats_core::models::Utterance> = recent_buf.iter().collect();
+
+                    let mut engine = state_inner.suggestion_engine.lock().await;
+                    if let Some(suggestion) = engine.process_utterance(
+                        &utterance_owned,
+                        &recent_refs,
+                        embed_fn,
+                        search_fn,
+                        complete_fn,
+                    ).await {
+                        let payload = SuggestionPayload {
+                            id: suggestion.id.to_string(),
+                            text: suggestion.text.clone(),
+                            kb_hits: suggestion.kb_hits.clone(),
+                        };
+                        app_inner.emit("suggestion", &payload).ok();
+                    }
+                });
             };
             let transcriber = StreamingTranscriber::new(them_model, them_lang, Box::new(on_them));
             transcriber.run(them_stream_leveled).await;

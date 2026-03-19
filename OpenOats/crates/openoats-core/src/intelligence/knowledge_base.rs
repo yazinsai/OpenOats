@@ -144,6 +144,24 @@ impl KnowledgeBase {
     }
 }
 
+/// Search a provided chunk snapshot without holding a KnowledgeBase reference.
+/// Useful for async contexts where snapshotting chunks avoids lock contention.
+pub fn search_chunks(chunks: &[KbChunk], query_embedding: &[f32], top_k: usize, threshold: f32) -> Vec<crate::models::KBResult> {
+    use crate::intelligence::embedding_client::cosine_similarity;
+    let mut scored: Vec<(f32, &KbChunk)> = chunks.iter()
+        .map(|c| (cosine_similarity(query_embedding, &c.embedding), c))
+        .filter(|(s, _)| *s >= threshold)
+        .collect();
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    scored.into_iter().take(top_k).map(|(score, c)| crate::models::KBResult {
+        id: uuid::Uuid::new_v4(),
+        text: c.text.clone(),
+        source_file: c.source_file.clone(),
+        header_context: c.header_context.clone(),
+        score: score as f64,
+    }).collect()
+}
+
 /// Simple markdown chunker: splits on headers, returns (text, header_context) pairs.
 fn chunk_markdown(content: &str, _filename: &str) -> Vec<(String, String)> {
     let mut chunks: Vec<(String, String)> = Vec::new();
@@ -231,6 +249,19 @@ mod tests {
 
         let query = vec![1.0, 0.0, 0.0];
         let results = kb.search(&query, 5, 0.5);
+        assert_eq!(results.len(), 1);
+        assert!((results[0].score - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn search_chunks_finds_similar() {
+        let chunks = vec![KbChunk {
+            text: "relevant content".into(),
+            source_file: "f.md".into(),
+            header_context: "".into(),
+            embedding: vec![1.0, 0.0, 0.0],
+        }];
+        let results = search_chunks(&chunks, &[1.0, 0.0, 0.0], 5, 0.5);
         assert_eq!(results.len(), 1);
         assert!((results[0].score - 1.0).abs() < 1e-4);
     }
