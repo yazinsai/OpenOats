@@ -174,3 +174,24 @@ jobs:
           git add appcast.xml
           git commit -m "Update appcast for ${VERSION}" || echo "No changes to commit"
           git push origin gh-pages
+
+      - name: Update Homebrew cask
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          SHA256=$(shasum -a 256 dist/OpenOats.dmg | awk '{print $1}')
+
+          git clone --branch main --single-branch "https://x-access-token:${GH_TOKEN}@github.com/yazinsai/OpenOats.git" /tmp/openoats-main
+
+          chmod +x /tmp/openoats-main/scripts/update_homebrew_cask.sh
+          /tmp/openoats-main/scripts/update_homebrew_cask.sh "$VERSION" "$SHA256"
+
+          cd /tmp/openoats-main
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/openoats.rb
+          git commit -m "Update Homebrew cask for ${VERSION}" || echo "No changes to commit"
+          git push origin main
