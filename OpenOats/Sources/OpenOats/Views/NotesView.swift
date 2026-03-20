@@ -12,23 +12,32 @@ struct NotesView: View {
     @State private var sessionToDelete: String?
     @State private var showDeleteConfirmation = false
 
+    enum DetailViewMode: String, CaseIterable {
+        case transcript = "Transcript"
+        case notes = "Notes"
+    }
+
+    @State private var detailViewMode: DetailViewMode = .transcript
+    @State private var showingOriginal = false
+
     var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
             sidebar
-        } detail: {
+                .frame(width: 250)
+            Divider()
             detailContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .task {
             await coordinator.loadHistory()
             if let requested = coordinator.consumeRequestedSessionSelection() {
                 selectedSessionID = requested
+                detailViewMode = .notes
             } else if let last = coordinator.lastEndedSession {
                 selectedSessionID = last.id
             }
         }
         .onChange(of: coordinator.lastEndedSession?.id) {
-            // When a new session ends (even if Notes window is already open),
-            // refresh history and auto-select it
             if let last = coordinator.lastEndedSession {
                 Task {
                     await coordinator.loadHistory()
@@ -39,10 +48,9 @@ struct NotesView: View {
         .onChange(of: coordinator.requestedSessionSelectionID) {
             if let requested = coordinator.consumeRequestedSessionSelection() {
                 selectedSessionID = requested
+                // Deep links target notes, so default to the Notes tab
+                detailViewMode = .notes
             }
-        }
-        .onChange(of: coordinator.sessionHistory.count) {
-            // Refresh sidebar when history changes
         }
     }
 
@@ -102,9 +110,8 @@ struct NotesView: View {
                 }
             }
         }
-        .navigationTitle("Sessions")
-        .frame(minWidth: 200)
-        .accessibilityIdentifier("notes.sessionList")
+        .listStyle(.sidebar)
+        .frame(maxHeight: .infinity)
         .onChange(of: selectedSessionID) {
             loadSelectedSession()
         }
@@ -126,16 +133,183 @@ struct NotesView: View {
     private var detailContent: some View {
         if let sessionID = selectedSessionID {
             VStack(spacing: 0) {
-                if coordinator.notesEngine.isGenerating {
-                    generatingView
-                } else if let notes = loadedNotes {
-                    notesReadyView(notes)
-                } else {
-                    noNotesView(sessionID: sessionID)
+                detailToolbar
+                Divider()
+                detailBody(sessionID: sessionID)
+            }
+            .background {
+                Group {
+                    Button("") { detailViewMode = .transcript }
+                        .keyboardShortcut("1", modifiers: .command)
+                    Button("") { detailViewMode = .notes }
+                        .keyboardShortcut("2", modifiers: .command)
                 }
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
             }
         } else {
             ContentUnavailableView("Select a Session", systemImage: "doc.text", description: Text("Choose a session from the sidebar to view or generate notes."))
+        }
+    }
+
+    private enum CleanupState {
+        case notCleaned
+        case inProgress
+        case partiallyCleaned
+        case cleaned
+    }
+
+    private var cleanupState: CleanupState {
+        if coordinator.cleanupEngine.isCleaningUp { return .inProgress }
+        guard !loadedTranscript.isEmpty else { return .notCleaned }
+        let hasAnyRefined = loadedTranscript.contains(where: { $0.refinedText != nil })
+        if !hasAnyRefined { return .notCleaned }
+        let allRefined = !loadedTranscript.contains(where: { $0.refinedText == nil })
+        return allRefined ? .cleaned : .partiallyCleaned
+    }
+
+    @ViewBuilder
+    private var detailToolbar: some View {
+        HStack(spacing: 8) {
+            Picker("View", selection: $detailViewMode) {
+                ForEach(DetailViewMode.allCases, id: \.self) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(minWidth: 120, maxWidth: 220)
+            .layoutPriority(1)
+
+            Spacer(minLength: 4)
+
+            if detailViewMode == .transcript {
+                transcriptToolbarActions
+            } else if detailViewMode == .notes {
+                notesToolbarActions
+            }
+
+            Button {
+                copyCurrentContent()
+            } label: {
+                Label("Copy", systemImage: "doc.on.doc")
+                    .font(.system(size: 12))
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.bordered)
+            .disabled(copyContentIsEmpty)
+            .help("Copy to clipboard")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var transcriptToolbarActions: some View {
+        switch cleanupState {
+        case .notCleaned:
+            Button {
+                cleanUpTranscript()
+            } label: {
+                Label("Clean Up", systemImage: "sparkles")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(loadedTranscript.isEmpty)
+            .help("Remove filler words and fix punctuation")
+
+        case .inProgress:
+            HStack(spacing: 6) {
+                Text("\(coordinator.cleanupEngine.chunksCompleted)/\(coordinator.cleanupEngine.totalChunks) cleaning...")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Button("Cancel") {
+                    coordinator.cleanupEngine.cancel()
+                }
+                .buttonStyle(.bordered)
+                .font(.system(size: 11))
+                .controlSize(.small)
+            }
+
+        case .partiallyCleaned:
+            Button {
+                cleanUpTranscript()
+            } label: {
+                Label("Clean Up", systemImage: "sparkles")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.borderedProminent)
+            .help("Clean up remaining utterances")
+
+            Button {
+                showingOriginal.toggle()
+            } label: {
+                Label("Show Original", systemImage: showingOriginal ? "text.badge.checkmark" : "text.badge.minus")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.bordered)
+            .tint(showingOriginal ? .accentColor : nil)
+            .help(showingOriginal ? "Showing original transcript" : "Show original transcript")
+
+        case .cleaned:
+            Button {
+                showingOriginal.toggle()
+            } label: {
+                Label("Show Original", systemImage: showingOriginal ? "text.badge.checkmark" : "text.badge.minus")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.bordered)
+            .tint(showingOriginal ? .accentColor : nil)
+            .help(showingOriginal ? "Showing original transcript" : "Show original transcript")
+        }
+    }
+
+    @ViewBuilder
+    private var notesToolbarActions: some View {
+        if let notes = loadedNotes {
+            Menu {
+                ForEach(coordinator.templateStore.templates) { template in
+                    Button {
+                        regenerateNotes(with: template)
+                    } label: {
+                        Label(template.name, systemImage: template.icon)
+                    }
+                    .disabled(notes.template.id == template.id)
+                }
+            } label: {
+                Label(notes.template.name, systemImage: notes.template.icon)
+                    .font(.system(size: 12))
+            } primaryAction: {
+                regenerateNotes()
+            }
+            .menuStyle(.button)
+            .buttonStyle(.bordered)
+            .fixedSize()
+            .help("Click to regenerate, or pick a different template")
+        }
+    }
+
+    @ViewBuilder
+    private func detailBody(sessionID: String) -> some View {
+        Group {
+            switch detailViewMode {
+            case .transcript:
+                transcriptView
+            case .notes:
+                notesTab(sessionID: sessionID)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func notesTab(sessionID: String) -> some View {
+        if coordinator.notesEngine.isGenerating {
+            generatingView
+        } else if let notes = loadedNotes {
+            notesContentView(notes)
+        } else {
+            notesEmptyState(sessionID: sessionID)
         }
     }
 
@@ -144,125 +318,131 @@ struct NotesView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     ProgressView()
-                        .scaleEffect(0.8)
+                        .controlSize(.small)
                     Text("Generating notes...")
-                        .font(.system(size: 13))
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("notes.generating")
                     Spacer()
                     Button("Cancel") {
                         coordinator.notesEngine.cancel()
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.red)
+                    .buttonStyle(.bordered)
+                    .font(.system(size: 11))
                 }
 
                 markdownContent(coordinator.notesEngine.generatedMarkdown)
             }
-            .padding(20)
+            .padding(16)
         }
     }
 
-    private func notesReadyView(_ notes: EnhancedNotes) -> some View {
-        VStack(spacing: 0) {
-            // Toolbar
-            HStack {
-                Label(notes.template.name, systemImage: notes.template.icon)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("Generated \(notes.generatedAt, style: .relative) ago")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(notes.markdown, forType: .string)
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    regenerateNotes()
-                } label: {
-                    Label("Regenerate", systemImage: "arrow.clockwise")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.bordered)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-
-            Divider()
-
-            ScrollView {
-                markdownContent(notes.markdown)
-                    .padding(20)
-                    .accessibilityIdentifier("notes.renderedMarkdown")
-            }
+    private func notesContentView(_ notes: EnhancedNotes) -> some View {
+        ScrollView {
+            markdownContent(notes.markdown)
+                .padding(16)
+                .accessibilityIdentifier("notes.renderedMarkdown")
         }
     }
 
-    private func noNotesView(sessionID: String) -> some View {
-        VStack(spacing: 16) {
+    private func notesEmptyState(sessionID: String) -> some View {
+        ContentUnavailableView {
+            Label("Generate Notes", systemImage: "sparkles")
+        } description: {
+            Text("Summarize this transcript into structured meeting notes.")
+        } actions: {
             if let error = coordinator.notesEngine.error {
                 Text(error)
                     .foregroundStyle(.red)
                     .font(.system(size: 12))
             }
 
-            if !loadedTranscript.isEmpty {
-                // Transcript preview
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(loadedTranscript.prefix(20).enumerated()), id: \.offset) { _, record in
-                            HStack(alignment: .top, spacing: 8) {
-                                Text(record.speaker == .you ? "You" : "Them")
-                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                    .foregroundStyle(record.speaker == .you ? .blue : .green)
-                                    .frame(width: 35, alignment: .trailing)
-                                Text(record.text)
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.primary)
-                            }
-                        }
-                        if loadedTranscript.count > 20 {
-                            Text("... and \(loadedTranscript.count - 20) more utterances")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.tertiary)
-                                .padding(.top, 4)
-                        }
-                    }
-                    .padding(16)
-                }
-                .frame(maxHeight: 300)
-                .background(.quaternary.opacity(0.3))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            Button {
+                generateNotes(sessionID: sessionID)
+            } label: {
+                Label("Generate Notes", systemImage: "sparkles")
             }
+            .buttonStyle(.borderedProminent)
+            .disabled(loadedTranscript.isEmpty)
+            .accessibilityIdentifier("notes.generateButton")
+        }
+    }
 
-            // Template picker for generation
-            HStack {
-                Picker("Template", selection: $selectedTemplateForGeneration) {
-                    ForEach(coordinator.templateStore.templates) { template in
-                        Label(template.name, systemImage: template.icon).tag(Optional(template))
+    // MARK: - Transcript Views
+
+    @ViewBuilder
+    private var transcriptView: some View {
+        if loadedTranscript.isEmpty {
+            ContentUnavailableView("No Transcript", systemImage: "waveform", description: Text("This session has no recorded utterances."))
+        } else {
+            ScrollView {
+                if coordinator.cleanupEngine.isCleaningUp {
+                    cleanupProgressBanner
+                }
+                if let cleanupError = coordinator.cleanupEngine.error {
+                    Text(cleanupError)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 4)
+                }
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    let isCleaning = coordinator.cleanupEngine.isCleaningUp
+                    ForEach(Array(loadedTranscript.enumerated()), id: \.offset) { _, record in
+                        transcriptRow(record: record, isCleaning: isCleaning)
                     }
                 }
-                .frame(maxWidth: 200)
-
-                Button {
-                    generateNotes(sessionID: sessionID)
-                } label: {
-                    Label("Generate Notes", systemImage: "sparkles")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(loadedTranscript.isEmpty)
-                .accessibilityIdentifier("notes.generateButton")
+                .padding(16)
             }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var cleanupProgressBanner: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Cleaning up transcript... \(coordinator.cleanupEngine.chunksCompleted)/\(coordinator.cleanupEngine.totalChunks) sections")
+                .font(.system(size: 12))
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Cancel") {
+                coordinator.cleanupEngine.cancel()
+            }
+            .buttonStyle(.bordered)
+            .font(.system(size: 11))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+
+    @ViewBuilder
+    private func transcriptRow(record: SessionRecord, isCleaning: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(record.speaker == .you ? "You" : "Them")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(record.speaker == .you ? Color.youColor : Color.themColor)
+                .frame(width: 36, alignment: .trailing)
+
+            let displayText = showingOriginal ? record.text : (record.refinedText ?? record.text)
+            Text(displayText)
+                .font(.system(size: 13))
+                .foregroundStyle(
+                    isCleaning && record.refinedText == nil ? .secondary : .primary
+                )
+                .textSelection(.enabled)
+        }
+    }
+
+    private var copyContentIsEmpty: Bool {
+        switch detailViewMode {
+        case .transcript:
+            return loadedTranscript.isEmpty
+        case .notes:
+            return loadedNotes == nil
+        }
     }
 
     // MARK: - Markdown Rendering
@@ -334,7 +514,6 @@ struct NotesView: View {
             }
         }
 
-        // Final section
         if currentHeading != nil || !currentBody.isEmpty {
             sections.append(MarkdownSection(heading: currentHeading, level: currentLevel, body: currentBody.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)))
         }
@@ -344,6 +523,23 @@ struct NotesView: View {
 
     // MARK: - Actions
 
+    private func copyCurrentContent() {
+        let text: String
+        switch detailViewMode {
+        case .transcript:
+            text = loadedTranscript.map { record in
+                let label = record.speaker == .you ? "You" : "Them"
+                let content = showingOriginal ? record.text : (record.refinedText ?? record.text)
+                return "[\(Self.transcriptTimeFormatter.string(from: record.timestamp))] \(label): \(content)"
+            }.joined(separator: "\n")
+        case .notes:
+            text = loadedNotes?.markdown ?? ""
+        }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
     private func loadSelectedSession() {
         guard let sessionID = selectedSessionID else {
             loadedNotes = nil
@@ -351,11 +547,20 @@ struct NotesView: View {
             return
         }
 
-        Task {
-            loadedNotes = await coordinator.sessionStore.loadNotes(sessionID: sessionID)
-            loadedTranscript = await coordinator.sessionStore.loadTranscript(sessionID: sessionID)
+        loadedNotes = nil
+        loadedTranscript = []
+        showingOriginal = false
+        coordinator.cleanupEngine.cancel()
 
-            // Default template for generation
+        Task {
+            let notes = await coordinator.sessionStore.loadNotes(sessionID: sessionID)
+            let transcript = await coordinator.sessionStore.loadTranscript(sessionID: sessionID)
+
+            guard selectedSessionID == sessionID else { return }
+
+            loadedNotes = notes
+            loadedTranscript = transcript
+
             let session = coordinator.sessionHistory.first { $0.id == sessionID }
             if let snapID = session?.templateSnapshot?.id {
                 selectedTemplateForGeneration = coordinator.templateStore.template(for: snapID)
@@ -377,7 +582,6 @@ struct NotesView: View {
                 settings: settings
             )
 
-            // Save completed notes
             if !coordinator.notesEngine.generatedMarkdown.isEmpty {
                 let notes = EnhancedNotes(
                     template: coordinator.templateStore.snapshot(of: template),
@@ -387,7 +591,6 @@ struct NotesView: View {
                 await coordinator.sessionStore.saveNotes(sessionID: sessionID, notes: notes)
                 loadedNotes = notes
 
-                // Refresh history to update hasNotes
                 await coordinator.loadHistory()
             }
         }
@@ -413,9 +616,42 @@ struct NotesView: View {
         }
     }
 
-    private func regenerateNotes() {
+    private func regenerateNotes(with template: MeetingTemplate? = nil) {
         guard let sessionID = selectedSessionID else { return }
+        if let template {
+            selectedTemplateForGeneration = template
+        }
         loadedNotes = nil
         generateNotes(sessionID: sessionID)
+    }
+
+    private static let transcriptTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
+    private func cleanUpTranscript() {
+        guard let sessionID = selectedSessionID, !loadedTranscript.isEmpty else { return }
+
+        Task {
+            let updated = await coordinator.cleanupEngine.cleanup(
+                records: loadedTranscript,
+                settings: settings
+            )
+
+            let utterances = updated.map { record in
+                Utterance(
+                    text: record.text,
+                    speaker: record.speaker,
+                    timestamp: record.timestamp,
+                    refinedText: record.refinedText
+                )
+            }
+            await coordinator.sessionStore.backfillRefinedText(sessionID: sessionID, from: utterances)
+
+            guard selectedSessionID == sessionID else { return }
+            loadedTranscript = await coordinator.sessionStore.loadTranscript(sessionID: sessionID)
+        }
     }
 }

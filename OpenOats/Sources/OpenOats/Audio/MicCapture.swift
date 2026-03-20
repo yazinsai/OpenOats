@@ -33,7 +33,7 @@ final class MicCapture: @unchecked Sendable {
         )
     }
 
-    func bufferStream(deviceID: AudioDeviceID? = nil) -> AsyncStream<AVAudioPCMBuffer> {
+    func bufferStream(deviceID: AudioDeviceID? = nil, echoCancellation: Bool = false) -> AsyncStream<AVAudioPCMBuffer> {
         // Defensive cleanup of any prior state
         _streamContinuation.withLock { $0?.finish(); $0 = nil }
         engine.inputNode.removeTap(onBus: 0)
@@ -54,6 +54,16 @@ final class MicCapture: @unchecked Sendable {
 
             let inputNode = engine.inputNode
             diagLog("[MIC-1b] input node ready")
+
+            // Enable voice processing (AEC + noise suppression) if requested
+            if echoCancellation {
+                do {
+                    try inputNode.setVoiceProcessingEnabled(true)
+                    diagLog("[MIC-1c] voice processing (AEC) enabled")
+                } catch {
+                    diagLog("[MIC-1c] failed to enable voice processing: \(error.localizedDescription)")
+                }
+            }
 
             // Set input device before accessing inputNode format
             var resolvedDeviceID: AudioDeviceID?

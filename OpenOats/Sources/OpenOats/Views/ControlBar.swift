@@ -16,7 +16,7 @@ struct ControlBar: View {
             // Error banner
             if let error = errorMessage {
                 Text(error)
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
@@ -45,9 +45,9 @@ struct ControlBar: View {
             if let status = statusMessage, status != "Ready" {
                 HStack(spacing: 6) {
                     ProgressView()
-                        .controlSize(.mini)
+                        .controlSize(.small)
                     Text(status)
-                        .font(.system(size: 11))
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("app.controlBar.status")
                 }
