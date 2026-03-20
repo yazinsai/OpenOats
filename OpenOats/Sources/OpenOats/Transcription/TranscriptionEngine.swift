@@ -74,15 +74,13 @@ final class TranscriptionEngine {
     /// Keeps the mic stream alive for the audio level meter when transcription isn't running.
     private var micKeepAliveTask: Task<Void, Never>?
 
-    /// Shared FluidAudio instances
-    // Parakeet keeps mutable decoder state per manager, so mic and system audio
-    // need separate instances even when they share the same loaded model files.
-    private var micAsrManager: AsrManager?
-    private var systemAsrManager: AsrManager?
-    private var qwen3Manager: Qwen3AsrManager?
-    private var whisperManager: WhisperKitManager?
+    /// Separate backend instances for mic and system audio.
+    /// Parakeet keeps mutable decoder state per manager, so mic and system audio
+    /// need separate instances even when they share the same loaded model files.
+    /// For Qwen3 (actor-based, thread-safe), both point to the same backend instance.
+    private var micBackend: (any TranscriptionBackend)?
+    private var systemBackend: (any TranscriptionBackend)?
     private var vadManager: VadManager?
-    private var currentTranscriptionModel: TranscriptionModel?
 
     /// Audio recorder for tapping streams (set by ContentView when recording is enabled).
     var audioRecorder: AudioRecorder?
@@ -136,76 +134,29 @@ final class TranscriptionEngine {
 
         isRunning = true
 
-        // 1. Load FluidAudio models
+        // 1. Load transcription models via backend protocol
         assetStatus = needsModelDownload
             ? "Downloading \(transcriptionModel.displayName)..."
             : "Loading \(transcriptionModel.displayName)..."
         diagLog("[ENGINE-1] loading transcription model \(transcriptionModel.rawValue)...")
         do {
-            switch transcriptionModel {
-            case .parakeetV2:
-                let models = try await AsrModels.downloadAndLoad(version: .v2)
-                assetStatus = "Initializing \(transcriptionModel.displayName)..."
-                let micAsr = AsrManager(config: .default)
-                try await micAsr.initialize(models: models)
-                let systemAsr = AsrManager(config: .default)
-                try await systemAsr.initialize(models: models)
-                if let (customVocabulary, ctcModels) = try await loadCustomVocabularyBoosting() {
-                    assetStatus = "Loading custom keywords..."
-                    try await micAsr.configureVocabularyBoosting(
-                        vocabulary: customVocabulary,
-                        ctcModels: ctcModels
-                    )
-                    try await systemAsr.configureVocabularyBoosting(
-                        vocabulary: customVocabulary,
-                        ctcModels: ctcModels
-                    )
+            let vocab = settings.transcriptionCustomVocabulary
+            let mic = transcriptionModel.makeBackend(customVocabulary: vocab)
+            try await mic.prepare { [weak self] status in
+                Task { @MainActor in
+                    self?.assetStatus = status
                 }
-                self.micAsrManager = micAsr
-                self.systemAsrManager = systemAsr
-                self.qwen3Manager = nil
-                self.whisperManager = nil
-            case .parakeetV3:
-                let models = try await AsrModels.downloadAndLoad(version: .v3)
-                assetStatus = "Initializing \(transcriptionModel.displayName)..."
-                let micAsr = AsrManager(config: .default)
-                try await micAsr.initialize(models: models)
-                let systemAsr = AsrManager(config: .default)
-                try await systemAsr.initialize(models: models)
-                if let (customVocabulary, ctcModels) = try await loadCustomVocabularyBoosting() {
-                    assetStatus = "Loading custom keywords..."
-                    try await micAsr.configureVocabularyBoosting(
-                        vocabulary: customVocabulary,
-                        ctcModels: ctcModels
-                    )
-                    try await systemAsr.configureVocabularyBoosting(
-                        vocabulary: customVocabulary,
-                        ctcModels: ctcModels
-                    )
-                }
-                self.micAsrManager = micAsr
-                self.systemAsrManager = systemAsr
-                self.qwen3Manager = nil
-                self.whisperManager = nil
-            case .qwen3ASR06B:
-                assetStatus = "Initializing \(transcriptionModel.displayName)..."
-                let modelsDirectory = try await Qwen3AsrModels.download()
-                let qwen3 = Qwen3AsrManager()
-                try await qwen3.loadModels(from: modelsDirectory)
-                self.qwen3Manager = qwen3
-                self.micAsrManager = nil
-                self.systemAsrManager = nil
-                self.whisperManager = nil
-            case .whisperBase, .whisperSmall:
-                guard let variant = transcriptionModel.whisperVariant else {
-                    fatalError("Whisper model without variant")
-                }
-                let manager = WhisperKitManager(variant: variant)
-                try await manager.setup()
-                self.whisperManager = manager
-                self.micAsrManager = nil
-                self.systemAsrManager = nil
-                self.qwen3Manager = nil
+            }
+            self.micBackend = mic
+
+            // Parakeet needs a separate backend for system audio (mutable decoder state).
+            // Qwen3 is actor-based and thread-safe, so reuse the same instance.
+            if transcriptionModel == .qwen3ASR06B {
+                self.systemBackend = mic
+            } else {
+                let sys = transcriptionModel.makeBackend(customVocabulary: vocab)
+                try await sys.prepare { _ in }
+                self.systemBackend = sys
             }
 
             assetStatus = "Loading VAD model..."
@@ -215,7 +166,6 @@ final class TranscriptionEngine {
 
             needsModelDownload = false
             downloadConfirmed = false
-            currentTranscriptionModel = transcriptionModel
             assetStatus = "Models ready"
             diagLog("[ENGINE-2] transcription model loaded")
         } catch {
@@ -243,7 +193,6 @@ final class TranscriptionEngine {
         diagLog("[ENGINE-3] starting mic capture, targetMicID=\(String(describing: targetMicID))")
         startMicStream(
             locale: locale,
-            transcriptionModel: currentTranscriptionModel ?? transcriptionModel,
             vadManager: vadManager,
             deviceID: targetMicID
         )
@@ -287,7 +236,7 @@ final class TranscriptionEngine {
                 }
             }
             let sysStream = sysStream  // rebind as let for capture
-            let sysTranscriber = makeTranscriber(
+            if let sysTranscriber = makeTranscriber(
                 locale: locale,
                 speaker: .them,
                 vadManager: vadManager,
@@ -300,13 +249,14 @@ final class TranscriptionEngine {
                         store.append(Utterance(text: text, speaker: .them))
                     }
                 }
-            )
-            sysTask = Task.detached {
-                await sysTranscriber.run(stream: sysStream)
+            ) {
+                sysTask = Task.detached {
+                    await sysTranscriber.run(stream: sysStream)
+                }
             }
         }
 
-        assetStatus = "Transcribing (\(transcriptionModel.displayName))"
+        assetStatus = "Transcribing (\(micBackend?.displayName ?? transcriptionModel.displayName))"
         diagLog("[ENGINE-6] all transcription tasks started")
 
         // Install CoreAudio listener for default input device changes
@@ -350,7 +300,6 @@ final class TranscriptionEngine {
             guard let self else { return }
             Task { @MainActor in
                 guard self.isRunning, self.userSelectedDeviceID == 0 else { return }
-                // User has "System Default" selected — follow the OS default
                 self.restartMic(inputDeviceID: 0)
             }
         }
@@ -402,9 +351,6 @@ final class TranscriptionEngine {
         }
     }
 
-    /// Gracefully drain buffered audio before stopping.
-    /// Finishes async streams so transcribers flush remaining speech samples,
-    /// then awaits task completion before tearing down audio hardware.
     func finalize() async {
         removeDefaultDeviceListener()
         micRestartTask?.cancel()
@@ -412,16 +358,12 @@ final class TranscriptionEngine {
         pendingMicDeviceID = nil
         micKeepAliveTask?.cancel()
 
-        // Finish the async streams — causes StreamingTranscriber.run()
-        // to exit its for-await loop and hit the final speechSamples flush
         micCapture.finishStream()
         systemCapture.finishStream()
 
-        // Wait for transcriber tasks to complete (includes final flush)
         await micTask?.value
         await sysTask?.value
 
-        // Now safe to tear down audio hardware
         micCapture.stop()
         await systemCapture.stop()
 
@@ -430,7 +372,8 @@ final class TranscriptionEngine {
         pendingMicDeviceID = nil
         micKeepAliveTask = nil
         currentMicDeviceID = 0
-        currentTranscriptionModel = nil
+        micBackend = nil
+        systemBackend = nil
         isRunning = false
         assetStatus = "Ready"
     }
@@ -449,7 +392,8 @@ final class TranscriptionEngine {
         Task { await systemCapture.stop() }
         micCapture.stop()
         currentMicDeviceID = 0
-        currentTranscriptionModel = nil
+        micBackend = nil
+        systemBackend = nil
         isRunning = false
         assetStatus = "Ready"
     }
@@ -484,7 +428,6 @@ final class TranscriptionEngine {
         micCapture.stop()
         startMicStream(
             locale: settings.locale,
-            transcriptionModel: currentTranscriptionModel ?? settings.transcriptionModel,
             vadManager: vadManager,
             deviceID: targetMicID
         )
@@ -496,7 +439,6 @@ final class TranscriptionEngine {
 
     private func startMicStream(
         locale: Locale,
-        transcriptionModel: TranscriptionModel,
         vadManager: VadManager,
         deviceID: AudioDeviceID
     ) {
@@ -507,7 +449,7 @@ final class TranscriptionEngine {
             }
         }
         let store = transcriptStore
-        let micTranscriber = makeTranscriber(
+        guard let micTranscriber = makeTranscriber(
             locale: locale,
             speaker: .you,
             vadManager: vadManager,
@@ -520,7 +462,12 @@ final class TranscriptionEngine {
                     store.append(Utterance(text: text, speaker: .you))
                 }
             }
-        )
+        ) else {
+            lastError = "Failed to create transcriber. Try restarting."
+            isRunning = false
+            assetStatus = "Ready"
+            return
+        }
         micTask = Task.detached {
             await micTranscriber.run(stream: micStream)
         }
@@ -532,45 +479,20 @@ final class TranscriptionEngine {
         vadManager: VadManager,
         onPartial: @escaping @Sendable (String) -> Void,
         onFinal: @escaping @Sendable (String) -> Void
-    ) -> StreamingTranscriber {
-        switch currentTranscriptionModel ?? settings.transcriptionModel {
-        case .parakeetV2, .parakeetV3:
-            let asrManager = speaker == .you ? micAsrManager : systemAsrManager
-            guard let asrManager else {
-                fatalError("Parakeet transcription requested without an initialized AsrManager")
-            }
-            return StreamingTranscriber(
-                asrManager: asrManager,
-                vadManager: vadManager,
-                speaker: speaker,
-                onPartial: onPartial,
-                onFinal: onFinal
-            )
-        case .qwen3ASR06B:
-            guard let qwen3Manager else {
-                fatalError("Qwen3 transcription requested without an initialized Qwen3AsrManager")
-            }
-            let qwenLanguage = qwen3Language(for: locale)
-            return StreamingTranscriber(
-                qwen3Manager: qwen3Manager,
-                qwenLanguage: qwenLanguage,
-                vadManager: vadManager,
-                speaker: speaker,
-                onPartial: onPartial,
-                onFinal: onFinal
-            )
-        case .whisperBase, .whisperSmall:
-            guard let whisperManager else {
-                fatalError("Whisper transcription requested without an initialized WhisperKitManager")
-            }
-            return StreamingTranscriber(
-                whisperManager: whisperManager,
-                vadManager: vadManager,
-                speaker: speaker,
-                onPartial: onPartial,
-                onFinal: onFinal
-            )
+    ) -> StreamingTranscriber? {
+        let backend = speaker == .you ? micBackend : systemBackend
+        guard let backend else {
+            diagLog("[ENGINE] makeTranscriber called without initialized backend for \(speaker.rawValue)")
+            return nil
         }
+        return StreamingTranscriber(
+            backend: backend,
+            locale: locale,
+            vadManager: vadManager,
+            speaker: speaker,
+            onPartial: onPartial,
+            onFinal: onFinal
+        )
     }
 
     private func resolvedMicDeviceID(for inputDeviceID: AudioDeviceID) -> AudioDeviceID? {
@@ -591,29 +513,14 @@ final class TranscriptionEngine {
     }
 
     private static func modelNeedsDownload(_ model: TranscriptionModel) -> Bool {
-        switch model {
-        case .parakeetV2:
-            return !AsrModels.modelsExist(
-                at: AsrModels.defaultCacheDirectory(for: .v2),
-                version: .v2
-            )
-        case .parakeetV3:
-            return !AsrModels.modelsExist(
-                at: AsrModels.defaultCacheDirectory(for: .v3),
-                version: .v3
-            )
-        case .qwen3ASR06B:
-            return !Qwen3AsrModels.modelsExist(at: Qwen3AsrModels.defaultCacheDirectory())
-        case .whisperBase:
-            return !WhisperKitManager.modelExists(variant: .base)
-        case .whisperSmall:
-            return !WhisperKitManager.modelExists(variant: .small)
+        let backend = model.makeBackend()
+        if case .needsDownload = backend.checkStatus() {
+            return true
         }
+        return false
     }
 
     /// Wrap an audio stream to forward each buffer to a synchronous tap before yielding it downstream.
-    /// Safety: the tap copies buffer data to a file (no retained references), and yield transfers
-    /// ownership to the downstream consumer. No concurrent access occurs.
     private nonisolated static func tappedStream(
         _ stream: AsyncStream<AVAudioPCMBuffer>,
         tap: @escaping @Sendable (AVAudioPCMBuffer) -> Void
@@ -650,29 +557,5 @@ final class TranscriptionEngine {
     private func normalizedLanguageCode(for locale: Locale) -> String? {
         let identifier = locale.identifier.replacingOccurrences(of: "_", with: "-")
         return identifier.split(separator: "-").first.map { String($0).lowercased() }
-    }
-
-    private func qwen3Language(for locale: Locale) -> Qwen3AsrConfig.Language? {
-        let languageCode = normalizedLanguageCode(for: locale)
-        guard let languageCode else { return nil }
-        return Qwen3AsrConfig.Language(from: languageCode)
-    }
-
-    private func loadCustomVocabularyBoosting() async throws -> (CustomVocabularyContext, CtcModels)? {
-        let customVocabularyText = settings.transcriptionCustomVocabulary
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !customVocabularyText.isEmpty else { return nil }
-
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("openoats-custom-vocabulary-\(UUID().uuidString).txt")
-
-        try customVocabularyText.write(to: tempURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: tempURL) }
-
-        let (customVocabulary, ctcModels) = try await CustomVocabularyContext.loadWithCtcTokens(
-            from: tempURL.path
-        )
-        guard !customVocabulary.terms.isEmpty else { return nil }
-        return (customVocabulary, ctcModels)
     }
 }

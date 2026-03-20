@@ -21,5 +21,10 @@ let package = Package(
             path: "Sources/OpenOats",
             exclude: ["Info.plist", "OpenOats.entitlements", "Assets"]
         ),
+        .testTarget(
+            name: "OpenOatsTests",
+            dependencies: ["OpenOats"],
+            path: "Tests/OpenOatsTests"
+        ),
     ]
 )

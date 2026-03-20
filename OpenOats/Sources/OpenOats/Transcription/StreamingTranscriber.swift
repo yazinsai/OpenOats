@@ -3,15 +3,10 @@ import FluidAudio
 import os
 
 /// Consumes an audio buffer stream, detects speech via Silero VAD,
-/// and transcribes completed speech segments via Parakeet-TDT.
+/// and transcribes completed speech segments via the TranscriptionBackend protocol.
 final class StreamingTranscriber: @unchecked Sendable {
-    private enum Backend: @unchecked Sendable {
-        case parakeet(AsrManager)
-        case qwen3(Qwen3AsrManager, Qwen3AsrConfig.Language?)
-        case whisper(WhisperKitManager)
-    }
-
-    private let backend: Backend
+    private let backend: any TranscriptionBackend
+    private let locale: Locale
     private let vadManager: VadManager
     private let speaker: Speaker
     private let onPartial: @Sendable (String) -> Void
@@ -28,42 +23,15 @@ final class StreamingTranscriber: @unchecked Sendable {
     )!
 
     init(
-        asrManager: AsrManager,
+        backend: any TranscriptionBackend,
+        locale: Locale,
         vadManager: VadManager,
         speaker: Speaker,
         onPartial: @escaping @Sendable (String) -> Void,
         onFinal: @escaping @Sendable (String) -> Void
     ) {
-        self.backend = .parakeet(asrManager)
-        self.vadManager = vadManager
-        self.speaker = speaker
-        self.onPartial = onPartial
-        self.onFinal = onFinal
-    }
-
-    init(
-        qwen3Manager: Qwen3AsrManager,
-        qwenLanguage: Qwen3AsrConfig.Language?,
-        vadManager: VadManager,
-        speaker: Speaker,
-        onPartial: @escaping @Sendable (String) -> Void,
-        onFinal: @escaping @Sendable (String) -> Void
-    ) {
-        self.backend = .qwen3(qwen3Manager, qwenLanguage)
-        self.vadManager = vadManager
-        self.speaker = speaker
-        self.onPartial = onPartial
-        self.onFinal = onFinal
-    }
-
-    init(
-        whisperManager: WhisperKitManager,
-        vadManager: VadManager,
-        speaker: Speaker,
-        onPartial: @escaping @Sendable (String) -> Void,
-        onFinal: @escaping @Sendable (String) -> Void
-    ) {
-        self.backend = .whisper(whisperManager)
+        self.backend = backend
+        self.locale = locale
         self.vadManager = vadManager
         self.speaker = speaker
         self.onPartial = onPartial
@@ -75,9 +43,7 @@ final class StreamingTranscriber: @unchecked Sendable {
     private static let minimumSpeechSamples = 8000
     private static let prerollChunkCount = 2
     /// Flush speech for transcription every ~3 seconds (48,000 samples at 16kHz).
-    /// Whisper benefits from longer context, so we use ~10 seconds (160,000 samples).
     private static let flushInterval = 48_000
-    private static let whisperFlushInterval = 160_000
 
     /// Main loop: reads audio buffers, runs VAD, transcribes speech segments.
     func run(stream: AsyncStream<AVAudioPCMBuffer>) async {
@@ -158,14 +124,8 @@ final class StreamingTranscriber: @unchecked Sendable {
                         }
                     } else if isSpeaking {
 
-                        // Flush periodically for near-real-time output during continuous speech.
-                        // Whisper needs longer context (~10s) for better accuracy.
-                        let activeFlushInterval: Int
-                        switch backend {
-                        case .whisper: activeFlushInterval = Self.whisperFlushInterval
-                        default: activeFlushInterval = Self.flushInterval
-                        }
-                        if speechSamples.count >= activeFlushInterval {
+                        // Flush every ~3s for near-real-time output during continuous speech
+                        if speechSamples.count >= Self.flushInterval {
                             let segment = speechSamples
                             speechSamples.removeAll(keepingCapacity: true)
                             await transcribeSegment(segment)
@@ -184,25 +144,7 @@ final class StreamingTranscriber: @unchecked Sendable {
 
     private func transcribeSegment(_ samples: [Float]) async {
         do {
-            let text: String
-            switch backend {
-            case .parakeet(let asrManager):
-                let result = try await asrManager.transcribe(samples)
-                if let appliedTerms = result.ctcAppliedTerms, !appliedTerms.isEmpty {
-                    let joinedTerms = appliedTerms.joined(separator: ", ")
-                    log.info("[\(self.speaker.rawValue)] custom keywords applied: \(joinedTerms)")
-                    diagLog("[\(self.speaker.rawValue)] custom keywords applied: \(joinedTerms)")
-                }
-                text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            case .qwen3(let qwen3Manager, let qwenLanguage):
-                text = try await qwen3Manager.transcribe(
-                    audioSamples: samples,
-                    language: qwenLanguage,
-                    maxNewTokens: 512
-                ).trimmingCharacters(in: .whitespacesAndNewlines)
-            case .whisper(let whisperManager):
-                text = try await whisperManager.transcribe(samples)
-            }
+            let text = try await backend.transcribe(samples, locale: locale)
             guard !text.isEmpty else { return }
             log.info("[\(self.speaker.rawValue)] transcribed: \(text.prefix(80))")
             onFinal(text)

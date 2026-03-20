@@ -1,0 +1,35 @@
+import Foundation
+
+/// Transcription backend for WhisperKit models (base and small variants).
+/// @unchecked Sendable: whisperManager is written once in prepare() before any transcribe() calls.
+final class WhisperKitBackend: TranscriptionBackend, @unchecked Sendable {
+    let displayName: String
+    private let variant: WhisperKitManager.Variant
+    private var whisperManager: WhisperKitManager?
+
+    init(variant: WhisperKitManager.Variant) {
+        self.variant = variant
+        self.displayName = variant == .base ? "Whisper Base" : "Whisper Small"
+    }
+
+    func checkStatus() -> BackendStatus {
+        let exists = WhisperKitManager.modelExists(variant: variant)
+        return exists ? .ready : .needsDownload(
+            prompt: "\(displayName) requires a one-time model download (\(variant.downloadSize))."
+        )
+    }
+
+    func prepare(onStatus: @Sendable (String) -> Void) async throws {
+        onStatus("Downloading \(displayName)...")
+        let manager = WhisperKitManager(variant: variant)
+        try await manager.setup()
+        self.whisperManager = manager
+    }
+
+    func transcribe(_ samples: [Float], locale: Locale) async throws -> String {
+        guard let whisperManager else {
+            throw TranscriptionBackendError.notPrepared
+        }
+        return try await whisperManager.transcribe(samples)
+    }
+}
