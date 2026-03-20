@@ -91,6 +91,7 @@ final class WhisperKitManager: @unchecked Sendable {
             temperatureIncrementOnFallback: 0.2,
             temperatureFallbackCount: 5,
             usePrefillPrompt: true,
+            usePrefillCache: promptTokens == nil,
             detectLanguage: true,
             wordTimestamps: false,
             promptTokens: promptTokens,

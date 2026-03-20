@@ -1,6 +1,6 @@
 import Foundation
 
-/// Transcription backend for WhisperKit models (base and small variants).
+/// Transcription backend for WhisperKit models.
 /// @unchecked Sendable: whisperManager is written once in prepare() before any transcribe() calls.
 final class WhisperKitBackend: TranscriptionBackend, @unchecked Sendable {
     let displayName: String
