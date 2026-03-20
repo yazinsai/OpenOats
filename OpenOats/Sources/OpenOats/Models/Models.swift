@@ -257,6 +257,10 @@ struct SessionIndex: Identifiable, Codable, Sendable {
     var title: String?
     var utteranceCount: Int
     var hasNotes: Bool
+    /// The detected meeting application name (e.g. "Zoom", "Microsoft Teams").
+    var meetingApp: String?
+    /// The ASR engine used for transcription (e.g. "parakeetV2").
+    var engine: String?
 }
 
 struct SessionSidecar: Codable, Sendable {

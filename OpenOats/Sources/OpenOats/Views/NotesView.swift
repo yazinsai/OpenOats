@@ -591,6 +591,18 @@ struct NotesView: View {
                 await coordinator.sessionStore.saveNotes(sessionID: sessionID, notes: notes)
                 loadedNotes = notes
 
+                // Update the structured Markdown file with LLM-generated sections
+                let outputDir = URL(fileURLWithPath: settings.notesFolderPath)
+                if let mdFile = MarkdownMeetingWriter.findMarkdownFile(
+                    sessionID: sessionID,
+                    in: outputDir
+                ) {
+                    MarkdownMeetingWriter.insertLLMSections(
+                        fileURL: mdFile,
+                        llmMarkdown: coordinator.notesEngine.generatedMarkdown
+                    )
+                }
+
                 await coordinator.loadHistory()
             }
         }

@@ -256,6 +256,17 @@ final class AppCoordinator {
         let title = transcriptStore.conversationState.currentTopic.isEmpty
             ? nil : transcriptStore.conversationState.currentTopic
 
+        // Extract meeting app name from state machine metadata (available in .ending state)
+        let meetingAppName: String?
+        if case .ending(let metadata) = state {
+            meetingAppName = metadata.detectionContext?.meetingApp?.name
+        } else {
+            meetingAppName = nil
+        }
+
+        // Capture the ASR engine name from current settings
+        let engineName = settings?.transcriptionModel.rawValue
+
         let index = SessionIndex(
             id: sessionID,
             startedAt: transcriptStore.utterances.first?.timestamp ?? Date(),
@@ -263,12 +274,25 @@ final class AppCoordinator {
             templateSnapshot: sessionTemplateSnapshot,
             title: title,
             utteranceCount: utteranceCount,
-            hasNotes: false
+            hasNotes: false,
+            meetingApp: meetingAppName,
+            engine: engineName
         )
         let sidecar = SessionSidecar(index: index, notes: nil)
 
         // 4. Write sidecar
         await sessionStore.writeSidecar(sidecar)
+
+        // 4b. Generate structured Markdown file from JSONL (has refined text after backfill)
+        let jsonlRecords = await sessionStore.loadTranscript(sessionID: sessionID)
+        if !jsonlRecords.isEmpty, let settings {
+            let outputDir = URL(fileURLWithPath: settings.notesFolderPath)
+            MarkdownMeetingWriter.write(
+                metadata: .init(from: index),
+                records: jsonlRecords,
+                outputDirectory: outputDir
+            )
+        }
 
         // 5. Close JSONL file
         await sessionStore.endSession()
