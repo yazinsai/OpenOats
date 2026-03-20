@@ -68,6 +68,11 @@ export interface SttStatus {
   message: string;
 }
 
+export interface TranscriptionProgress {
+  capturedSegments: number;
+  processedSegments: number;
+}
+
 export interface SessionRecord {
   id: string;
   startedAt: string;

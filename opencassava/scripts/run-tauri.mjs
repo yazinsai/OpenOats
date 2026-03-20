@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import process from "node:process";
+import "./sync-version.mjs";
 
 const args = process.argv.slice(2);
 const isBuild = args.includes("build");

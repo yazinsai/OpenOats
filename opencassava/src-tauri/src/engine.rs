@@ -22,7 +22,7 @@ use opencassava_core::{
     },
     transcription::{
         faster_whisper::{self, FasterWhisperConfig},
-        streaming_transcriber::{StreamingTranscriber, SttBackend},
+        streaming_transcriber::{SegmentProgress, StreamingTranscriber, SttBackend},
     },
 };
 use serde::Serialize;
@@ -95,6 +95,13 @@ pub struct AudioLevelPayload {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TranscriptionProgressPayload {
+    pub captured_segments: u32,
+    pub processed_segments: u32,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SttStatusPayload {
     pub selected_provider: String,
     pub effective_provider: String,
@@ -155,6 +162,8 @@ pub struct AppState {
     pub stop_requested: Arc<std::sync::atomic::AtomicBool>,
     pub mic_level: Arc<AtomicU32>,
     pub sys_level: Arc<AtomicU32>,
+    pub captured_segments: Arc<AtomicU32>,
+    pub processed_segments: Arc<AtomicU32>,
 }
 
 impl AppState {
@@ -189,6 +198,8 @@ impl AppState {
             stop_requested: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             mic_level: Arc::new(AtomicU32::new(0)),
             sys_level: Arc::new(AtomicU32::new(0)),
+            captured_segments: Arc::new(AtomicU32::new(0)),
+            processed_segments: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -470,6 +481,17 @@ fn push_recent_utterance(
     entries.retain(|entry| entry.timestamp >= cutoff);
 }
 
+fn emit_transcription_progress(app: &AppHandle, state: &AppState) {
+    app.emit(
+        "transcription-progress",
+        &TranscriptionProgressPayload {
+            captured_segments: state.captured_segments.load(Ordering::Relaxed),
+            processed_segments: state.processed_segments.load(Ordering::Relaxed),
+        },
+    )
+    .ok();
+}
+
 // ── Tauri commands ───────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -582,6 +604,8 @@ pub fn start_transcription(
     state
         .stop_requested
         .store(false, std::sync::atomic::Ordering::Relaxed);
+    state.captured_segments.store(0, Ordering::Relaxed);
+    state.processed_segments.store(0, Ordering::Relaxed);
     drop(running);
 
     let session_id = {
@@ -641,7 +665,8 @@ pub fn start_transcription(
         let recent_utterances_spawn = Arc::clone(&recent_utterances);
 
         let them_handle = tauri::async_runtime::spawn(async move {
-            let sys = SystemAudioCapture::new(sys_device_name.as_deref());
+            let sys = SystemAudioCapture::new(sys_device_name.as_deref())
+                .with_stop_signal(Arc::clone(&them_state.stop_requested));
             let them_stream = match sys.buffer_stream().await {
                 Ok(s) => s,
                 Err(e) => {
@@ -733,9 +758,27 @@ pub fn start_transcription(
                     )
                     .ok();
             };
+            let progress_app_them = them_app.clone();
+            let progress_state_them = Arc::clone(&them_state);
+            let on_them_progress = std::sync::Arc::new(move |progress: SegmentProgress| {
+                match progress {
+                    SegmentProgress::Captured => {
+                        progress_state_them
+                            .captured_segments
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                    SegmentProgress::Processed => {
+                        progress_state_them
+                            .processed_segments
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                emit_transcription_progress(&progress_app_them, &progress_state_them);
+            });
             let transcriber =
                 StreamingTranscriber::new(them_backend, them_lang, Box::new(on_them))
                 .with_volatile(Box::new(on_them_vol))
+                .with_progress(on_them_progress)
                 .with_stop_signal(Arc::clone(&them_state.stop_requested));
             transcriber.run(them_stream_leveled).await;
         });
@@ -996,13 +1039,32 @@ pub fn start_transcription(
                 )
                 .ok();
         };
+        let progress_app_you = app_clone.clone();
+        let progress_state_you = Arc::clone(&state_clone);
+        let on_you_progress = std::sync::Arc::new(move |progress: SegmentProgress| {
+            match progress {
+                SegmentProgress::Captured => {
+                    progress_state_you
+                        .captured_segments
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                SegmentProgress::Processed => {
+                    progress_state_you
+                        .processed_segments
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            emit_transcription_progress(&progress_app_you, &progress_state_you);
+        });
         let transcriber = StreamingTranscriber::new(backend, language, Box::new(on_you))
             .with_volatile(Box::new(on_you_vol))
+            .with_progress(on_you_progress)
             .with_stop_signal(Arc::clone(&state_clone.stop_requested));
         transcriber.run(mic_stream_leveled).await;
     });
 
     *state.audio_task.lock().unwrap() = Some(handle);
+    emit_transcription_progress(&app, &state);
     Ok(session_id)
 }
 
@@ -1043,6 +1105,7 @@ pub async fn stop_transcription(
     }
     state.mic_level.store(0u32, Ordering::Relaxed);
     state.sys_level.store(0u32, Ordering::Relaxed);
+    emit_transcription_progress(&app, &state);
     Ok(())
 }
 

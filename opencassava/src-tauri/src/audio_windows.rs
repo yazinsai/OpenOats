@@ -43,6 +43,11 @@ mod wasapi_impl {
                 device_name: device_name.map(str::to_owned),
             }
         }
+
+        pub fn with_stop_signal(mut self, signal: Arc<AtomicBool>) -> Self {
+            self.finished = signal;
+            self
+        }
     }
 
     #[async_trait]
@@ -337,6 +342,10 @@ mod wasapi_impl {
     impl SystemAudioCapture {
         pub fn new(_device_name: Option<&str>) -> Self {
             Self
+        }
+
+        pub fn with_stop_signal(self, _signal: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Self {
+            self
         }
     }
 

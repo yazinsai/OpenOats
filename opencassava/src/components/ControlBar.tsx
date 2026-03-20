@@ -5,6 +5,9 @@ import { colors, typography, spacing } from "../theme";
 
 interface Props {
   isRunning: boolean;
+  isStopping?: boolean;
+  capturedSegments?: number;
+  processedSegments?: number;
   onStart: () => void;
   onStop: () => void;
   disabled?: boolean;
@@ -41,6 +44,9 @@ function formatDuration(seconds: number): string {
 
 export function ControlBar({
   isRunning,
+  isStopping = false,
+  capturedSegments = 0,
+  processedSegments = 0,
   onStart,
   onStop,
   disabled,
@@ -58,7 +64,7 @@ export function ControlBar({
   const [selectedSysDevice, setSelectedSysDevice] = useState<string>("default");
   const [duration, setDuration] = useState(0);
   const durationRef = useRef(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const intervalRef = useRef<number | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -74,27 +80,31 @@ export function ControlBar({
   }, []);
 
   useEffect(() => {
-    if (isRunning) {
+    if (isRunning && !isStopping) {
       durationRef.current = 0;
       setDuration(0);
-      intervalRef.current = setInterval(() => {
+      intervalRef.current = window.setInterval(() => {
         durationRef.current += 1;
         setDuration(durationRef.current);
       }, 1000);
     } else {
       if (intervalRef.current) {
-        clearInterval(intervalRef.current);
+        window.clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-      setDuration(0);
+      if (!isRunning) {
+        setDuration(0);
+      }
     }
 
     return () => {
       if (intervalRef.current) {
-        clearInterval(intervalRef.current);
+        window.clearInterval(intervalRef.current);
       }
     };
-  }, [isRunning]);
+  }, [isRunning, isStopping]);
+
+  const isBusy = isRunning || isStopping;
 
   const handleDeviceChange = async (device: string) => {
     setSelectedDevice(device);
@@ -125,9 +135,13 @@ export function ControlBar({
     alignItems: "center",
     gap: spacing[2],
     padding: `${spacing[2]}px ${spacing[3]}px`,
-    background: isRunning ? `${colors.error}20` : colors.success,
-    color: isRunning ? colors.error : "#fff",
-    border: isRunning ? `1px solid ${colors.error}50` : "none",
+    background: isStopping ? `${colors.warning}20` : isRunning ? `${colors.error}20` : colors.success,
+    color: isStopping ? colors.warning : isRunning ? colors.error : "#fff",
+    border: isStopping
+      ? `1px solid ${colors.warning}50`
+      : isRunning
+        ? `1px solid ${colors.error}50`
+        : "none",
     borderRadius: 20,
     fontSize: typography.md,
     fontWeight: 600,
@@ -162,7 +176,7 @@ export function ControlBar({
       <select
         value={selectedDevice}
         onChange={(e) => handleDeviceChange(e.target.value)}
-        disabled={isRunning}
+        disabled={isBusy}
         style={{
           padding: `${spacing[2]}px`,
           background: colors.background,
@@ -171,8 +185,8 @@ export function ControlBar({
           borderRadius: 4,
           fontSize: typography.base,
           minWidth: 140,
-          cursor: isRunning ? "not-allowed" : "pointer",
-          opacity: isRunning ? 0.6 : 1,
+          cursor: isBusy ? "not-allowed" : "pointer",
+          opacity: isBusy ? 0.6 : 1,
         }}
       >
         <option value="default">Mic Default</option>
@@ -187,7 +201,7 @@ export function ControlBar({
       <select
         value={selectedSysDevice}
         onChange={(e) => handleSysDeviceChange(e.target.value)}
-        disabled={isRunning}
+        disabled={isBusy}
         style={{
           padding: `${spacing[2]}px`,
           background: colors.background,
@@ -196,8 +210,8 @@ export function ControlBar({
           borderRadius: 4,
           fontSize: typography.base,
           minWidth: 140,
-          cursor: isRunning ? "not-allowed" : "pointer",
-          opacity: isRunning ? 0.6 : 1,
+          cursor: isBusy ? "not-allowed" : "pointer",
+          opacity: isBusy ? 0.6 : 1,
         }}
       >
         <option value="default">System Audio Default</option>
@@ -208,8 +222,25 @@ export function ControlBar({
         ))}
       </select>
 
-      <button onClick={isRunning ? onStop : onStart} disabled={disabled} style={buttonStyle}>
-        {isRunning ? (
+      <button
+        onClick={isRunning ? onStop : onStart}
+        disabled={disabled || isStopping}
+        style={buttonStyle}
+      >
+        {isStopping ? (
+          <>
+            <span
+              style={{
+                display: "inline-block",
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: colors.warning,
+              }}
+            />
+            <span>Stopping...</span>
+          </>
+        ) : isRunning ? (
           <>
             <span
               style={{
@@ -268,7 +299,7 @@ export function ControlBar({
         )}
       </button>
 
-      {isRunning && (
+      {isBusy && (
         <div style={{ display: "flex", alignItems: "center", gap: spacing[3] }}>
           <span
             style={{
@@ -283,19 +314,28 @@ export function ControlBar({
           </span>
 
           <div style={{ display: "flex", flexDirection: "column", gap: spacing[1] }}>
-            <WaveformVisualizer level={audioLevel} isActive={isRunning} />
+            <WaveformVisualizer level={audioLevel} isActive={isRunning && !isStopping} />
             <WaveformVisualizer
               level={audioLevelThem}
-              isActive={isRunning}
+              isActive={isRunning && !isStopping}
               color={colors.them}
               colorLight={colors.themLight}
             />
           </div>
 
-          <span style={statusBadgeStyle(colors.success)}>
-            <span style={{ fontSize: 6 }}>o</span>
-            <span>LIVE</span>
+          <span style={statusBadgeStyle(isStopping ? colors.warning : colors.success)}>
+            <span style={{ fontSize: 6 }}>{isStopping ? "O" : "o"}</span>
+            <span>{isStopping ? "PROCESSING" : "LIVE"}</span>
           </span>
+
+          {isStopping && (
+            <span style={statusBadgeStyle(colors.textSecondary)}>
+              <span>
+                {processedSegments}/{capturedSegments}
+              </span>
+              <span>segments</span>
+            </span>
+          )}
         </div>
       )}
 
@@ -313,7 +353,7 @@ export function ControlBar({
           </span>
         )}
 
-        {isRunning && (
+        {isRunning && !isStopping && (
           <span
             style={statusBadgeStyle(
               isSuggestionAnalyzing

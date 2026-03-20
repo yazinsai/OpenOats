@@ -8,6 +8,13 @@ use std::sync::mpsc;
 
 pub type OnFinal = Box<dyn Fn(String) + Send + 'static>;
 pub type OnVolatile = Box<dyn Fn(String) + Send + 'static>;
+pub type OnProgress = Arc<dyn Fn(SegmentProgress) + Send + Sync + 'static>;
+
+#[derive(Clone, Copy)]
+pub enum SegmentProgress {
+    Captured,
+    Processed,
+}
 
 #[derive(Clone)]
 pub enum SttBackend {
@@ -21,6 +28,7 @@ pub struct StreamingTranscriber {
     backend: SttBackend,
     language: String,
     on_volatile: Option<OnVolatile>,
+    on_progress: Option<OnProgress>,
     stop_signal: Option<Arc<AtomicBool>>,
 }
 
@@ -31,6 +39,7 @@ impl StreamingTranscriber {
             backend,
             language,
             on_volatile: None,
+            on_progress: None,
             stop_signal: None,
         }
     }
@@ -42,6 +51,7 @@ impl StreamingTranscriber {
             backend: SttBackend::Passthrough,
             language: "en".into(),
             on_volatile: None,
+            on_progress: None,
             stop_signal: None,
         }
     }
@@ -49,6 +59,11 @@ impl StreamingTranscriber {
     /// Builder: attach a volatile (in-progress) speech callback.
     pub fn with_volatile(mut self, on_volatile: OnVolatile) -> Self {
         self.on_volatile = Some(on_volatile);
+        self
+    }
+
+    pub fn with_progress(mut self, on_progress: OnProgress) -> Self {
+        self.on_progress = Some(on_progress);
         self
     }
 
@@ -66,6 +81,8 @@ impl StreamingTranscriber {
         let (seg_tx, seg_rx) = mpsc::sync_channel::<Vec<f32>>(30);
         let on_final = self.on_final;
         let on_volatile = self.on_volatile;
+        let on_progress = self.on_progress;
+        let progress_for_backend = on_progress.clone();
         let language = self.language.clone();
         let backend = self.backend.clone();
 
@@ -92,6 +109,9 @@ impl StreamingTranscriber {
                                     crate::transcription::whisper::WhisperManager::transcribe(
                                         &mut state, &samples, &language,
                                     );
+                                if let Some(ref on_progress) = progress_for_backend {
+                                    on_progress(SegmentProgress::Processed);
+                                }
                                 if !text.is_empty() {
                                     log::info!("[transcriber] {}", &text[..text.len().min(80)]);
                                     on_final(text);
@@ -107,10 +127,17 @@ impl StreamingTranscriber {
                             for samples in seg_rx.iter() {
                                 match worker.transcribe(&samples, &language) {
                                     Ok(text) if !text.is_empty() => {
+                                        if let Some(ref on_progress) = progress_for_backend {
+                                            on_progress(SegmentProgress::Processed);
+                                        }
                                         log::info!("[transcriber] {}", &text[..text.len().min(80)]);
                                         on_final(text);
                                     }
-                                    Ok(_) => {}
+                                    Ok(_) => {
+                                        if let Some(ref on_progress) = progress_for_backend {
+                                            on_progress(SegmentProgress::Processed);
+                                        }
+                                    }
                                     Err(e) => log::error!("faster-whisper transcribe error: {e}"),
                                 }
                             }
@@ -162,7 +189,11 @@ impl StreamingTranscriber {
                         silence_count = 0;
                         if speech_buf.len() > Vad::MIN_SPEECH_SAMPLES {
                             match seg_tx.try_send(std::mem::take(&mut speech_buf)) {
-                                Ok(_) => {}
+                                Ok(_) => {
+                                    if let Some(ref on_progress) = on_progress {
+                                        on_progress(SegmentProgress::Captured);
+                                    }
+                                }
                                 Err(e) => { log::warn!("[vad] seg dropped (end-of-speech): {e}"); }
                             }
                         } else {
@@ -173,7 +204,11 @@ impl StreamingTranscriber {
 
                 if speaking && speech_buf.len() >= Vad::FLUSH_SAMPLES {
                     match seg_tx.try_send(std::mem::take(&mut speech_buf)) {
-                        Ok(_) => {}
+                        Ok(_) => {
+                            if let Some(ref on_progress) = on_progress {
+                                on_progress(SegmentProgress::Captured);
+                            }
+                        }
                         Err(e) => { log::warn!("[vad] seg dropped (flush): {e}"); }
                     }
                 }
@@ -199,7 +234,11 @@ impl StreamingTranscriber {
 
         // Flush remainder
         if speech_buf.len() > Vad::MIN_SPEECH_SAMPLES {
-            let _ = seg_tx.send(speech_buf);
+            if seg_tx.send(speech_buf).is_ok() {
+                if let Some(ref on_progress) = on_progress {
+                    on_progress(SegmentProgress::Captured);
+                }
+            }
         }
 
         drop(seg_tx);

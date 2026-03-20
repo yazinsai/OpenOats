@@ -5,5 +5,8 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+version = "0.1.1"
+
 [patch.crates-io]
 whisper-rs = { path = ".build/whisper-rs" }

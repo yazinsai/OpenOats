@@ -1,7 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { Utterance, Suggestion, AppSettings, EnhancedNotes, SessionDetails, SttStatus } from "./types";
+import type {
+  Utterance,
+  Suggestion,
+  AppSettings,
+  EnhancedNotes,
+  SessionDetails,
+  SttStatus,
+  TranscriptionProgress,
+} from "./types";
 import { ControlBar } from "./components/ControlBar";
 import { TranscriptView } from "./components/TranscriptView";
 import { SuggestionsView } from "./components/SuggestionsView";
@@ -100,6 +108,7 @@ function App() {
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [modelError, setModelError] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [utterances, setUtterances] = useState<Utterance[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [tab, setTab] = useState<Tab>("transcript");
@@ -107,6 +116,10 @@ function App() {
   const [currentSessionNotes, setCurrentSessionNotes] = useState<EnhancedNotes | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [sttStatus, setSttStatus] = useState<SttStatus | null>(null);
+  const [transcriptionProgress, setTranscriptionProgress] = useState<TranscriptionProgress>({
+    capturedSegments: 0,
+    processedSegments: 0,
+  });
   const [isGeneratingSuggestion, setIsGeneratingSuggestion] = useState(false);
   const [lastSuggestionCheckAt, setLastSuggestionCheckAt] = useState<string | null>(null);
   const [lastSuggestionCheckSurfaced, setLastSuggestionCheckSurfaced] = useState<boolean | null>(null);
@@ -124,6 +137,7 @@ function App() {
   const [audioLevelThem, setAudioLevelThem] = useState(0);
   const [isSettingUpStt, setIsSettingUpStt] = useState(false);
   const [sttSetupMessage, setSttSetupMessage] = useState("");
+  const [stopStatusMessage, setStopStatusMessage] = useState<string | null>(null);
   // Load settings on mount
   useEffect(() => {
     invoke<AppSettings>("get_settings")
@@ -150,7 +164,7 @@ function App() {
   // Keyboard shortcuts
   useKeyboardShortcuts({
     onStartStop: () => {
-      if (modelState === "ready") {
+      if (modelState === "ready" && !isStopping) {
         isRunning ? handleStop() : handleStart();
       }
     },
@@ -265,6 +279,10 @@ function App() {
         setAudioLevel(e.payload.you);
         setAudioLevelThem(e.payload.them);
       }),
+
+      listen<TranscriptionProgress>("transcription-progress", (e) => {
+        setTranscriptionProgress(e.payload);
+      }),
     ];
 
     return () => {
@@ -296,6 +314,9 @@ function App() {
       setCurrentSessionNotes(null);
       setVolatileYouText("");
       setVolatileThemText("");
+      setTranscriptionProgress({ capturedSegments: 0, processedSegments: 0 });
+      setIsStopping(false);
+      setStopStatusMessage(null);
       setIsRunning(true);
       setTab("transcript");
     } catch (e) {
@@ -304,10 +325,32 @@ function App() {
   };
 
   const handleStop = async () => {
-    await invoke("stop_transcription");
-    setIsRunning(false);
+    if (isStopping) {
+      return;
+    }
+
+    setIsStopping(true);
+    setStopStatusMessage(
+      `Recording stopped. Processing remaining segments (${transcriptionProgress.processedSegments}/${transcriptionProgress.capturedSegments}).`,
+    );
     setVolatileYouText("");
     setVolatileThemText("");
+
+    try {
+      await invoke("stop_transcription");
+      setIsRunning(false);
+      setStopStatusMessage("Recording fully stopped.");
+      window.setTimeout(() => {
+        setStopStatusMessage((current) =>
+          current === "Recording fully stopped." ? null : current,
+        );
+      }, 3000);
+    } catch (e) {
+      setStopStatusMessage(`Failed to stop recording: ${e}`);
+      throw e;
+    } finally {
+      setIsStopping(false);
+    }
   };
 
   const handleDismissSuggestion = useCallback((id: string) => {
@@ -483,8 +526,12 @@ function App() {
       {/* Control Bar */}
       <ControlBar
         isRunning={isRunning}
+        isStopping={isStopping}
+        capturedSegments={transcriptionProgress.capturedSegments}
+        processedSegments={transcriptionProgress.processedSegments}
         onStart={handleStart}
         onStop={handleStop}
+        disabled={isStopping}
         kbConnected={kbConnected}
         kbFileCount={0}
         isSuggestionAnalyzing={isGeneratingSuggestion}
@@ -493,6 +540,29 @@ function App() {
         audioLevel={audioLevel}
         audioLevelThem={audioLevelThem}
       />
+
+      {stopStatusMessage && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: spacing[2],
+            padding: `${spacing[2]}px ${spacing[4]}px`,
+            background: isStopping ? `${colors.warning}10` : `${colors.success}10`,
+            borderBottom: `1px solid ${isStopping ? `${colors.warning}25` : `${colors.success}25`}`,
+            color: isStopping ? colors.warning : colors.success,
+            fontSize: typography.md,
+            fontWeight: 500,
+          }}
+        >
+          <span style={{ fontSize: 8 }}>{isStopping ? "O" : "o"}</span>
+          <span>
+            {isStopping
+              ? `Recording stopped. Processing remaining segments (${transcriptionProgress.processedSegments}/${transcriptionProgress.capturedSegments}).`
+              : stopStatusMessage}
+          </span>
+        </div>
+      )}
 
       {/* Tab Bar */}
       <div style={{ display: "flex", borderBottom: `1px solid ${colors.border}`, background: colors.surface }}>
