@@ -37,6 +37,9 @@ final class AppCoordinator {
     @ObservationIgnored private let _notesEngine: NotesEngine
     nonisolated var notesEngine: NotesEngine { _notesEngine }
 
+    @ObservationIgnored private let _cleanupEngine = TranscriptCleanupEngine()
+    nonisolated var cleanupEngine: TranscriptCleanupEngine { _cleanupEngine }
+
     @ObservationIgnored private let _transcriptStore: TranscriptStore
     nonisolated var transcriptStore: TranscriptStore { _transcriptStore }
 

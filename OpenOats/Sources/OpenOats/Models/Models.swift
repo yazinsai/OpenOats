@@ -213,6 +213,17 @@ struct SessionRecord: Codable {
         self.conversationStateSummary = conversationStateSummary
         self.refinedText = refinedText
     }
+
+    func withRefinedText(_ text: String?) -> SessionRecord {
+        SessionRecord(
+            speaker: speaker, text: self.text, timestamp: timestamp,
+            suggestions: suggestions, kbHits: kbHits,
+            suggestionDecision: suggestionDecision,
+            surfacedSuggestionText: surfacedSuggestionText,
+            conversationStateSummary: conversationStateSummary,
+            refinedText: text
+        )
+    }
 }
 
 // MARK: - Meeting Templates & Enhanced Notes
