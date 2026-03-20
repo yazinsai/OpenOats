@@ -127,6 +127,7 @@ function App() {
   const [searchResults, setSearchResults] = useState<number[]>([]);
   const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [audioLevelThem, setAudioLevelThem] = useState(0);
   // Load settings on mount
   useEffect(() => {
     invoke<AppSettings>("get_settings")
@@ -246,6 +247,7 @@ function App() {
 
       listen<{ you: number; them: number }>("audio-level", (e) => {
         setAudioLevel(e.payload.you);
+        setAudioLevelThem(e.payload.them);
       }),
     ];
 
@@ -458,6 +460,7 @@ function App() {
         lastSuggestionCheckAt={lastSuggestionCheckAt}
         lastSuggestionCheckSurfaced={lastSuggestionCheckSurfaced}
         audioLevel={audioLevel}
+        audioLevelThem={audioLevelThem}
       />
 
       {/* Tab Bar */}

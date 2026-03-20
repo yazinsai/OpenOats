@@ -14,6 +14,7 @@ interface Props {
   lastSuggestionCheckAt?: string | null;
   lastSuggestionCheckSurfaced?: boolean | null;
   audioLevel?: number;
+  audioLevelThem?: number;
 }
 
 function formatRelativeTime(iso: string | null | undefined): string {
@@ -49,6 +50,7 @@ export function ControlBar({
   lastSuggestionCheckAt = null,
   lastSuggestionCheckSurfaced = null,
   audioLevel = 0,
+  audioLevelThem = 0,
 }: Props) {
   const [devices, setDevices] = useState<string[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<string>("default");
@@ -280,7 +282,15 @@ export function ControlBar({
             {formatDuration(duration)}
           </span>
 
-          <WaveformVisualizer level={audioLevel} isActive={isRunning} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <WaveformVisualizer level={audioLevel} isActive={isRunning} />
+            <WaveformVisualizer
+              level={audioLevelThem}
+              isActive={isRunning}
+              color={colors.them}
+              colorLight={colors.themLight}
+            />
+          </div>
 
           <span style={statusBadgeStyle(colors.success)}>
             <span style={{ fontSize: 6 }}>o</span>
