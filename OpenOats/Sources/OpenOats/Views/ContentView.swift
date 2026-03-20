@@ -31,6 +31,7 @@ struct ContentView: View {
     }
 
     @Bindable var settings: AppSettings
+    @Environment(AppRuntime.self) private var runtime
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.openWindow) private var openWindow
     @State private var knowledgeBase: KnowledgeBase?
@@ -95,6 +96,7 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .onHover { hovering in isHoveringNotes = hovering }
                 .help("View past meeting notes")
+                .accessibilityIdentifier("app.pastMeetingsButton")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -107,6 +109,7 @@ struct ContentView: View {
                     Text("Session ended \u{00B7} \(lastSession.utteranceCount) utterances")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("app.sessionEndedBanner")
                     Spacer()
                     if viewState.lastSessionHasNotes {
                         Button {
@@ -117,6 +120,7 @@ struct ContentView: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .accessibilityIdentifier("app.viewNotesButton")
                     } else {
                         Button {
                             openWindow(id: "notes")
@@ -126,6 +130,7 @@ struct ContentView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
+                        .accessibilityIdentifier("app.generateNotesButton")
                     }
                 }
                 .padding(.horizontal, 16)
@@ -256,28 +261,16 @@ struct ContentView: View {
                 showOnboarding = true
             }
             if knowledgeBase == nil {
-                let kb = KnowledgeBase(settings: settings)
-                knowledgeBase = kb
-                coordinator.transcriptionEngine = TranscriptionEngine(
-                    transcriptStore: coordinator.transcriptStore,
-                    settings: settings
-                )
-                suggestionEngine = SuggestionEngine(
-                    transcriptStore: coordinator.transcriptStore,
-                    knowledgeBase: kb,
-                    settings: settings
-                )
-                coordinator.transcriptLogger = TranscriptLogger(
-                    directory: URL(fileURLWithPath: settings.notesFolderPath)
-                )
-                coordinator.refinementEngine = TranscriptRefinementEngine(
-                    settings: settings,
-                    transcriptStore: coordinator.transcriptStore
-                )
-                coordinator.audioRecorder = AudioRecorder(
-                    outputDirectory: URL(fileURLWithPath: settings.notesFolderPath)
-                )
+                let services = runtime.makeServices(settings: settings, coordinator: coordinator)
+                knowledgeBase = services.knowledgeBase
+                suggestionEngine = services.suggestionEngine
+                coordinator.transcriptionEngine = services.transcriptionEngine
+                coordinator.transcriptLogger = services.transcriptLogger
+                coordinator.refinementEngine = services.refinementEngine
+                coordinator.audioRecorder = services.audioRecorder
             }
+            overlayManager.defaults = runtime.defaults
+            await runtime.seedIfNeeded(coordinator: coordinator)
             refreshViewState()
             indexKBIfNeeded()
             handlePendingExternalCommandIfPossible()

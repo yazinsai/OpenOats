@@ -1,5 +1,5 @@
 import XCTest
-@testable import OpenOats
+@testable import OpenOatsKit
 
 @MainActor
 final class TranscriptStoreTests: XCTestCase {

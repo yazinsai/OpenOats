@@ -50,6 +50,11 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${RELEASE_VERSION}" "$PLIST"
           echo "Set version to ${RELEASE_VERSION}"
 
+      - name: Run UI smoke suite
+        run: |
+          chmod +x scripts/run_ui_smoke.sh
+          ./scripts/run_ui_smoke.sh
+
       - name: Check for signing certificate
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}

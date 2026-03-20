@@ -89,6 +89,7 @@ struct NotesView: View {
                 .foregroundStyle(.tertiary)
             }
             .padding(.vertical, 2)
+            .accessibilityIdentifier("notes.session.\(session.id)")
             .contextMenu {
                 Button("Rename...") {
                     renameText = session.title ?? ""
@@ -103,6 +104,7 @@ struct NotesView: View {
         }
         .navigationTitle("Sessions")
         .frame(minWidth: 200)
+        .accessibilityIdentifier("notes.sessionList")
         .onChange(of: selectedSessionID) {
             loadSelectedSession()
         }
@@ -146,6 +148,7 @@ struct NotesView: View {
                     Text("Generating notes...")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("notes.generating")
                     Spacer()
                     Button("Cancel") {
                         coordinator.notesEngine.cancel()
@@ -197,6 +200,7 @@ struct NotesView: View {
             ScrollView {
                 markdownContent(notes.markdown)
                     .padding(20)
+                    .accessibilityIdentifier("notes.renderedMarkdown")
             }
         }
     }
@@ -254,6 +258,7 @@ struct NotesView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(loadedTranscript.isEmpty)
+                .accessibilityIdentifier("notes.generateButton")
             }
         }
         .padding(20)

@@ -119,9 +119,54 @@ enum EmbeddingProvider: String, CaseIterable, Identifiable {
     }
 }
 
+struct AppSecretStore: Sendable {
+    let loadValue: @Sendable (String) -> String?
+    let saveValue: @Sendable (String, String) -> Void
+
+    func load(key: String) -> String? {
+        loadValue(key)
+    }
+
+    func save(key: String, value: String) {
+        saveValue(key, value)
+    }
+
+    static let keychain = AppSecretStore(
+        loadValue: { KeychainHelper.load(key: $0) },
+        saveValue: { key, value in
+            KeychainHelper.save(key: key, value: value)
+        }
+    )
+
+    static let ephemeral = AppSecretStore(
+        loadValue: { _ in nil },
+        saveValue: { _, _ in }
+    )
+}
+
+struct AppSettingsStorage {
+    let defaults: UserDefaults
+    let secretStore: AppSecretStore
+    let defaultNotesDirectory: URL
+    let runMigrations: Bool
+
+    static func live(defaults: UserDefaults = .standard) -> AppSettingsStorage {
+        AppSettingsStorage(
+            defaults: defaults,
+            secretStore: .keychain,
+            defaultNotesDirectory: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Documents/OpenOats"),
+            runMigrations: true
+        )
+    }
+}
+
 @Observable
 @MainActor
 final class AppSettings {
+    private let defaults: UserDefaults
+    private let secretStore: AppSecretStore
+
     // SwiftUI can evaluate view bodies outside a MainActor executor context in
     // Swift 6.2. Use nonisolated backing storage plus manual observation
     // tracking so bound settings remain safe to read during those updates.
@@ -131,7 +176,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.kbFolderPath) {
                 _kbFolderPath = newValue
-                UserDefaults.standard.set(newValue, forKey: "kbFolderPath")
+                defaults.set(newValue, forKey: "kbFolderPath")
             }
         }
     }
@@ -142,7 +187,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.notesFolderPath) {
                 _notesFolderPath = newValue
-                UserDefaults.standard.set(newValue, forKey: "notesFolderPath")
+                defaults.set(newValue, forKey: "notesFolderPath")
             }
         }
     }
@@ -153,7 +198,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.selectedModel) {
                 _selectedModel = newValue
-                UserDefaults.standard.set(newValue, forKey: "selectedModel")
+                defaults.set(newValue, forKey: "selectedModel")
             }
         }
     }
@@ -164,7 +209,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.transcriptionLocale) {
                 _transcriptionLocale = newValue
-                UserDefaults.standard.set(newValue, forKey: "transcriptionLocale")
+                defaults.set(newValue, forKey: "transcriptionLocale")
             }
         }
     }
@@ -175,7 +220,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.transcriptionCustomVocabulary) {
                 _transcriptionCustomVocabulary = newValue
-                UserDefaults.standard.set(newValue, forKey: "transcriptionCustomVocabulary")
+                defaults.set(newValue, forKey: "transcriptionCustomVocabulary")
             }
         }
     }
@@ -186,7 +231,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.transcriptionModel) {
                 _transcriptionModel = newValue
-                UserDefaults.standard.set(newValue.rawValue, forKey: "transcriptionModel")
+                defaults.set(newValue.rawValue, forKey: "transcriptionModel")
             }
         }
     }
@@ -198,7 +243,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.inputDeviceID) {
                 _inputDeviceID = newValue
-                UserDefaults.standard.set(Int(newValue), forKey: "inputDeviceID")
+                defaults.set(Int(newValue), forKey: "inputDeviceID")
             }
         }
     }
@@ -209,7 +254,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.openRouterApiKey) {
                 _openRouterApiKey = newValue
-                KeychainHelper.save(key: "openRouterApiKey", value: newValue)
+                secretStore.save(key: "openRouterApiKey", value: newValue)
             }
         }
     }
@@ -220,7 +265,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.voyageApiKey) {
                 _voyageApiKey = newValue
-                KeychainHelper.save(key: "voyageApiKey", value: newValue)
+                secretStore.save(key: "voyageApiKey", value: newValue)
             }
         }
     }
@@ -231,7 +276,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.llmProvider) {
                 _llmProvider = newValue
-                UserDefaults.standard.set(newValue.rawValue, forKey: "llmProvider")
+                defaults.set(newValue.rawValue, forKey: "llmProvider")
             }
         }
     }
@@ -242,7 +287,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.embeddingProvider) {
                 _embeddingProvider = newValue
-                UserDefaults.standard.set(newValue.rawValue, forKey: "embeddingProvider")
+                defaults.set(newValue.rawValue, forKey: "embeddingProvider")
             }
         }
     }
@@ -253,7 +298,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.ollamaBaseURL) {
                 _ollamaBaseURL = newValue
-                UserDefaults.standard.set(newValue, forKey: "ollamaBaseURL")
+                defaults.set(newValue, forKey: "ollamaBaseURL")
             }
         }
     }
@@ -264,7 +309,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.ollamaLLMModel) {
                 _ollamaLLMModel = newValue
-                UserDefaults.standard.set(newValue, forKey: "ollamaLLMModel")
+                defaults.set(newValue, forKey: "ollamaLLMModel")
             }
         }
     }
@@ -275,7 +320,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.ollamaEmbedModel) {
                 _ollamaEmbedModel = newValue
-                UserDefaults.standard.set(newValue, forKey: "ollamaEmbedModel")
+                defaults.set(newValue, forKey: "ollamaEmbedModel")
             }
         }
     }
@@ -286,7 +331,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.mlxBaseURL) {
                 _mlxBaseURL = newValue
-                UserDefaults.standard.set(newValue, forKey: "mlxBaseURL")
+                defaults.set(newValue, forKey: "mlxBaseURL")
             }
         }
     }
@@ -297,7 +342,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.mlxModel) {
                 _mlxModel = newValue
-                UserDefaults.standard.set(newValue, forKey: "mlxModel")
+                defaults.set(newValue, forKey: "mlxModel")
             }
         }
     }
@@ -308,7 +353,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.openAIEmbedBaseURL) {
                 _openAIEmbedBaseURL = newValue
-                UserDefaults.standard.set(newValue, forKey: "openAIEmbedBaseURL")
+                defaults.set(newValue, forKey: "openAIEmbedBaseURL")
             }
         }
     }
@@ -319,7 +364,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.openAIEmbedApiKey) {
                 _openAIEmbedApiKey = newValue
-                KeychainHelper.save(key: "openAIEmbedApiKey", value: newValue)
+                secretStore.save(key: "openAIEmbedApiKey", value: newValue)
             }
         }
     }
@@ -330,7 +375,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.openAIEmbedModel) {
                 _openAIEmbedModel = newValue
-                UserDefaults.standard.set(newValue, forKey: "openAIEmbedModel")
+                defaults.set(newValue, forKey: "openAIEmbedModel")
             }
         }
     }
@@ -342,7 +387,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.hasAcknowledgedRecordingConsent) {
                 _hasAcknowledgedRecordingConsent = newValue
-                UserDefaults.standard.set(newValue, forKey: "hasAcknowledgedRecordingConsent")
+                defaults.set(newValue, forKey: "hasAcknowledgedRecordingConsent")
             }
         }
     }
@@ -354,7 +399,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.showLiveTranscript) {
                 _showLiveTranscript = newValue
-                UserDefaults.standard.set(newValue, forKey: "showLiveTranscript")
+                defaults.set(newValue, forKey: "showLiveTranscript")
             }
         }
     }
@@ -366,7 +411,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.saveAudioRecording) {
                 _saveAudioRecording = newValue
-                UserDefaults.standard.set(newValue, forKey: "saveAudioRecording")
+                defaults.set(newValue, forKey: "saveAudioRecording")
             }
         }
     }
@@ -378,7 +423,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.enableTranscriptRefinement) {
                 _enableTranscriptRefinement = newValue
-                UserDefaults.standard.set(newValue, forKey: "enableTranscriptRefinement")
+                defaults.set(newValue, forKey: "enableTranscriptRefinement")
             }
         }
     }
@@ -390,7 +435,7 @@ final class AppSettings {
         set {
             withMutation(keyPath: \.hideFromScreenShare) {
                 _hideFromScreenShare = newValue
-                UserDefaults.standard.set(newValue, forKey: "hideFromScreenShare")
+                defaults.set(newValue, forKey: "hideFromScreenShare")
                 applyScreenShareVisibility()
             }
         }
@@ -400,46 +445,50 @@ final class AppSettings {
 
     /// Whether automatic meeting detection is enabled.
     var meetingAutoDetectEnabled: Bool {
-        didSet { UserDefaults.standard.set(meetingAutoDetectEnabled, forKey: "meetingAutoDetectEnabled") }
+        didSet { defaults.set(meetingAutoDetectEnabled, forKey: "meetingAutoDetectEnabled") }
     }
 
     /// Whether the explanation sheet for auto-detect has been shown.
     var hasShownAutoDetectExplanation: Bool {
-        didSet { UserDefaults.standard.set(hasShownAutoDetectExplanation, forKey: "hasShownAutoDetectExplanation") }
+        didSet { defaults.set(hasShownAutoDetectExplanation, forKey: "hasShownAutoDetectExplanation") }
     }
 
     /// Whether the user has seen the suggestion to enable Launch at Login.
     var hasSeenLaunchAtLoginSuggestion: Bool {
-        didSet { UserDefaults.standard.set(hasSeenLaunchAtLoginSuggestion, forKey: "hasSeenLaunchAtLoginSuggestion") }
+        didSet { defaults.set(hasSeenLaunchAtLoginSuggestion, forKey: "hasSeenLaunchAtLoginSuggestion") }
     }
 
     /// Minutes of mic silence before auto-stopping a detected session.
     var silenceTimeoutMinutes: Int {
-        didSet { UserDefaults.standard.set(silenceTimeoutMinutes, forKey: "silenceTimeoutMinutes") }
+        didSet { defaults.set(silenceTimeoutMinutes, forKey: "silenceTimeoutMinutes") }
     }
 
     /// User-added meeting app bundle IDs beyond the built-in list.
     var customMeetingAppBundleIDs: [String] {
-        didSet { UserDefaults.standard.set(customMeetingAppBundleIDs, forKey: "customMeetingAppBundleIDs") }
+        didSet { defaults.set(customMeetingAppBundleIDs, forKey: "customMeetingAppBundleIDs") }
     }
 
     /// When true, detection events are logged to the console.
     var detectionLogEnabled: Bool {
-        didSet { UserDefaults.standard.set(detectionLogEnabled, forKey: "detectionLogEnabled") }
+        didSet { defaults.set(detectionLogEnabled, forKey: "detectionLogEnabled") }
     }
 
-    init() {
-        let defaults = UserDefaults.standard
+    init(storage: AppSettingsStorage = .live()) {
+        self.defaults = storage.defaults
+        self.secretStore = storage.secretStore
+
+        let defaults = storage.defaults
 
         // One-time migrations from previous bundle IDs
-        Self.migrateFromOldBundleIfNeeded(defaults: defaults)
-        Self.migrateFromOpenGranolaIfNeeded(defaults: defaults)
-        Self.migrateKeychainServiceIfNeeded(defaults: defaults)
+        if storage.runMigrations {
+            Self.migrateFromOldBundleIfNeeded(defaults: defaults)
+            Self.migrateFromOpenGranolaIfNeeded(defaults: defaults)
+            Self.migrateKeychainServiceIfNeeded(defaults: defaults)
+        }
 
         self._kbFolderPath = defaults.string(forKey: "kbFolderPath") ?? ""
 
-        let defaultNotesPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/OpenOats").path
+        let defaultNotesPath = storage.defaultNotesDirectory.path
         self._notesFolderPath = defaults.string(forKey: "notesFolderPath") ?? defaultNotesPath
         self._selectedModel = defaults.string(forKey: "selectedModel") ?? "google/gemini-3-flash-preview"
         self._transcriptionLocale = defaults.string(forKey: "transcriptionLocale") ?? "en-US"
@@ -448,8 +497,8 @@ final class AppSettings {
             rawValue: defaults.string(forKey: "transcriptionModel") ?? ""
         ) ?? .parakeetV2
         self._inputDeviceID = AudioDeviceID(defaults.integer(forKey: "inputDeviceID"))
-        self._openRouterApiKey = KeychainHelper.load(key: "openRouterApiKey") ?? ""
-        self._voyageApiKey = KeychainHelper.load(key: "voyageApiKey") ?? ""
+        self._openRouterApiKey = secretStore.load(key: "openRouterApiKey") ?? ""
+        self._voyageApiKey = secretStore.load(key: "voyageApiKey") ?? ""
         self._llmProvider = LLMProvider(rawValue: defaults.string(forKey: "llmProvider") ?? "") ?? .openRouter
         self._embeddingProvider = EmbeddingProvider(rawValue: defaults.string(forKey: "embeddingProvider") ?? "") ?? .voyageAI
         self._ollamaBaseURL = defaults.string(forKey: "ollamaBaseURL") ?? "http://localhost:11434"
@@ -458,7 +507,7 @@ final class AppSettings {
         self._mlxBaseURL = defaults.string(forKey: "mlxBaseURL") ?? "http://localhost:8080"
         self._mlxModel = defaults.string(forKey: "mlxModel") ?? "mlx-community/Llama-3.2-3B-Instruct-4bit"
         self._openAIEmbedBaseURL = defaults.string(forKey: "openAIEmbedBaseURL") ?? "http://localhost:8080"
-        self._openAIEmbedApiKey = KeychainHelper.load(key: "openAIEmbedApiKey") ?? ""
+        self._openAIEmbedApiKey = secretStore.load(key: "openAIEmbedApiKey") ?? ""
         self._openAIEmbedModel = defaults.string(forKey: "openAIEmbedModel") ?? "text-embedding-3-small"
         self._hasAcknowledgedRecordingConsent = defaults.bool(forKey: "hasAcknowledgedRecordingConsent")
         self._saveAudioRecording = defaults.bool(forKey: "saveAudioRecording")

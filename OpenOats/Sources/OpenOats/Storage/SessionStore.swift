@@ -14,9 +14,15 @@ actor SessionStore {
     private var pendingWrites = 0
     private var pendingWriteWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        sessionsDirectory = appSupport.appendingPathComponent("OpenOats/sessions", isDirectory: true)
+    init(rootDirectory: URL? = nil) {
+        let baseDirectory: URL
+        if let rootDirectory {
+            baseDirectory = rootDirectory
+        } else {
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            baseDirectory = appSupport.appendingPathComponent("OpenOats", isDirectory: true)
+        }
+        sessionsDirectory = baseDirectory.appendingPathComponent("sessions", isDirectory: true)
 
         try? FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
         Self.dropMetadataNeverIndex(in: sessionsDirectory)
@@ -311,6 +317,44 @@ actor SessionStore {
     }
 
     var sessionsDirectoryURL: URL { sessionsDirectory }
+
+    func seedSession(
+        id: String,
+        records: [SessionRecord],
+        startedAt: Date,
+        endedAt: Date? = nil,
+        templateSnapshot: TemplateSnapshot? = nil,
+        title: String? = nil,
+        notes: EnhancedNotes? = nil
+    ) {
+        let jsonl = jsonlURL(for: id)
+        let sidecar = SessionSidecar(
+            index: SessionIndex(
+                id: id,
+                startedAt: startedAt,
+                endedAt: endedAt,
+                templateSnapshot: templateSnapshot,
+                title: title,
+                utteranceCount: records.count,
+                hasNotes: notes != nil
+            ),
+            notes: notes
+        )
+
+        do {
+            var payload = Data()
+            for record in records {
+                payload.append(try encoder.encode(record))
+                payload.append(Data("\n".utf8))
+            }
+            try payload.write(to: jsonl, options: .atomic)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: jsonl.path)
+        } catch {
+            print("SessionStore: failed to seed transcript: \(error)")
+        }
+
+        writeSidecar(sidecar)
+    }
 
     // MARK: - Recently Deleted
 

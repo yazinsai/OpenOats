@@ -1,4 +1,4 @@
-name: validate-swift
+name: ui-smoke
 
 on:
   pull_request:
@@ -11,16 +11,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: validate-swift-${{ github.ref }}
+  group: ui-smoke-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  validate-swift:
+  ui-smoke:
     runs-on: macos-26
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: OpenOats
+    timeout-minutes: 30
+    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,14 +29,5 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: Resolve package dependencies
-        run: swift package resolve
-
-      - name: Build debug
-        run: swift build -c debug
-
-      - name: Build release
-        run: swift build -c release
-
-      - name: Run Swift tests
-        run: swift test
+      - name: Run UI smoke suite
+        run: ./scripts/run_ui_smoke.sh

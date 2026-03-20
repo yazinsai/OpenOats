@@ -1,0 +1,357 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000020 /* OpenOatsUITestHostApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000010 /* OpenOatsUITestHostApp.swift */; };
+		A10000000000000000000021 /* SmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000012 /* SmokeTests.swift */; };
+		A10000000000000000000022 /* OpenOatsKit in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000007 /* OpenOatsKit */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A10000000000000000000060 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A10000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A10000000000000000000040;
+			remoteInfo = OpenOatsUITestHost;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		A10000000000000000000010 /* OpenOatsUITestHostApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenOatsUITestHostApp.swift; sourceTree = "<group>"; };
+		A10000000000000000000011 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A10000000000000000000012 /* SmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmokeTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000013 /* OpenOatsUITestHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenOatsUITestHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000014 /* OpenOatsUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OpenOatsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A10000000000000000000031 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000022 /* OpenOatsKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000034 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A10000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000004 /* OpenOatsUITestHost */,
+				A10000000000000000000005 /* OpenOatsUITests */,
+				A10000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A10000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000013 /* OpenOatsUITestHost.app */,
+				A10000000000000000000014 /* OpenOatsUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000004 /* OpenOatsUITestHost */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000010 /* OpenOatsUITestHostApp.swift */,
+				A10000000000000000000011 /* Info.plist */,
+			);
+			path = OpenOatsUITestHost;
+			sourceTree = "<group>";
+		};
+		A10000000000000000000005 /* OpenOatsUITests */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000012 /* SmokeTests.swift */,
+			);
+			path = OpenOatsUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A10000000000000000000040 /* OpenOatsUITestHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000053 /* Build configuration list for PBXNativeTarget "OpenOatsUITestHost" */;
+			buildPhases = (
+				A10000000000000000000030 /* Sources */,
+				A10000000000000000000031 /* Frameworks */,
+				A10000000000000000000032 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OpenOatsUITestHost;
+			packageProductDependencies = (
+				A10000000000000000000007 /* OpenOatsKit */,
+			);
+			productName = OpenOatsUITestHost;
+			productReference = A10000000000000000000013 /* OpenOatsUITestHost.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A10000000000000000000041 /* OpenOatsUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000000000000000000056 /* Build configuration list for PBXNativeTarget "OpenOatsUITests" */;
+			buildPhases = (
+				A10000000000000000000033 /* Sources */,
+				A10000000000000000000034 /* Frameworks */,
+				A10000000000000000000035 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A10000000000000000000061 /* PBXTargetDependency */,
+			);
+			name = OpenOatsUITests;
+			packageProductDependencies = (
+			);
+			productName = OpenOatsUITests;
+			productReference = A10000000000000000000014 /* OpenOatsUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				ORGANIZATIONNAME = OpenOats;
+				TargetAttributes = {
+					A10000000000000000000040 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					A10000000000000000000041 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = A10000000000000000000040;
+					};
+				};
+			};
+			buildConfigurationList = A10000000000000000000050 /* Build configuration list for PBXProject "OpenOatsUITestHost" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A10000000000000000000002;
+			packageReferences = (
+				A10000000000000000000006 /* XCLocalSwiftPackageReference "../OpenOats" */,
+			);
+			productRefGroup = A10000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A10000000000000000000040 /* OpenOatsUITestHost */,
+				A10000000000000000000041 /* OpenOatsUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A10000000000000000000032 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000035 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A10000000000000000000030 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000020 /* OpenOatsUITestHostApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A10000000000000000000033 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000021 /* SmokeTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A10000000000000000000061 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A10000000000000000000040 /* OpenOatsUITestHost */;
+			targetProxy = A10000000000000000000060 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		A10000000000000000000051 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		A10000000000000000000052 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		A10000000000000000000054 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = OpenOatsUITestHost/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.openoats.ui-test-host;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		A10000000000000000000055 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = OpenOatsUITestHost/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.openoats.ui-test-host;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		A10000000000000000000057 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.openoats.ui-tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = OpenOatsUITestHost;
+			};
+			name = Debug;
+		};
+		A10000000000000000000058 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.openoats.ui-tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = OpenOatsUITestHost;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A10000000000000000000050 /* Build configuration list for PBXProject "OpenOatsUITestHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000051 /* Debug */,
+				A10000000000000000000052 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000000053 /* Build configuration list for PBXNativeTarget "OpenOatsUITestHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000054 /* Debug */,
+				A10000000000000000000055 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000000000000000000056 /* Build configuration list for PBXNativeTarget "OpenOatsUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000000000000000000057 /* Debug */,
+				A10000000000000000000058 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A10000000000000000000006 /* XCLocalSwiftPackageReference "../OpenOats" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../OpenOats;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A10000000000000000000007 /* OpenOatsKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10000000000000000000006 /* XCLocalSwiftPackageReference "../OpenOats" */;
+			productName = OpenOatsKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A10000000000000000000001 /* Project object */;
+}

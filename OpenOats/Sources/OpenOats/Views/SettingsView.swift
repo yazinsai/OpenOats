@@ -76,6 +76,7 @@ struct SettingsView: View {
                     }
                 }
                 .font(.system(size: 12))
+                .accessibilityIdentifier("settings.llmProviderPicker")
 
                 switch settings.llmProvider {
                 case .openRouter:
@@ -139,6 +140,7 @@ struct SettingsView: View {
                     }
                 }
                 .font(.system(size: 12))
+                .accessibilityIdentifier("settings.microphonePicker")
             }
 
             Section("Recording") {
@@ -156,6 +158,7 @@ struct SettingsView: View {
                     }
                 }
                 .font(.system(size: 12))
+                .accessibilityIdentifier("settings.transcriptionModelPicker")
 
                 if settings.transcriptionModel.supportsExplicitLanguageHint {
                     TextField(
@@ -429,6 +432,7 @@ struct SettingsView: View {
                 }
             }
         }
+        .accessibilityIdentifier("settings.form")
         .formStyle(.grouped)
         .frame(width: 450, height: 750)
         .onAppear {

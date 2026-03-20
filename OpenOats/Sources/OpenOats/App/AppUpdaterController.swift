@@ -6,7 +6,7 @@ final class AppUpdaterController {
     let updater: SPUUpdater
     private let userDriver: OpenOatsUserDriver
 
-    init() {
+    init(startUpdater: Bool = true) {
         let hostBundle = Bundle.main
         userDriver = OpenOatsUserDriver(hostBundle: hostBundle, delegate: nil)
         updater = SPUUpdater(
@@ -15,6 +15,8 @@ final class AppUpdaterController {
             userDriver: userDriver,
             delegate: nil
         )
+
+        guard startUpdater else { return }
 
         do {
             try updater.start()

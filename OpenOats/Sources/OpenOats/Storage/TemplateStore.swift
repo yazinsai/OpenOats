@@ -13,9 +13,14 @@ final class TemplateStore {
     private let storageURL: URL
     private var templateVersion: Int = 1
 
-    init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("OpenOats", isDirectory: true)
+    init(rootDirectory: URL? = nil) {
+        let dir: URL
+        if let rootDirectory {
+            dir = rootDirectory
+        } else {
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            dir = appSupport.appendingPathComponent("OpenOats", isDirectory: true)
+        }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         storageURL = dir.appendingPathComponent("templates.json")
         load()

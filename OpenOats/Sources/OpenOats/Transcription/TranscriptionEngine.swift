@@ -21,6 +21,11 @@ func diagLog(_ msg: String) {
 @Observable
 @MainActor
 final class TranscriptionEngine {
+    enum Mode {
+        case live
+        case scripted([Utterance])
+    }
+
     // These properties are read from SwiftUI body during view evaluation.
     // SwiftUI's ViewBodyAccessor doesn't carry MainActor executor context
     // in Swift 6.2, so @MainActor-isolated @Observable properties trigger
@@ -64,10 +69,18 @@ final class TranscriptionEngine {
     private let micCapture = MicCapture()
     private let transcriptStore: TranscriptStore
     private let settings: AppSettings
+    private let mode: Mode
 
     /// Audio level from mic for the UI meter.
     /// nonisolated is safe here — micCapture.audioLevel is thread-safe (NSLock).
-    nonisolated var audioLevel: Float { micCapture.audioLevel }
+    nonisolated var audioLevel: Float {
+        switch mode {
+        case .live:
+            micCapture.audioLevel
+        case .scripted:
+            _isRunning ? 0.35 : 0
+        }
+    }
 
     private var micTask: Task<Void, Never>?
     private var sysTask: Task<Void, Never>?
@@ -100,14 +113,25 @@ final class TranscriptionEngine {
     private var pendingMicDeviceID: AudioDeviceID?
     private var pendingSystemAudioRestart = false
 
-    init(transcriptStore: TranscriptStore, settings: AppSettings) {
+    init(transcriptStore: TranscriptStore, settings: AppSettings, mode: Mode = .live) {
         self.transcriptStore = transcriptStore
         self.settings = settings
-        self.needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel)
+        self.mode = mode
+        switch mode {
+        case .live:
+            self.needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel)
+        case .scripted:
+            self.needsModelDownload = false
+        }
     }
 
     func refreshModelAvailability() {
-        needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel)
+        switch mode {
+        case .live:
+            needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel)
+        case .scripted:
+            needsModelDownload = false
+        }
     }
 
     func start(
@@ -119,6 +143,16 @@ final class TranscriptionEngine {
         guard !isRunning else { return }
         lastError = nil
         refreshModelAvailability()
+
+        if case .scripted(let scriptedUtterances) = mode {
+            downloadConfirmed = false
+            assetStatus = "Transcribing (UI Test)"
+            isRunning = true
+            for utterance in scriptedUtterances {
+                transcriptStore.append(utterance)
+            }
+            return
+        }
 
         if let localeMismatchMessage = localeMismatchMessage(
             for: locale,
@@ -231,6 +265,7 @@ final class TranscriptionEngine {
     /// Restart only the mic capture with a new device, keeping system audio and models intact.
     /// Pass the raw setting value (0 = system default, or a specific AudioDeviceID).
     func restartMic(inputDeviceID: AudioDeviceID) {
+        if case .scripted = mode { return }
         guard isRunning else { return }
         pendingMicDeviceID = inputDeviceID
 
@@ -359,6 +394,14 @@ final class TranscriptionEngine {
     }
 
     func finalize() async {
+        if case .scripted = mode {
+            isRunning = false
+            assetStatus = "Ready"
+            transcriptStore.volatileYouText = ""
+            transcriptStore.volatileThemText = ""
+            return
+        }
+
         removeDefaultDeviceListener()
         removeDefaultOutputDeviceListener()
         micRestartTask?.cancel()
@@ -390,6 +433,14 @@ final class TranscriptionEngine {
     }
 
     func stop() {
+        if case .scripted = mode {
+            isRunning = false
+            assetStatus = "Ready"
+            transcriptStore.volatileYouText = ""
+            transcriptStore.volatileThemText = ""
+            return
+        }
+
         removeDefaultDeviceListener()
         removeDefaultOutputDeviceListener()
         micRestartTask?.cancel()

@@ -5,6 +5,16 @@ import PackageDescription
 let package = Package(
     name: "OpenOats",
     platforms: [.macOS(.v15)],
+    products: [
+        .library(
+            name: "OpenOatsKit",
+            targets: ["OpenOatsKit"]
+        ),
+        .executable(
+            name: "OpenOats",
+            targets: ["OpenOatsAppExecutable"]
+        ),
+    ],
     dependencies: [
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.7.9"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.7.0"),
@@ -12,8 +22,8 @@ let package = Package(
         .package(url: "https://github.com/sindresorhus/LaunchAtLogin-Modern", from: "1.1.0"),
     ],
     targets: [
-        .executableTarget(
-            name: "OpenOats",
+        .target(
+            name: "OpenOatsKit",
             dependencies: [
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "Sparkle", package: "Sparkle"),
@@ -23,9 +33,14 @@ let package = Package(
             path: "Sources/OpenOats",
             exclude: ["Info.plist", "OpenOats.entitlements", "Assets", "Resources"]
         ),
+        .executableTarget(
+            name: "OpenOatsAppExecutable",
+            dependencies: ["OpenOatsKit"],
+            path: "Sources/OpenOatsApp"
+        ),
         .testTarget(
             name: "OpenOatsTests",
-            dependencies: ["OpenOats"],
+            dependencies: ["OpenOatsKit"],
             path: "Tests/OpenOatsTests"
         ),
     ]

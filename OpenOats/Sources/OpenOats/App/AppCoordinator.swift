@@ -28,16 +28,16 @@ private let logger = Logger(subsystem: "com.openoats.app", category: "MeetingDet
 @Observable
 @MainActor
 final class AppCoordinator {
-    @ObservationIgnored private let _sessionStore = SessionStore()
+    @ObservationIgnored private let _sessionStore: SessionStore
     nonisolated var sessionStore: SessionStore { _sessionStore }
 
-    @ObservationIgnored private let _templateStore = TemplateStore()
+    @ObservationIgnored private let _templateStore: TemplateStore
     nonisolated var templateStore: TemplateStore { _templateStore }
 
-    @ObservationIgnored private let _notesEngine = NotesEngine()
+    @ObservationIgnored private let _notesEngine: NotesEngine
     nonisolated var notesEngine: NotesEngine { _notesEngine }
 
-    @ObservationIgnored private let _transcriptStore = TranscriptStore()
+    @ObservationIgnored private let _transcriptStore: TranscriptStore
     nonisolated var transcriptStore: TranscriptStore { _transcriptStore }
 
     @ObservationIgnored nonisolated(unsafe) private var _selectedTemplate: MeetingTemplate?
@@ -120,6 +120,18 @@ final class AppCoordinator {
     /// Sessions the user dismissed via "Not a Meeting" (by detected app bundle ID).
     /// Cleared on app restart. Prevents re-prompting for the same app within a session.
     private var dismissedEvents: Set<String> = []
+
+    init(
+        sessionStore: SessionStore = SessionStore(),
+        templateStore: TemplateStore = TemplateStore(),
+        notesEngine: NotesEngine = NotesEngine(),
+        transcriptStore: TranscriptStore = TranscriptStore()
+    ) {
+        self._sessionStore = sessionStore
+        self._templateStore = templateStore
+        self._notesEngine = notesEngine
+        self._transcriptStore = transcriptStore
+    }
 
     // MARK: - State Machine
 

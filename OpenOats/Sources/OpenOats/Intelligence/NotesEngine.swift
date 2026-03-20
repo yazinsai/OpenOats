@@ -5,6 +5,11 @@ import Observation
 @Observable
 @MainActor
 final class NotesEngine {
+    enum Mode {
+        case live
+        case scripted(markdown: String)
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _isGenerating = false
     private(set) var isGenerating: Bool {
         get { access(keyPath: \.isGenerating); return _isGenerating }
@@ -25,6 +30,11 @@ final class NotesEngine {
 
     private let client = OpenRouterClient()
     private var currentTask: Task<Void, Never>?
+    private let mode: Mode
+
+    init(mode: Mode = .live) {
+        self.mode = mode
+    }
 
     /// Streams note generation from the LLM, updating `generatedMarkdown` in real time.
     func generate(
@@ -36,6 +46,12 @@ final class NotesEngine {
         isGenerating = true
         generatedMarkdown = ""
         error = nil
+
+        if case .scripted(let markdown) = mode {
+            generatedMarkdown = markdown
+            isGenerating = false
+            return
+        }
 
         let apiKey: String?
         let baseURL: URL?

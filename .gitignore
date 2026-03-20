@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 build/
+.build/
 dist/
 *.spec
 .worktrees/

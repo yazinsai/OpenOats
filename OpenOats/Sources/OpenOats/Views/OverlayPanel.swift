@@ -3,7 +3,7 @@ import SwiftUI
 
 /// A floating NSPanel that is invisible to screen sharing.
 final class OverlayPanel: NSPanel {
-    init(contentRect: NSRect) {
+    init(contentRect: NSRect, defaults: UserDefaults = .standard) {
         super.init(
             contentRect: contentRect,
             styleMask: [.nonactivatingPanel, .titled, .closable, .resizable, .fullSizeContentView],
@@ -13,9 +13,9 @@ final class OverlayPanel: NSPanel {
 
         isFloatingPanel = true
         level = .floating
-        let hidden = UserDefaults.standard.object(forKey: "hideFromScreenShare") == nil
+        let hidden = defaults.object(forKey: "hideFromScreenShare") == nil
             ? true
-            : UserDefaults.standard.bool(forKey: "hideFromScreenShare")
+            : defaults.bool(forKey: "hideFromScreenShare")
         sharingType = hidden ? .none : .readOnly
         isMovableByWindowBackground = true
         titlebarAppearsTransparent = true
@@ -35,11 +35,12 @@ final class OverlayPanel: NSPanel {
 @MainActor
 final class OverlayManager: ObservableObject {
     private var panel: OverlayPanel?
+    var defaults: UserDefaults = .standard
 
     func show<Content: View>(content: Content) {
         if panel == nil {
             let rect = NSRect(x: 100, y: 100, width: 400, height: 300)
-            panel = OverlayPanel(contentRect: rect)
+            panel = OverlayPanel(contentRect: rect, defaults: defaults)
         }
 
         let hostingView = NSHostingView(rootView: content)

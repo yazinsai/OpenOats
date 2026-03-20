@@ -1,5 +1,5 @@
 import XCTest
-@testable import OpenOats
+@testable import OpenOatsKit
 
 final class KnowledgeBaseTests: XCTestCase {
 
