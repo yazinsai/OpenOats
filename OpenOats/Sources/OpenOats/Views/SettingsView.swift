@@ -179,9 +179,9 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
 
-                Toggle("Refine transcript", isOn: $settings.enableTranscriptRefinement)
+                Toggle("Clean up transcript during recording", isOn: $settings.enableTranscriptRefinement)
                     .font(.system(size: 12))
-                Text("Uses your LLM provider to clean up filler words and fix punctuation in real-time. Original text is preserved.")
+                Text("Automatically removes filler words and fixes punctuation as you record. You can always clean up past transcripts manually from the Notes window.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
 

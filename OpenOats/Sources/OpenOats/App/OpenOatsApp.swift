@@ -73,7 +73,6 @@ public struct OpenOatsRootApp: App {
                 .defaultAppStorage(defaults)
         }
         .defaultSize(width: 700, height: 550)
-        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
 
         Settings {
             SettingsView(settings: settings, updater: updaterController.updater)
