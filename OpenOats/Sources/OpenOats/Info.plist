@@ -43,5 +43,7 @@
     <true/>
     <key>SUPublicEDKey</key>
     <string>RMSxoyjk8gEBvqmECGMvBLYQ7Kl7ptbacDBWSbsdgeI=</string>
+    <key>LSUIElement</key>
+    <true/>
 </dict>
 </plist>
