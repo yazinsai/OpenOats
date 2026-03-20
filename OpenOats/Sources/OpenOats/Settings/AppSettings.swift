@@ -416,6 +416,19 @@ final class AppSettings {
         }
     }
 
+    /// When true, Apple's voice-processing IO is enabled on the mic input to cancel
+    /// speaker echo and reduce double-transcription when using built-in speakers + mic.
+    @ObservationIgnored nonisolated(unsafe) private var _enableEchoCancellation: Bool
+    var enableEchoCancellation: Bool {
+        get { access(keyPath: \.enableEchoCancellation); return _enableEchoCancellation }
+        set {
+            withMutation(keyPath: \.enableEchoCancellation) {
+                _enableEchoCancellation = newValue
+                defaults.set(newValue, forKey: "enableEchoCancellation")
+            }
+        }
+    }
+
     /// When true, uses the LLM to clean up filler words and fix punctuation in real-time.
     @ObservationIgnored nonisolated(unsafe) private var _enableTranscriptRefinement: Bool
     var enableTranscriptRefinement: Bool {
@@ -554,6 +567,13 @@ final class AppSettings {
         self._hasAcknowledgedRecordingConsent = defaults.bool(forKey: "hasAcknowledgedRecordingConsent")
         self._saveAudioRecording = defaults.bool(forKey: "saveAudioRecording")
         self._enableTranscriptRefinement = defaults.bool(forKey: "enableTranscriptRefinement")
+
+        // Echo cancellation — default to enabled
+        if defaults.object(forKey: "enableEchoCancellation") == nil {
+            self._enableEchoCancellation = true
+        } else {
+            self._enableEchoCancellation = defaults.bool(forKey: "enableEchoCancellation")
+        }
 
         // Default to true (shown) if key has never been set
         if defaults.object(forKey: "showLiveTranscript") == nil {

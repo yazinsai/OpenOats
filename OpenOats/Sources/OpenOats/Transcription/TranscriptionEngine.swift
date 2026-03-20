@@ -547,7 +547,7 @@ final class TranscriptionEngine {
         vadManager: VadManager,
         deviceID: AudioDeviceID
     ) {
-        var micStream = micCapture.bufferStream(deviceID: deviceID)
+        var micStream = micCapture.bufferStream(deviceID: deviceID, echoCancellation: settings.enableEchoCancellation)
         if let recorder = audioRecorder {
             micStream = Self.tappedStream(micStream) { buffer in
                 recorder.writeMicBuffer(buffer)

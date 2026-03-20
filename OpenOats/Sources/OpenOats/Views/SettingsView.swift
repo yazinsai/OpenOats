@@ -149,6 +149,12 @@ struct SettingsView: View {
                 Text("Save a local audio file (.m4a) alongside each transcript. Audio never leaves your device.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+
+                Toggle("Echo cancellation", isOn: $settings.enableEchoCancellation)
+                    .font(.system(size: 12))
+                Text("Reduces duplicate transcription when using speakers and microphone simultaneously. Takes effect on next session.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
 
             Section("Transcription") {
