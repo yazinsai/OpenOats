@@ -198,7 +198,7 @@ struct NotesView: View {
             .disabled(copyContentIsEmpty)
             .help("Copy to clipboard")
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 16)
         .padding(.vertical, 10)
     }
 
@@ -212,18 +212,22 @@ struct NotesView: View {
                 Label("Clean Up", systemImage: "sparkles")
                     .font(.system(size: 12))
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
             .disabled(loadedTranscript.isEmpty)
             .help("Remove filler words and fix punctuation")
 
         case .inProgress:
-            ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
                 Text("\(coordinator.cleanupEngine.chunksCompleted)/\(coordinator.cleanupEngine.totalChunks) cleaning...")
-                    .font(.system(size: 11))
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                EmptyView()
+                Button("Cancel") {
+                    coordinator.cleanupEngine.cancel()
+                }
+                .buttonStyle(.bordered)
+                .font(.system(size: 11))
+                .controlSize(.small)
             }
-            .layoutPriority(-1)
 
         case .partiallyCleaned:
             Button {
@@ -232,7 +236,7 @@ struct NotesView: View {
                 Label("Clean Up", systemImage: "sparkles")
                     .font(.system(size: 12))
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
             .help("Clean up remaining utterances")
 
             Button {
@@ -277,6 +281,7 @@ struct NotesView: View {
                 regenerateNotes()
             }
             .menuStyle(.button)
+            .buttonStyle(.bordered)
             .fixedSize()
             .help("Click to regenerate, or pick a different template")
         }
@@ -316,9 +321,9 @@ struct NotesView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     ProgressView()
-                        .scaleEffect(0.8)
+                        .controlSize(.small)
                     Text("Generating notes...")
-                        .font(.system(size: 13))
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button("Cancel") {
@@ -330,14 +335,14 @@ struct NotesView: View {
 
                 markdownContent(coordinator.notesEngine.generatedMarkdown)
             }
-            .padding(20)
+            .padding(16)
         }
     }
 
     private func notesContentView(_ notes: EnhancedNotes) -> some View {
         ScrollView {
             markdownContent(notes.markdown)
-                .padding(20)
+                .padding(16)
         }
     }
 
@@ -375,16 +380,12 @@ struct NotesView: View {
                     cleanupProgressBanner
                 }
                 if let cleanupError = coordinator.cleanupEngine.error {
-                    HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.yellow)
-                        Text(cleanupError)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    Text(cleanupError)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 4)
                 }
                 LazyVStack(alignment: .leading, spacing: 8) {
                     let isCleaning = coordinator.cleanupEngine.isCleaningUp
@@ -400,9 +401,10 @@ struct NotesView: View {
     private var cleanupProgressBanner: some View {
         HStack(spacing: 8) {
             ProgressView()
-                .scaleEffect(0.7)
+                .controlSize(.small)
             Text("Cleaning up transcript... \(coordinator.cleanupEngine.chunksCompleted)/\(coordinator.cleanupEngine.totalChunks) sections")
                 .font(.system(size: 12))
+                .lineLimit(1)
                 .foregroundStyle(.secondary)
             Spacer()
             Button("Cancel") {
