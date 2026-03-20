@@ -6,10 +6,10 @@
 
 **A meeting note-taker that talks back — now on Windows and Mac.**
 
+> **Disclaimer & Acknowledgement:** OpenCassava is a descendant of the excellent [OpenOats](https://github.com/yazinsai/OpenOats) project created by [yazinsai](https://github.com/yazinsai). A huge thank you to the original creator for laying the groundwork for this application. OpenCassava has now evolved into its own dedicated project with a focus on comprehensive cross-platform support and expanded features.
+
 <p align="center">
-  <a href="https://github.com/romeroej2/OpenCassava/releases/latest">
-    <img src="https://img.shields.io/badge/Download_for_Mac-DMG-black?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" />
-  </a>
+ 
   <a href="https://github.com/romeroej2/OpenCassava/releases/latest">
     <img src="https://img.shields.io/badge/Download_for_Windows-EXE-black?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" />
   </a>
@@ -27,25 +27,24 @@ For first-time setup with LM Studio, start here: [LM Studio Setup Guide](docs/lm
 
 ## Features
 
-- **Invisible to the other side** — the overlay window is hidden from screen sharing by default, so no one knows you're using it
-- **Fully offline transcription** — speech recognition runs on your machine; no audio ever leaves your device
-- **Runs 100% locally** — pair with [Ollama](https://ollama.com/) for LLM suggestions and local embeddings, and nothing touches the network at all
-- **Pick any LLM** — use [OpenRouter](https://openrouter.ai/) for cloud models (GPT-4o, Claude, Gemini) or Ollama for local ones (Llama, Qwen, Mistral)
-- **Live transcript** — see both sides of the conversation as it happens, copy the whole thing with one click
-- **Smart suggestions** — when the conversation hits a moment that matters, OpenCassava pulls in relevant talking points from your notes
-- **Auto-generated notes** — after each session, produce structured markdown notes from the transcript using meeting templates (1:1, stand-up, customer discovery, and more)
-- **Auto-saved sessions** — every conversation is automatically saved as a plain-text transcript and a structured session log, no manual export needed
-- **Knowledge base search** — point it at a folder of notes and it retrieves what's relevant using [Voyage AI](https://www.voyageai.com/) embeddings, local Ollama embeddings, or any OpenAI-compatible endpoint
+- **Invisible to the other side** — the overlay window is hidden from screen sharing by default, so no one knows you're using it.
+- **Fully offline transcription** — speech recognition runs entirely on your machine using local `whisper-rs` models; no audio ever leaves your device.
+- **Runs 100% locally** — tested primarily with LM Studio for LLM suggestions and local embeddings. It may also work with other local providers like [Ollama](https://ollama.com/), ensuring nothing touches the network at all.
+- **Flexible AI Integration** — pick any LLM. Use [OpenRouter](https://openrouter.ai/) for cloud models (GPT-4o, Claude, Gemini). *(Note: The Cloud AI version is currently untested, but will be reviewed at a later time).*
+- **Live transcript & Search** — see both sides of the conversation as it happens, search the active transcript in real-time, and copy or export the whole thing with one click.
+- **Session History** — automatically saves every session. Access your past sessions directly from the **History Sidebar**.
+- **Formatted Notes generation** — after each session, produce structured markdown notes from the transcript using templates.
+- **Knowledge base search** — point it at a folder of notes and it retrieves what's relevant using Voyage AI embeddings, local Ollama embeddings, or any OpenAI-compatible endpoint.
 
 ---
 
 ## How it works
 
-1. You start a call and click **Start Session**
-2. OpenCassava captures your microphone and (on Windows) system audio — the other side's voice is captured as "them"
-3. When the conversation hits a moment that matters — a question, a decision point, a claim worth backing up — it searches your notes and surfaces relevant talking points
-4. After the session, generate structured markdown notes from the transcript using a meeting template
-5. You sound prepared because you are
+1. You start a call and click **Start Session**.
+2. OpenCassava captures your microphone and (on Windows & Mac) system audio — the other side's voice is captured as "them".
+3. When the conversation hits a moment that matters — a question, a decision point, a claim worth backing up — it searches your notes and surfaces relevant talking points.
+4. After the session, use the **Export** menu to save your transcript, or generate structured markdown notes using a meeting template.
+5. Review your past transcripts securely using your Session History.
 
 ---
 
@@ -53,14 +52,7 @@ For first-time setup with LM Studio, start here: [LM Studio Setup Guide](docs/lm
 
 Grab the latest release for your platform from the [Releases page](https://github.com/romeroej2/OpenCassava/releases/latest).
 
-Windows releases are built automatically by GitHub Actions from `.github/workflows/windows-release.yml`. On every `v*` tag push, the pipeline publishes:
-
-- `OpenCassava_*_x64-setup.exe` via NSIS for normal end users
-- `OpenCassava_*_x64_en-US.msi` for managed or enterprise installs
-
-The Windows installer embeds the WebView2 bootstrapper so installs are more reliable on machines that do not already have the runtime preinstalled.
-
-Or build from source.
+Windows releases are built automatically by GitHub Actions from `.github/workflows/windows-release.yml`. On every tag push, the pipeline publishes installers (EXE/MSI).
 
 ### Build from source
 
@@ -80,44 +72,27 @@ npm install
 npm run tauri -- build
 ```
 
-This project uses the local Tauri CLI from `opencassava/node_modules`, so `cargo tauri build` is not required and will fail unless you separately install the `cargo-tauri` subcommand globally.
-
-On Windows PowerShell, prefer `npm.cmd ci` and either `npm.cmd run tauri -- build` or `cmd.exe /d /s /c .\node_modules\.bin\tauri.cmd build` if your global `npm` or `npx` shim is misconfigured.
-
 The installers are output to `opencassava/src-tauri/target/release/bundle/`.
 
 ---
 
 ## What you need
 
-### Windows
+### Windows & macOS
 
-- Windows 10 or 11 (64-bit)
-- **For cloud mode**: [OpenRouter](https://openrouter.ai/) API key + [Voyage AI](https://www.voyageai.com/) API key
-- **For local mode**: [Ollama](https://ollama.com/) running locally with your preferred models (e.g. `qwen3:8b` for suggestions, `nomic-embed-text` for embeddings)
-- **For OpenAI-compatible embeddings**: any server implementing `/v1/embeddings` (llama.cpp, LiteLLM, vLLM, etc.)
-
-### macOS
-
-- Apple Silicon Mac, macOS 15+
-- **For cloud mode**: OpenRouter + Voyage AI API keys
-- **For local mode**: Ollama
+- **OS:** Windows 10/11 (64-bit) or macOS 15+ (Apple Silicon)
+- **For local mode (Tested)**: LM Studio (or potentially [Ollama](https://ollama.com/)) running locally with your preferred models (e.g., `qwen3:8b` for suggestions, `nomic-embed-text` for embeddings).
+- **For cloud mode (Untested)**: [OpenRouter](https://openrouter.ai/) API key + [Voyage AI](https://www.voyageai.com/) API key.
+- **For OpenAI-compatible embeddings**: any server implementing `/v1/embeddings`.
 
 ---
 
 ## Quick start
 
-New here? Read the [LM Studio Setup Guide](docs/lm-studio-setup.md) before launching the app if you want a fully local setup.
-
-1. Open the app and grant microphone permissions
-2. Open Settings (`Cmd+,` or `Ctrl+,`) and pick your providers:
-   - **Cloud**: add your OpenRouter and Voyage AI API keys
-   - **Local**: select Ollama as your LLM and embedding provider (make sure Ollama is running)
-   - **OpenAI-compatible**: select "OpenAI Compatible" as your embedding provider and point it at any `/v1/embeddings` endpoint
-3. Point it at a folder of `.md` or `.txt` files — that's your knowledge base
-4. Click **Start Session** to go live
-
-The first run downloads the local Whisper speech model (~600 MB).
+1. Open the app and grant microphone permissions (and system audio recording on Windows).
+2. Open Settings (`Cmd+,` or `Ctrl+,`) and configure your chosen Cloud or Local providers. *(Note: Cloud mode is currently untested).*
+3. Point it at a folder of `.md` or `.txt` files — that's your knowledge base.
+4. Click **Start Session** to go live. *(The first run downloads the required local Whisper speech model).*
 
 ---
 
@@ -125,76 +100,28 @@ The first run downloads the local Whisper speech model (~600 MB).
 
 OpenCassava is built on a cross-platform Rust core with a shared React frontend.
 
-```
-repo-root/                          # Cargo workspace root
-├── crates/
-│   └── opencassava-core/           # Shared Rust library — all business logic
-│       └── src/
-│           ├── models.rs           # Utterance, Speaker, Session, Suggestion, ConversationState, etc.
-│           ├── settings.rs         # AppSettings (JSON persistence)
-│           ├── keychain.rs         # Secret storage (Windows Credential Manager / macOS Keychain)
-│           ├── audio/              # Audio capture traits and implementations
-│           ├── transcription/      # VAD + Whisper transcription pipeline
-│           ├── storage/            # Session persistence (JSONL) + transcript logging
-│           └── intelligence/       # LLM client, embedding client, knowledge base, suggestion engine
-│
-└── opencassava/                    # Tauri app (Windows + macOS)
-    ├── src-tauri/
-    │   ├── src/
-    │   │   ├── lib.rs              # Tauri commands — thin bridge to opencassava-core
-    │   │   ├── main.rs             # Entry point
-    │   │   ├── engine.rs           # Session orchestration + Tauri event emission
-    │   │   └── audio_windows.rs    # WASAPI loopback (system audio capture)
-    │   └── tauri.conf.json
-    └── src/                        # React/TypeScript UI
-        ├── App.tsx
-        └── components/
-            ├── ControlBar.tsx
-            ├── TranscriptView.tsx
-            ├── SuggestionsView.tsx
-            ├── NotesView.tsx
-            └── SettingsView.tsx
-```
-
-### Key technologies
-
 | Component | Technology |
 |---|---|
-| App framework | [Tauri 2](https://tauri.app/) |
+| Framework | [Tauri 2](https://tauri.app/) |
 | Core logic | Rust (`opencassava-core`) |
 | Transcription | [whisper-rs](https://github.com/ubisoft/Voxxiamo#whisper-rs) (Whisper.cpp bindings) |
 | Audio capture | cpal (mic), WASAPI (Windows system audio) |
 | LLM inference | OpenRouter API or [Ollama](https://ollama.com/) |
-| Embeddings | Voyage AI, Ollama, or any OpenAI-compatible endpoint |
-| Frontend | React 18 + TypeScript + Vite |
+| Embeddings | Voyage AI, Ollama, or OpenAI-compatible |
+| Frontend UI | React 18 + TypeScript + Vite |
 | Secret storage | Windows Credential Manager / macOS Keychain |
-
----
-
-## Privacy
-
-- Speech is transcribed locally — audio never leaves your machine
-- **With Ollama**: everything stays on your device. Zero network calls.
-- **With cloud providers**: KB chunks are sent to Voyage AI (or your chosen OpenAI-compatible endpoint) for embedding (text only, no audio), and conversation context is sent to OpenRouter for suggestions
-- API keys are stored in your system's credential manager (Windows Credential Manager or macOS Keychain)
-- The overlay window is hidden from screen sharing by default
-- Transcripts are saved locally to `~/Documents/OpenCassava/`
 
 ---
 
 ## Recording Consent & Legal Disclaimer
 
-**Important:** OpenCassava records and transcribes audio from your microphone and system audio. Many jurisdictions have laws requiring consent from some or all participants before a conversation may be recorded (e.g., two-party/all-party consent states in the U.S., GDPR in the EU).
+**Important:** OpenCassava records and transcribes audio from your microphone and system audio. Many jurisdictions have laws requiring consent from some or all participants before a conversation may be recorded. 
 
 **By using this software, you acknowledge and agree that:**
-
-- **You are solely responsible** for determining whether recording is lawful in your jurisdiction and for obtaining any required consent from all participants before starting a session.
-- **The developers and contributors of OpenCassava provide no legal advice** and make no representations about the legality of recording in any jurisdiction.
-- **The developers accept no liability** for any unauthorized or unlawful recording conducted using this software.
+- **You are solely responsible** for determining whether recording is lawful in your jurisdiction and for obtaining any required consent.
+- **The developers and contributors of OpenCassava provide no legal advice** and accept no liability for any unauthorized or unlawful recording conducted using this software.
 
 **Do not use this software to record conversations without proper consent where required by law.**
-
-The app will ask you to acknowledge these obligations before your first recording session.
 
 ---
 

@@ -109,7 +109,7 @@ dependencies = [
  "log",
  "objc2 0.5.2",
  "objc2-foundation 0.2.2",
- "openoats-core",
+ "opencassava-core",
  "screencapturekit",
  "serde",
  "serde_json",
@@ -2855,7 +2855,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
-name = "openoats-core"
+name = "opencassava-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
