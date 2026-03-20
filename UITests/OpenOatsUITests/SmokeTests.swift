@@ -43,6 +43,13 @@ final class SmokeTests: XCTestCase {
         let deepLink = URL(string: "openoats://notes?sessionID=session_ui_test_notes")!
         openDeepLink(deepLink)
 
+        // The 2-tab NotesView defaults to the Transcript tab.
+        // Switch to the Notes tab before asserting on the generate button.
+        let notesTab = app.buttons["Notes"]
+        if notesTab.waitForExistence(timeout: 3) {
+            notesTab.click()
+        }
+
         XCTAssertTrue(element(in: app, identifier: "notes.generateButton").waitForExistence(timeout: 5))
         element(in: app, identifier: "notes.generateButton").click()
         XCTAssertTrue(element(in: app, identifier: "notes.renderedMarkdown").waitForExistence(timeout: 5))
