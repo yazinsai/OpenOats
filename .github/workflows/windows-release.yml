@@ -15,7 +15,7 @@ jobs:
     defaults:
       run:
         shell: powershell
-        working-directory: OpenCassava/OpenCassavaTauri
+        working-directory: opencassava
 
     steps:
       - name: Check out repository
@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: OpenCassava/OpenCassavaTauri/package-lock.json
+          cache-dependency-path: opencassava/package-lock.json
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -35,8 +35,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            OpenCassava -> target
-            OpenCassava/OpenCassavaTauri/src-tauri -> target
+            . -> target
+            opencassava/src-tauri -> target
 
       - name: Install frontend dependencies
         run: npm.cmd ci
@@ -49,8 +49,8 @@ jobs:
         with:
           name: opencassava-windows-bundles
           path: |
-            OpenCassava/OpenCassavaTauri/src-tauri/target/release/bundle/nsis/*.exe
-            OpenCassava/OpenCassavaTauri/src-tauri/target/release/bundle/msi/*.msi
+            opencassava/src-tauri/target/release/bundle/nsis/*.exe
+            opencassava/src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: error
 
       - name: Publish GitHub release assets
@@ -58,5 +58,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            OpenCassava/OpenCassavaTauri/src-tauri/target/release/bundle/nsis/*.exe
-            OpenCassava/OpenCassavaTauri/src-tauri/target/release/bundle/msi/*.msi
+            opencassava/src-tauri/target/release/bundle/nsis/*.exe
+            opencassava/src-tauri/target/release/bundle/msi/*.msi

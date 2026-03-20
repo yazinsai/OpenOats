@@ -18,12 +18,12 @@ If you are using a packaged build, install the latest Windows release. If you ar
 
 ```powershell
 git clone https://github.com/romeroej2/OpenCassava.git
-cd OpenCassava\OpenCassavaTauri
+cd OpenCassava\opencassava
 npm install
 npm run tauri -- build
 ```
 
-This repo builds through the local Tauri CLI in `OpenCassavaTauri\node_modules`, so `cargo tauri build` is not required unless you separately installed the global `cargo-tauri` subcommand.
+This repo builds through the local Tauri CLI in `opencassava\node_modules`, so `cargo tauri build` is not required unless you separately installed the global `cargo-tauri` subcommand.
 
 On Windows PowerShell, prefer `npm.cmd install` and either `npm.cmd run tauri -- build` or `cmd.exe /d /s /c .\node_modules\.bin\tauri.cmd build` if your `npm` or `npx` shim is misconfigured.
 

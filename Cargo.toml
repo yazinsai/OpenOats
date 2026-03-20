@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "crates/opencassava-core",
-    "OpenCassavaTauri/src-tauri",
+    "opencassava/src-tauri",
 ]
 resolver = "2"
 

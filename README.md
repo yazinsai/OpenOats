@@ -71,16 +71,16 @@ git clone https://github.com/romeroej2/OpenCassava.git
 cd OpenCassava
 
 # Build the Tauri app
-cd OpenCassavaTauri
+cd opencassava
 npm install
 npm run tauri -- build
 ```
 
-This project uses the local Tauri CLI from `OpenCassavaTauri/node_modules`, so `cargo tauri build` is not required and will fail unless you separately install the `cargo-tauri` subcommand globally.
+This project uses the local Tauri CLI from `opencassava/node_modules`, so `cargo tauri build` is not required and will fail unless you separately install the `cargo-tauri` subcommand globally.
 
 On Windows PowerShell, prefer `npm.cmd ci` and either `npm.cmd run tauri -- build` or `cmd.exe /d /s /c .\node_modules\.bin\tauri.cmd build` if your global `npm` or `npx` shim is misconfigured.
 
-The installers are output to `OpenCassavaTauri/src-tauri/target/release/bundle/`.
+The installers are output to `opencassava/src-tauri/target/release/bundle/`.
 
 ---
 
@@ -122,41 +122,34 @@ The first run downloads the local Whisper speech model (~600 MB).
 OpenCassava is built on a cross-platform Rust core with a shared React frontend.
 
 ```
-OpenCassava/                        # Cargo workspace root
+repo-root/                          # Cargo workspace root
 ├── crates/
 │   └── opencassava-core/           # Shared Rust library — all business logic
 │       └── src/
-│           ├── models.rs        # Utterance, Speaker, Session, Suggestion, ConversationState, etc.
-│           ├── settings.rs      # AppSettings (JSON persistence)
-│           ├── keychain.rs      # Secret storage (Windows Credential Manager / macOS Keychain)
-│           ├── audio/           # Audio capture traits and implementations
-│           ├── transcription/   # VAD + Whisper transcription pipeline
-│           ├── storage/         # Session persistence (JSONL) + transcript logging
-│           └── intelligence/    # LLM client, embedding client, knowledge base, suggestion engine
+│           ├── models.rs           # Utterance, Speaker, Session, Suggestion, ConversationState, etc.
+│           ├── settings.rs         # AppSettings (JSON persistence)
+│           ├── keychain.rs         # Secret storage (Windows Credential Manager / macOS Keychain)
+│           ├── audio/              # Audio capture traits and implementations
+│           ├── transcription/      # VAD + Whisper transcription pipeline
+│           ├── storage/            # Session persistence (JSONL) + transcript logging
+│           └── intelligence/       # LLM client, embedding client, knowledge base, suggestion engine
 │
-├── OpenCassavaTauri/               # Tauri app (Windows + macOS)
-│   ├── src-tauri/
-│   │   ├── src/
-│   │   │   ├── lib.rs          # Tauri commands — thin bridge to opencassava-core
-│   │   │   ├── main.rs         # Entry point
-│   │   │   ├── engine.rs       # Session orchestration + Tauri event emission
-│   │   │   └── audio_windows.rs # WASAPI loopback (system audio capture)
-│   │   └── tauri.conf.json
-│   └── src/                     # React/TypeScript UI
-│       ├── App.tsx
-│       └── components/
-│           ├── ControlBar.tsx
-│           ├── TranscriptView.tsx
-│           ├── SuggestionsView.tsx
-│           ├── NotesView.tsx
-│           └── SettingsView.tsx
-│
-├── Sources/
-│   ├── OpenCassavaCore/           # Swift core (legacy — being replaced)
-│   ├── OpenCassavaMac/            # Native Mac app (legacy — being replaced)
-│   └── OpenCassavaWindows/       # Windows Swift stubs (legacy — being replaced)
-│
-└── Package.swift                # Swift package definition (legacy)
+└── opencassava/                    # Tauri app (Windows + macOS)
+    ├── src-tauri/
+    │   ├── src/
+    │   │   ├── lib.rs              # Tauri commands — thin bridge to opencassava-core
+    │   │   ├── main.rs             # Entry point
+    │   │   ├── engine.rs           # Session orchestration + Tauri event emission
+    │   │   └── audio_windows.rs    # WASAPI loopback (system audio capture)
+    │   └── tauri.conf.json
+    └── src/                        # React/TypeScript UI
+        ├── App.tsx
+        └── components/
+            ├── ControlBar.tsx
+            ├── TranscriptView.tsx
+            ├── SuggestionsView.tsx
+            ├── NotesView.tsx
+            └── SettingsView.tsx
 ```
 
 ### Key technologies
