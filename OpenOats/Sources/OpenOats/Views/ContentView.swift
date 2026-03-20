@@ -51,8 +51,6 @@ struct ContentView: View {
     @State private var observedVoyageApiKey = ""
     @State private var observedTranscriptionModel: TranscriptionModel = .parakeetV2
     @State private var observedInputDeviceID: AudioDeviceID = 0
-    @State private var isHoveringNotes = false
-    @State private var isHoveringCopy = false
 
     var body: some View {
         bodyWithModifiers
@@ -88,12 +86,15 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
-                    .background(isHoveringNotes ? Color.primary.opacity(0.06) : Color.clear)
                     .clipShape(RoundedRectangle(cornerRadius: 5))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .onHover { hovering in isHoveringNotes = hovering }
+                // Avoid hover-driven local state here. On macOS 26 / Swift 6.2,
+                // the onHover closure triggers a view body re-evaluation outside
+                // the MainActor executor context, which crashes in
+                // swift_getObjectType when checking @Observable actor isolation.
+                // Same class of bug fixed in ControlBar (b9625e7).
                 .help("View past meeting notes")
             }
             .padding(.horizontal, 16)
@@ -179,11 +180,12 @@ struct ContentView: View {
                                     .font(.system(size: 11))
                                     .foregroundStyle(.secondary)
                                     .padding(4)
-                                    .background(isHoveringCopy ? Color.primary.opacity(0.06) : Color.clear)
                                     .clipShape(RoundedRectangle(cornerRadius: 4))
                             }
                             .buttonStyle(.plain)
-                            .onHover { hovering in isHoveringCopy = hovering }
+                            // Same hover executor crash as the Past Meetings button
+                            // and ControlBar toggle (b9625e7). Remove onHover to
+                            // avoid EXC_BAD_ACCESS in swift_getObjectType.
                             .help("Copy transcript")
                         }
                     }
