@@ -104,6 +104,21 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Recommended flush interval in samples at 16kHz.
+    /// Larger models benefit from longer segments for better language detection.
+    var recommendedFlushSamples: Int {
+        switch self {
+        case .parakeetV2, .parakeetV3, .qwen3ASR06B:
+            48_000  // 3 seconds (existing behavior)
+        case .whisperBase, .whisperSmall:
+            48_000  // 3 seconds
+        case .whisperLargeV3:
+            96_000  // 6 seconds
+        case .whisperLargeV3Turbo:
+            80_000  // 5 seconds
+        }
+    }
+
     func makeBackend(customVocabulary: String = "") -> any TranscriptionBackend {
         switch self {
         case .parakeetV2: return ParakeetBackend(version: .v2, customVocabulary: customVocabulary)

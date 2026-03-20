@@ -103,6 +103,21 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertFalse(TranscriptionModel.whisperLargeV3Turbo.supportsExplicitLanguageHint)
     }
 
+    func testRecommendedFlushSamples() {
+        // Existing models keep 3-second default
+        XCTAssertEqual(TranscriptionModel.parakeetV2.recommendedFlushSamples, 48_000)
+        XCTAssertEqual(TranscriptionModel.whisperSmall.recommendedFlushSamples, 48_000)
+        // Large models use longer intervals
+        XCTAssertGreaterThan(
+            TranscriptionModel.whisperLargeV3.recommendedFlushSamples,
+            TranscriptionModel.whisperSmall.recommendedFlushSamples
+        )
+        XCTAssertGreaterThan(
+            TranscriptionModel.whisperLargeV3Turbo.recommendedFlushSamples,
+            TranscriptionModel.whisperSmall.recommendedFlushSamples
+        )
+    }
+
     // MARK: - EmbeddingProvider
 
     func testEmbeddingProviderAllCases() {

@@ -27,6 +27,7 @@ final class StreamingTranscriber: @unchecked Sendable {
         locale: Locale,
         vadManager: VadManager,
         speaker: Speaker,
+        flushInterval: Int = 48_000,
         onPartial: @escaping @Sendable (String) -> Void,
         onFinal: @escaping @Sendable (String) -> Void
     ) {
@@ -34,6 +35,7 @@ final class StreamingTranscriber: @unchecked Sendable {
         self.locale = locale
         self.vadManager = vadManager
         self.speaker = speaker
+        self.flushInterval = flushInterval
         self.onPartial = onPartial
         self.onFinal = onFinal
     }
@@ -42,8 +44,7 @@ final class StreamingTranscriber: @unchecked Sendable {
     private static let vadChunkSize = 4096
     private static let minimumSpeechSamples = 8000
     private static let prerollChunkCount = 2
-    /// Flush speech for transcription every ~3 seconds (48,000 samples at 16kHz).
-    private static let flushInterval = 48_000
+    private let flushInterval: Int
 
     /// Main loop: reads audio buffers, runs VAD, transcribes speech segments.
     func run(stream: AsyncStream<AVAudioPCMBuffer>) async {
@@ -124,8 +125,8 @@ final class StreamingTranscriber: @unchecked Sendable {
                         }
                     } else if isSpeaking {
 
-                        // Flush every ~3s for near-real-time output during continuous speech
-                        if speechSamples.count >= Self.flushInterval {
+                        // Flush periodically for near-real-time output during continuous speech
+                        if speechSamples.count >= self.flushInterval {
                             let segment = speechSamples
                             speechSamples.removeAll(keepingCapacity: true)
                             await transcribeSegment(segment)

@@ -94,6 +94,7 @@ final class TranscriptionEngine {
     private var micBackend: (any TranscriptionBackend)?
     private var systemBackend: (any TranscriptionBackend)?
     private var vadManager: VadManager?
+    private var currentFlushInterval: Int = 48_000
 
     /// Audio recorder for tapping streams (set by ContentView when recording is enabled).
     var audioRecorder: AudioRecorder?
@@ -171,6 +172,7 @@ final class TranscriptionEngine {
         guard await ensureMicrophonePermission() else { return }
 
         isRunning = true
+        currentFlushInterval = transcriptionModel.recommendedFlushSamples
 
         // 1. Load transcription models via backend protocol
         assetStatus = needsModelDownload
@@ -428,6 +430,7 @@ final class TranscriptionEngine {
         currentMicDeviceID = 0
         micBackend = nil
         systemBackend = nil
+        currentFlushInterval = 48_000
         isRunning = false
         assetStatus = "Ready"
     }
@@ -460,6 +463,7 @@ final class TranscriptionEngine {
         currentMicDeviceID = 0
         micBackend = nil
         systemBackend = nil
+        currentFlushInterval = 48_000
         isRunning = false
         assetStatus = "Ready"
     }
@@ -644,6 +648,7 @@ final class TranscriptionEngine {
             locale: locale,
             vadManager: vadManager,
             speaker: speaker,
+            flushInterval: currentFlushInterval,
             onPartial: onPartial,
             onFinal: onFinal
         )
