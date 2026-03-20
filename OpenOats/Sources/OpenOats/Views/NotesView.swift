@@ -13,14 +13,12 @@ struct NotesView: View {
     @State private var showDeleteConfirmation = false
 
     enum DetailViewMode: String, CaseIterable {
-        case raw = "Raw"
-        case refined = "Refined"
+        case transcript = "Transcript"
         case notes = "Notes"
     }
 
-    @State private var detailViewMode: DetailViewMode = .raw
-    @State private var isRefining = false
-    @State private var refiningDone = 0
+    @State private var detailViewMode: DetailViewMode = .transcript
+    @State private var showingOriginal = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -52,9 +50,6 @@ struct NotesView: View {
             if let requested = coordinator.consumeRequestedSessionSelection() {
                 selectedSessionID = requested
             }
-        }
-        .onChange(of: coordinator.sessionHistory.count) {
-            // Refresh sidebar when history changes
         }
     }
 
@@ -142,12 +137,10 @@ struct NotesView: View {
             }
             .background {
                 Group {
-                    Button("") { detailViewMode = .raw }
+                    Button("") { detailViewMode = .transcript }
                         .keyboardShortcut("1", modifiers: .command)
-                    Button("") { detailViewMode = .refined }
-                        .keyboardShortcut("2", modifiers: .command)
                     Button("") { detailViewMode = .notes }
-                        .keyboardShortcut("3", modifiers: .command)
+                        .keyboardShortcut("2", modifiers: .command)
                 }
                 .frame(width: 0, height: 0)
                 .opacity(0)
@@ -156,6 +149,22 @@ struct NotesView: View {
         } else {
             ContentUnavailableView("Select a Session", systemImage: "doc.text", description: Text("Choose a session from the sidebar to view or generate notes."))
         }
+    }
+
+    private enum CleanupState {
+        case notCleaned
+        case inProgress
+        case partiallyCleaned
+        case cleaned
+    }
+
+    private var cleanupState: CleanupState {
+        if coordinator.cleanupEngine.isCleaningUp { return .inProgress }
+        guard !loadedTranscript.isEmpty else { return .notCleaned }
+        let hasAnyRefined = loadedTranscript.contains(where: { $0.refinedText != nil })
+        if !hasAnyRefined { return .notCleaned }
+        let allRefined = !loadedTranscript.contains(where: { $0.refinedText == nil })
+        return allRefined ? .cleaned : .partiallyCleaned
     }
 
     @ViewBuilder
@@ -167,67 +176,17 @@ struct NotesView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .frame(minWidth: 140, maxWidth: 280)
+            .frame(minWidth: 120, maxWidth: 220)
             .layoutPriority(1)
 
             Spacer(minLength: 4)
 
-            // Refinement status (collapses at narrow widths)
-            if detailViewMode == .refined {
-                let progress = refinementProgress
-                if isRefining {
-                    ViewThatFits(in: .horizontal) {
-                        Text("\(refiningDone)/\(progress.total) refining...")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                        EmptyView()
-                    }
-                    .layoutPriority(-1)
-                } else if progress.total > 0 {
-                    ViewThatFits(in: .horizontal) {
-                        Group {
-                            if progress.cleaned == progress.total {
-                                Label("Refined", systemImage: "checkmark.circle.fill")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.green)
-                            } else if progress.cleaned > 0 {
-                                Text("\(progress.cleaned)/\(progress.total) refined")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        // At narrow widths, hide entirely
-                        EmptyView()
-                    }
-                    .layoutPriority(-1)
-                }
+            if detailViewMode == .transcript {
+                transcriptToolbarActions
+            } else if detailViewMode == .notes {
+                notesToolbarActions
             }
 
-            // Notes metadata (first to hide at narrow widths)
-            if detailViewMode == .notes, let notes = loadedNotes {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 6) {
-                        Label(notes.template.name, systemImage: notes.template.icon)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        Text("Generated \(notes.generatedAt, style: .relative) ago")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
-                    }
-
-                    // Medium: just the template name
-                    Label(notes.template.name, systemImage: notes.template.icon)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-
-                    // Narrow: hide metadata entirely
-                    EmptyView()
-                }
-                .layoutPriority(-1)
-            }
-
-            // Copy button (icon-only to save space)
             Button {
                 copyCurrentContent()
             } label: {
@@ -238,47 +197,99 @@ struct NotesView: View {
             .buttonStyle(.bordered)
             .disabled(copyContentIsEmpty)
             .help("Copy to clipboard")
-
-            // Regenerate (split button: click = same template, chevron = pick template)
-            if detailViewMode == .notes && loadedNotes != nil {
-                Menu {
-                    ForEach(coordinator.templateStore.templates) { template in
-                        Button {
-                            regenerateNotes(with: template)
-                        } label: {
-                            Label(template.name, systemImage: template.icon)
-                        }
-                        .disabled(loadedNotes?.template.id == template.id)
-                    }
-                } label: {
-                    Label("Regenerate", systemImage: "arrow.clockwise")
-                        .font(.system(size: 12))
-                } primaryAction: {
-                    regenerateNotes()
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("Regenerate notes (click) or pick a different template (arrow)")
-            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
     }
 
     @ViewBuilder
+    private var transcriptToolbarActions: some View {
+        switch cleanupState {
+        case .notCleaned:
+            Button {
+                cleanUpTranscript()
+            } label: {
+                Label("Clean Up", systemImage: "sparkles")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.bordered)
+            .disabled(loadedTranscript.isEmpty)
+            .help("Remove filler words and fix punctuation")
+
+        case .inProgress:
+            ViewThatFits(in: .horizontal) {
+                Text("\(coordinator.cleanupEngine.chunksCompleted)/\(coordinator.cleanupEngine.totalChunks) cleaning...")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                EmptyView()
+            }
+            .layoutPriority(-1)
+
+        case .partiallyCleaned:
+            Button {
+                cleanUpTranscript()
+            } label: {
+                Label("Clean Up", systemImage: "sparkles")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.bordered)
+            .help("Clean up remaining utterances")
+
+            Button {
+                showingOriginal.toggle()
+            } label: {
+                Label("Show Original", systemImage: showingOriginal ? "text.badge.checkmark" : "text.badge.minus")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.bordered)
+            .tint(showingOriginal ? .accentColor : nil)
+            .help(showingOriginal ? "Showing original transcript" : "Show original transcript")
+
+        case .cleaned:
+            Button {
+                showingOriginal.toggle()
+            } label: {
+                Label("Show Original", systemImage: showingOriginal ? "text.badge.checkmark" : "text.badge.minus")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.bordered)
+            .tint(showingOriginal ? .accentColor : nil)
+            .help(showingOriginal ? "Showing original transcript" : "Show original transcript")
+        }
+    }
+
+    @ViewBuilder
+    private var notesToolbarActions: some View {
+        if let notes = loadedNotes {
+            Menu {
+                ForEach(coordinator.templateStore.templates) { template in
+                    Button {
+                        regenerateNotes(with: template)
+                    } label: {
+                        Label(template.name, systemImage: template.icon)
+                    }
+                    .disabled(notes.template.id == template.id)
+                }
+            } label: {
+                Label(notes.template.name, systemImage: notes.template.icon)
+                    .font(.system(size: 12))
+            } primaryAction: {
+                regenerateNotes()
+            }
+            .menuStyle(.button)
+            .fixedSize()
+            .help("Click to regenerate, or pick a different template")
+        }
+    }
+
+    @ViewBuilder
     private func detailBody(sessionID: String) -> some View {
         ZStack {
-            rawTranscriptView
-                .zIndex(detailViewMode == .raw ? 1 : 0)
-                .opacity(detailViewMode == .raw ? 1 : 0)
-                .allowsHitTesting(detailViewMode == .raw)
-                .accessibilityHidden(detailViewMode != .raw)
-
-            refinedTranscriptView
-                .zIndex(detailViewMode == .refined ? 1 : 0)
-                .opacity(detailViewMode == .refined ? 1 : 0)
-                .allowsHitTesting(detailViewMode == .refined)
-                .accessibilityHidden(detailViewMode != .refined)
+            transcriptView
+                .zIndex(detailViewMode == .transcript ? 1 : 0)
+                .opacity(detailViewMode == .transcript ? 1 : 0)
+                .allowsHitTesting(detailViewMode == .transcript)
+                .accessibilityHidden(detailViewMode != .transcript)
 
             notesTab(sessionID: sessionID)
                 .zIndex(detailViewMode == .notes ? 1 : 0)
@@ -313,8 +324,8 @@ struct NotesView: View {
                     Button("Cancel") {
                         coordinator.notesEngine.cancel()
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.red)
+                    .buttonStyle(.bordered)
+                    .font(.system(size: 11))
                 }
 
                 markdownContent(coordinator.notesEngine.generatedMarkdown)
@@ -342,13 +353,6 @@ struct NotesView: View {
                     .font(.system(size: 12))
             }
 
-            Picker("Template", selection: $selectedTemplateForGeneration) {
-                ForEach(coordinator.templateStore.templates) { template in
-                    Label(template.name, systemImage: template.icon).tag(Optional(template))
-                }
-            }
-            .frame(maxWidth: 200)
-
             Button {
                 generateNotes(sessionID: sessionID)
             } label: {
@@ -362,14 +366,30 @@ struct NotesView: View {
     // MARK: - Transcript Views
 
     @ViewBuilder
-    private func transcriptList(refined: Bool) -> some View {
+    private var transcriptView: some View {
         if loadedTranscript.isEmpty {
             ContentUnavailableView("No Transcript", systemImage: "waveform", description: Text("This session has no recorded utterances."))
         } else {
             ScrollView {
+                if coordinator.cleanupEngine.isCleaningUp {
+                    cleanupProgressBanner
+                }
+                if let cleanupError = coordinator.cleanupEngine.error {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.yellow)
+                        Text(cleanupError)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                }
                 LazyVStack(alignment: .leading, spacing: 8) {
+                    let isCleaning = coordinator.cleanupEngine.isCleaningUp
                     ForEach(Array(loadedTranscript.enumerated()), id: \.offset) { _, record in
-                        transcriptRow(record: record, refined: refined)
+                        transcriptRow(record: record, isCleaning: isCleaning)
                     }
                 }
                 .padding(16)
@@ -377,88 +397,50 @@ struct NotesView: View {
         }
     }
 
-    @ViewBuilder
-    private var rawTranscriptView: some View {
-        transcriptList(refined: false)
-    }
-
-    @ViewBuilder
-    private var refinedTranscriptView: some View {
-        if loadedTranscript.isEmpty {
-            transcriptList(refined: true)
-        } else if refinementProgress.cleaned == 0 && !isRefining {
-            ContentUnavailableView {
-                Label("Refine This Transcript", systemImage: "wand.and.stars")
-            } description: {
-                Text("Remove filler words and fix grammar while keeping the original meaning.")
-            } actions: {
-                Button {
-                    refineLoadedTranscript()
-                } label: {
-                    Label("Refine Now", systemImage: "wand.and.stars")
-                }
-                .buttonStyle(.borderedProminent)
+    private var cleanupProgressBanner: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .scaleEffect(0.7)
+            Text("Cleaning up transcript... \(coordinator.cleanupEngine.chunksCompleted)/\(coordinator.cleanupEngine.totalChunks) sections")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("Cancel") {
+                coordinator.cleanupEngine.cancel()
             }
-        } else if isRefining {
-            VStack(spacing: 12) {
-                ProgressView()
-                    .scaleEffect(0.8)
-                Text("Refining transcript...")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            transcriptList(refined: true)
+            .buttonStyle(.bordered)
+            .font(.system(size: 11))
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
     }
 
     @ViewBuilder
-    private func transcriptRow(record: SessionRecord, refined: Bool) -> some View {
+    private func transcriptRow(record: SessionRecord, isCleaning: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(record.speaker == .you ? "You" : "Them")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(record.speaker == .you ? Color.youColor : Color.themColor)
                 .frame(width: 36, alignment: .trailing)
 
-            if refined, let refinedText = record.refinedText {
-                Text(refinedText)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.primary)
-                    .textSelection(.enabled)
-            } else if refined {
-                HStack(spacing: 4) {
-                    Text(record.text)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                    Image(systemName: "wand.and.stars")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                        .help("Not yet refined")
-                }
-            } else {
-                Text(record.text)
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(.primary)
-                    .textSelection(.enabled)
-            }
+            let displayText = showingOriginal ? record.text : (record.refinedText ?? record.text)
+            Text(displayText)
+                .font(.system(size: 13))
+                .foregroundStyle(
+                    isCleaning && record.refinedText == nil ? .secondary : .primary
+                )
+                .textSelection(.enabled)
         }
     }
 
     private var copyContentIsEmpty: Bool {
         switch detailViewMode {
-        case .raw, .refined:
+        case .transcript:
             return loadedTranscript.isEmpty
         case .notes:
             return loadedNotes == nil
         }
-    }
-
-    private var refinementProgress: (cleaned: Int, total: Int) {
-        let total = loadedTranscript.count
-        let cleaned = loadedTranscript.filter { $0.refinedText != nil }.count
-        return (cleaned, total)
     }
 
     // MARK: - Markdown Rendering
@@ -543,11 +525,10 @@ struct NotesView: View {
     private func copyCurrentContent() {
         let text: String
         switch detailViewMode {
-        case .raw, .refined:
-            let useRefined = detailViewMode == .refined
+        case .transcript:
             text = loadedTranscript.map { record in
                 let label = record.speaker == .you ? "You" : "Them"
-                let content = useRefined ? (record.refinedText ?? record.text) : record.text
+                let content = showingOriginal ? record.text : (record.refinedText ?? record.text)
                 return "[\(Self.transcriptTimeFormatter.string(from: record.timestamp))] \(label): \(content)"
             }.joined(separator: "\n")
         case .notes:
@@ -568,6 +549,8 @@ struct NotesView: View {
         // Clear immediately to prevent stale content flash
         loadedNotes = nil
         loadedTranscript = []
+        showingOriginal = false
+        coordinator.cleanupEngine.cancel()
 
         Task {
             let notes = await coordinator.sessionStore.loadNotes(sessionID: sessionID)
@@ -578,7 +561,7 @@ struct NotesView: View {
 
             loadedNotes = notes
             loadedTranscript = transcript
-            detailViewMode = notes != nil ? .notes : .raw
+            detailViewMode = notes != nil ? .notes : .transcript
 
             // Default template for generation
             let session = coordinator.sessionHistory.first { $0.id == sessionID }
@@ -653,45 +636,27 @@ struct NotesView: View {
         return f
     }()
 
-    private func refineLoadedTranscript() {
+    private func cleanUpTranscript() {
         guard let sessionID = selectedSessionID, !loadedTranscript.isEmpty else { return }
-        isRefining = true
-        refiningDone = 0
 
         Task {
-            defer { isRefining = false }
+            let updated = await coordinator.cleanupEngine.cleanup(
+                records: loadedTranscript,
+                settings: settings
+            )
 
-            let utterances = loadedTranscript.map { record in
-                Utterance(text: record.text, speaker: record.speaker, timestamp: record.timestamp)
+            let utterances = updated.map { record in
+                Utterance(
+                    text: record.text,
+                    speaker: record.speaker,
+                    timestamp: record.timestamp,
+                    refinedText: record.refinedText
+                )
             }
-
-            let tempStore = TranscriptStore()
-            await MainActor.run {
-                for u in utterances {
-                    tempStore.append(u)
-                }
-            }
-
-            let engine = TranscriptRefinementEngine(settings: settings, transcriptStore: tempStore)
-            for u in utterances {
-                await engine.refine(u)
-                refiningDone += 1
-            }
-            await engine.drain(timeout: .seconds(60))
-
-            let refinedUtterances = await MainActor.run { tempStore.utterances }
-            await coordinator.sessionStore.backfillRefinedText(sessionID: sessionID, from: refinedUtterances)
+            await coordinator.sessionStore.backfillRefinedText(sessionID: sessionID, from: utterances)
 
             guard selectedSessionID == sessionID else { return }
             loadedTranscript = await coordinator.sessionStore.loadTranscript(sessionID: sessionID)
         }
-    }
-}
-
-// MARK: - SessionRecord stable identity for ForEach
-
-extension SessionRecord {
-    var stableID: String {
-        "\(timestamp.timeIntervalSinceReferenceDate)-\(speaker)"
     }
 }
