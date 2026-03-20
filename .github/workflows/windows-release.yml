@@ -42,7 +42,7 @@ jobs:
         run: npm.cmd ci
 
       - name: Build Windows installers
-        run: npx.cmd tauri build --bundles nsis,msi
+        run: npm.cmd run tauri -- build --bundles nsis,msi
 
       - name: Upload Windows bundle artifacts
         uses: actions/upload-artifact@v4
