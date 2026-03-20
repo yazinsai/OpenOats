@@ -749,7 +749,11 @@ pub fn start_transcription(
         *state_clone.suggestion_task.lock().unwrap() = Some(suggestion_handle);
 
         // ── "You" mic capture ──────────────────────────────────────────────
-        let mic = CpalMicCapture::new();
+        // Share stop_requested as the mic's finished signal so that when stop
+        // is clicked the CPAL callback drops its sender, closing the channel
+        // and letting the transcriber drain every buffered chunk before halting.
+        let mic = CpalMicCapture::new()
+            .with_stop_signal(Arc::clone(&state_clone.stop_requested));
         let mic_stream = mic.buffer_stream_for_device(device_name.as_deref());
         use futures::StreamExt;
         let mic_level_w = Arc::clone(&state_clone.mic_level);

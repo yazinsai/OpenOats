@@ -36,6 +36,14 @@ impl CpalMicCapture {
         }
     }
 
+    /// Share an external stop signal as this capture's finished flag.
+    /// When the signal fires the CPAL callback drops its sender, closing the
+    /// channel so the downstream ReceiverStream ends naturally.
+    pub fn with_stop_signal(mut self, signal: Arc<AtomicBool>) -> Self {
+        self.finished = signal;
+        self
+    }
+
     /// Returns names of all available input devices.
     pub fn available_device_names() -> Vec<String> {
         let host = cpal::default_host();
@@ -113,15 +121,21 @@ impl MicCaptureService for CpalMicCapture {
 
         let mut ring: Vec<f32> = Vec::new();
         let err_fn = |err| log::error!("Audio stream error: {}", err);
-        let tx_clone = tx.clone();
+        // Wrap the sender in an Option so we can drop it (closing the channel)
+        // the moment finished fires. Dropping the last sender causes the
+        // ReceiverStream to return None, letting the transcriber drain naturally.
+        let mut tx_opt: Option<mpsc::Sender<Vec<f32>>> = Some(tx.clone());
 
         let mut process = move |mono: Vec<f32>| {
             let rms = (mono.iter().map(|s| s * s).sum::<f32>() / mono.len() as f32).sqrt();
             *level_arc.lock().unwrap() = rms;
 
             if finished.load(Ordering::Relaxed) {
+                tx_opt = None; // close the channel
                 return;
             }
+
+            let Some(ref tx) = tx_opt else { return };
 
             if let Some(ref mut resampler) = resampler {
                 ring.extend_from_slice(&mono);
@@ -130,13 +144,13 @@ impl MicCaptureService for CpalMicCapture {
                     if let Ok(out) = resampler.process(&[chunk], None) {
                         if let Some(ch) = out.into_iter().next() {
                             if !ch.is_empty() {
-                                tx_clone.try_send(ch).ok();
+                                tx.try_send(ch).ok();
                             }
                         }
                     }
                 }
             } else {
-                tx_clone.try_send(mono).ok();
+                tx.try_send(mono).ok();
             }
         };
 

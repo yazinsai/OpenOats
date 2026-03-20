@@ -110,22 +110,15 @@ impl StreamingTranscriber {
         let mut speaking_samples_since_volatile: usize = 0;
 
         let mut stream = Box::pin(stream);
-        'outer: while let Some(samples) = stream.next().await {
-            if stop_signal
-                .as_ref()
-                .is_some_and(|signal| signal.load(Ordering::Relaxed))
-            {
-                break;
-            }
+        // Stop is signalled by the upstream sender being dropped (mic capture
+        // sets tx_opt=None when stop_requested fires), which causes
+        // stream.next() to return None.  We no longer break early on the stop
+        // signal; instead we let the stream drain fully so every captured
+        // chunk reaches VAD and Whisper before the pipeline shuts down.
+        while let Some(samples) = stream.next().await {
             vad_buf.extend_from_slice(&samples);
 
             while vad_buf.len() >= Vad::CHUNK_SIZE {
-                if stop_signal
-                    .as_ref()
-                    .is_some_and(|signal| signal.load(Ordering::Relaxed))
-                {
-                    break 'outer;
-                }
                 let chunk: Vec<f32> = vad_buf.drain(..Vad::CHUNK_SIZE).collect();
                 let active = vad.process_chunk(&chunk);
 
