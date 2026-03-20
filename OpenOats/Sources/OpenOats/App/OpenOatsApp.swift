@@ -11,7 +11,7 @@ struct OpenOatsApp: App {
     private let updaterController = AppUpdaterController()
 
     var body: some Scene {
-        WindowGroup {
+        Window("OpenOats", id: "main") {
             ContentView(settings: settings)
                 .environment(coordinator)
                 .onAppear {

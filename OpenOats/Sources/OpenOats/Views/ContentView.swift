@@ -377,6 +377,7 @@ struct ContentView: View {
 
     private func handlePendingExternalCommandIfPossible() {
         guard let request = coordinator.pendingExternalCommand else { return }
+        let handled: Bool
 
         switch request.command {
         case .startSession:
@@ -386,16 +387,20 @@ struct ContentView: View {
             if !viewState.isRunning {
                 startSession()
             }
+            handled = true
         case .stopSession:
-            if viewState.isRunning {
-                stopSession()
-            }
+            guard viewState.isRunning else { return }
+            stopSession()
+            handled = true
         case .openNotes(let sessionID):
             coordinator.queueSessionSelection(sessionID)
             openWindow(id: "notes")
+            handled = true
         }
 
-        coordinator.completeExternalCommand(request.id)
+        if handled {
+            coordinator.completeExternalCommand(request.id)
+        }
     }
 
     private func handleNewUtterance(_ last: Utterance) {
