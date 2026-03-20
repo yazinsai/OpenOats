@@ -9,6 +9,8 @@ final class WhisperKitManager: @unchecked Sendable {
     enum Variant: String, Sendable {
         case base = "base"
         case small = "small"
+        case largeV3 = "large-v3"
+        case largeV3Turbo = "large-v3-turbo"
 
         /// HuggingFace repo hosting the CoreML models.
         static let modelRepo = "argmaxinc/whisperkit-coreml"
@@ -18,6 +20,8 @@ final class WhisperKitManager: @unchecked Sendable {
             switch self {
             case .base: "~142 MB"
             case .small: "~244 MB"
+            case .largeV3: "~3.1 GB"
+            case .largeV3Turbo: "~1.6 GB"
             }
         }
     }
@@ -32,9 +36,23 @@ final class WhisperKitManager: @unchecked Sendable {
 
     /// Download and initialize the WhisperKit pipeline.
     func setup(progressCallback: ((Progress) -> Void)? = nil) async throws {
+        let compute: ModelComputeOptions?
+        switch variant {
+        case .largeV3, .largeV3Turbo:
+            compute = ModelComputeOptions(
+                melCompute: .cpuAndGPU,
+                audioEncoderCompute: .cpuAndNeuralEngine,
+                textDecoderCompute: .cpuAndNeuralEngine,
+                prefillCompute: .cpuAndNeuralEngine
+            )
+        case .base, .small:
+            compute = nil
+        }
+
         let config = WhisperKitConfig(
             model: variant.rawValue,
             modelRepo: Variant.modelRepo,
+            computeOptions: compute,
             verbose: false,
             prewarm: true
         )
@@ -81,7 +99,14 @@ final class WhisperKitManager: @unchecked Sendable {
         guard let contents = try? fm.contentsOfDirectory(atPath: hfCacheDir.path) else {
             return false
         }
-        return contents.contains { $0.contains("whisper-\(variant.rawValue)") }
+        switch variant {
+        case .largeV3:
+            return contents.contains { $0.contains("whisper-large-v3") && !$0.contains("turbo") }
+        case .largeV3Turbo:
+            return contents.contains { $0.contains("whisper-large-v3") && $0.contains("turbo") }
+        case .base, .small:
+            return contents.contains { $0.contains("whisper-\(variant.rawValue)") }
+        }
     }
 
     enum WhisperKitManagerError: LocalizedError {
