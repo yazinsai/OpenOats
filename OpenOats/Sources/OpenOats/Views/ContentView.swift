@@ -33,13 +33,8 @@ struct ContentView: View {
     @Bindable var settings: AppSettings
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.openWindow) private var openWindow
-    @State private var transcriptStore = TranscriptStore()
     @State private var knowledgeBase: KnowledgeBase?
-    @State private var transcriptionEngine: TranscriptionEngine?
     @State private var suggestionEngine: SuggestionEngine?
-    @State private var transcriptLogger: TranscriptLogger?
-    @State private var refinementEngine: TranscriptRefinementEngine?
-    @State private var audioRecorder: AudioRecorder?
     @State private var overlayManager = OverlayManager()
     @AppStorage("isTranscriptExpanded") private var isTranscriptExpanded = true
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
@@ -263,29 +258,48 @@ struct ContentView: View {
             if knowledgeBase == nil {
                 let kb = KnowledgeBase(settings: settings)
                 knowledgeBase = kb
-                transcriptionEngine = TranscriptionEngine(
-                    transcriptStore: transcriptStore,
+                coordinator.transcriptionEngine = TranscriptionEngine(
+                    transcriptStore: coordinator.transcriptStore,
                     settings: settings
                 )
                 suggestionEngine = SuggestionEngine(
-                    transcriptStore: transcriptStore,
+                    transcriptStore: coordinator.transcriptStore,
                     knowledgeBase: kb,
                     settings: settings
                 )
-                transcriptLogger = TranscriptLogger(
+                coordinator.transcriptLogger = TranscriptLogger(
                     directory: URL(fileURLWithPath: settings.notesFolderPath)
                 )
-                refinementEngine = TranscriptRefinementEngine(
+                coordinator.refinementEngine = TranscriptRefinementEngine(
                     settings: settings,
-                    transcriptStore: transcriptStore
+                    transcriptStore: coordinator.transcriptStore
                 )
-                audioRecorder = AudioRecorder(
+                coordinator.audioRecorder = AudioRecorder(
                     outputDirectory: URL(fileURLWithPath: settings.notesFolderPath)
                 )
             }
             refreshViewState()
             indexKBIfNeeded()
             handlePendingExternalCommandIfPossible()
+
+            // Purge recently deleted sessions older than 24h
+            await coordinator.sessionStore.purgeRecentlyDeleted()
+
+            // Setup meeting detection if enabled
+            if settings.meetingAutoDetectEnabled {
+                coordinator.setupMeetingDetection(settings: settings)
+                await coordinator.evaluateImmediate()
+            }
+        }
+        .onChange(of: settings.meetingAutoDetectEnabled) {
+            if settings.meetingAutoDetectEnabled {
+                coordinator.setupMeetingDetection(settings: settings)
+                Task {
+                    await coordinator.evaluateImmediate()
+                }
+            } else {
+                coordinator.teardownMeetingDetection()
+            }
         }
     }
 
@@ -318,34 +332,24 @@ struct ContentView: View {
             return
         }
 
-        Task {
-            suggestionEngine?.clear()
-            await coordinator.startSession(transcriptStore: transcriptStore)
-            await transcriptLogger?.startSession()
-            if settings.saveAudioRecording {
-                audioRecorder?.startSession()
-                transcriptionEngine?.audioRecorder = audioRecorder
-            } else {
-                transcriptionEngine?.audioRecorder = nil
-            }
-            await transcriptionEngine?.start(
-                locale: settings.locale,
-                inputDeviceID: settings.inputDeviceID,
-                transcriptionModel: settings.transcriptionModel
-            )
-        }
+        suggestionEngine?.clear()
+        let metadata = MeetingMetadata(
+            detectionContext: DetectionContext(
+                signal: .manual,
+                detectedAt: Date(),
+                meetingApp: nil,
+                calendarEvent: nil
+            ),
+            calendarEvent: nil,
+            title: nil,
+            startedAt: Date(),
+            endedAt: nil
+        )
+        coordinator.handle(.userStarted(metadata), settings: settings)
     }
 
     private func stopSession() {
-        Task {
-            await coordinator.finalizeSession(
-                transcriptStore: transcriptStore,
-                transcriptionEngine: transcriptionEngine,
-                transcriptLogger: transcriptLogger,
-                audioRecorder: settings.saveAudioRecording ? audioRecorder : nil,
-                refinementEngine: settings.enableTranscriptRefinement ? refinementEngine : nil
-            )
-        }
+        coordinator.handle(.userStopped, settings: settings)
     }
 
     private func toggleOverlay() {
@@ -381,7 +385,7 @@ struct ContentView: View {
 
         switch request.command {
         case .startSession:
-            guard transcriptionEngine != nil, suggestionEngine != nil, transcriptLogger != nil else {
+            guard coordinator.transcriptionEngine != nil, suggestionEngine != nil, coordinator.transcriptLogger != nil else {
                 return
             }
             if !viewState.isRunning {
@@ -404,9 +408,12 @@ struct ContentView: View {
     }
 
     private func handleNewUtterance(_ last: Utterance) {
+        // Reset silence timer for auto-detected sessions
+        coordinator.noteUtterance()
+
         // Persist to transcript log
         Task {
-            await transcriptLogger?.append(
+            await coordinator.transcriptLogger?.append(
                 speaker: last.speaker == .you ? "You" : "Them",
                 text: last.text,
                 timestamp: last.timestamp
@@ -414,7 +421,7 @@ struct ContentView: View {
         }
 
         // Trigger transcript refinement if enabled
-        if settings.enableTranscriptRefinement, let engine = refinementEngine {
+        if settings.enableTranscriptRefinement, let engine = coordinator.refinementEngine {
             Task {
                 await engine.refine(last)
             }
@@ -435,7 +442,7 @@ struct ContentView: View {
                     baseRecord: baseRecord,
                     utteranceID: last.id,
                     suggestionEngine: suggestionEngine,
-                    transcriptStore: transcriptStore
+                    transcriptStore: coordinator.transcriptStore
                 )
             }
         } else {
@@ -451,7 +458,7 @@ struct ContentView: View {
     }
 
     private func handleNewUtterances(startingAt startIndex: Int) {
-        let utterances = transcriptStore.utterances
+        let utterances = coordinator.transcriptStore.utterances
         guard startIndex < utterances.count else { return }
 
         for utterance in utterances[startIndex...] {
@@ -473,21 +480,21 @@ struct ContentView: View {
         }
 
         var nextViewState = ViewState()
-        nextViewState.isRunning = transcriptionEngine?.isRunning ?? false
+        nextViewState.isRunning = coordinator.transcriptionEngine?.isRunning ?? false
         nextViewState.lastEndedSession = lastEndedSession
         nextViewState.lastSessionHasNotes = lastSessionHasNotes
         nextViewState.modelDisplayName = activeModelRaw.split(separator: "/").last.map(String.init) ?? activeModelRaw
         nextViewState.transcriptionPrompt = settings.transcriptionModel.downloadPrompt
-        nextViewState.statusMessage = transcriptionEngine?.assetStatus
-        nextViewState.errorMessage = transcriptionEngine?.lastError
-        nextViewState.needsDownload = transcriptionEngine?.needsModelDownload ?? false
+        nextViewState.statusMessage = coordinator.transcriptionEngine?.assetStatus
+        nextViewState.errorMessage = coordinator.transcriptionEngine?.lastError
+        nextViewState.needsDownload = coordinator.transcriptionEngine?.needsModelDownload ?? false
         nextViewState.kbIndexingProgress = knowledgeBase?.indexingProgress ?? ""
         nextViewState.suggestions = suggestionEngine?.suggestions ?? []
         nextViewState.isGeneratingSuggestions = suggestionEngine?.isGenerating ?? false
         nextViewState.showLiveTranscript = settings.showLiveTranscript
-        nextViewState.utterances = transcriptStore.utterances
-        nextViewState.volatileYouText = transcriptStore.volatileYouText
-        nextViewState.volatileThemText = transcriptStore.volatileThemText
+        nextViewState.utterances = coordinator.transcriptStore.utterances
+        nextViewState.volatileYouText = coordinator.transcriptStore.volatileYouText
+        nextViewState.volatileThemText = coordinator.transcriptStore.volatileThemText
         nextViewState.kbFolderPath = settings.kbFolderPath
         nextViewState.notesFolderPath = settings.notesFolderPath
         nextViewState.voyageApiKey = settings.voyageApiKey
@@ -514,9 +521,9 @@ struct ContentView: View {
             observedNotesFolderPath = currentViewState.notesFolderPath
             let url = URL(fileURLWithPath: currentViewState.notesFolderPath)
             Task {
-                await transcriptLogger?.updateDirectory(url)
+                await coordinator.transcriptLogger?.updateDirectory(url)
             }
-            audioRecorder?.updateDirectory(url)
+            coordinator.audioRecorder?.updateDirectory(url)
         }
 
         if currentViewState.voyageApiKey != observedVoyageApiKey {
@@ -526,14 +533,14 @@ struct ContentView: View {
 
         if currentViewState.transcriptionModel != observedTranscriptionModel {
             observedTranscriptionModel = currentViewState.transcriptionModel
-            transcriptionEngine?.refreshModelAvailability()
+            coordinator.transcriptionEngine?.refreshModelAvailability()
         }
 
         if currentViewState.inputDeviceID != observedInputDeviceID {
             observedInputDeviceID = currentViewState.inputDeviceID
             if currentViewState.isRunning {
                 Task {
-                    transcriptionEngine?.restartMic(inputDeviceID: currentViewState.inputDeviceID)
+                    coordinator.transcriptionEngine?.restartMic(inputDeviceID: currentViewState.inputDeviceID)
                 }
             }
         }
@@ -546,7 +553,6 @@ struct ContentView: View {
 
         if currentViewState.isRunning != observedIsRunning {
             observedIsRunning = currentViewState.isRunning
-            coordinator.isRecording = currentViewState.isRunning
         }
 
         let pendingExternalCommandID = coordinator.pendingExternalCommand?.id
@@ -561,7 +567,7 @@ struct ContentView: View {
         }
 
         if currentViewState.isRunning {
-            audioLevel = transcriptionEngine?.audioLevel ?? 0
+            audioLevel = coordinator.transcriptionEngine?.audioLevel ?? 0
         } else if audioLevel != 0 {
             audioLevel = 0
         }
@@ -577,7 +583,7 @@ struct ContentView: View {
                 startSession()
             }
         case .confirmDownload:
-            transcriptionEngine?.downloadConfirmed = true
+            coordinator.transcriptionEngine?.downloadConfirmed = true
             startSession()
         }
     }

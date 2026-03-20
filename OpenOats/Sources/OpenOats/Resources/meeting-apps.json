@@ -1,0 +1,34 @@
+[
+    {
+        "bundleID": "us.zoom.xos",
+        "displayName": "Zoom"
+    },
+    {
+        "bundleID": "com.microsoft.teams2",
+        "displayName": "Microsoft Teams"
+    },
+    {
+        "bundleID": "com.apple.FaceTime",
+        "displayName": "FaceTime"
+    },
+    {
+        "bundleID": "com.cisco.webexmeetingsapp",
+        "displayName": "Webex"
+    },
+    {
+        "bundleID": "app.tuple.app",
+        "displayName": "Tuple"
+    },
+    {
+        "bundleID": "co.around.Around",
+        "displayName": "Around"
+    },
+    {
+        "bundleID": "com.slack.Slack",
+        "displayName": "Slack"
+    },
+    {
+        "bundleID": "com.hnc.Discord",
+        "displayName": "Discord"
+    }
+]

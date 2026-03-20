@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreAudio
+import LaunchAtLogin
 import Sparkle
 
 struct SettingsView: View {
@@ -18,6 +19,7 @@ struct SettingsView: View {
     @State private var newTemplateIcon = "doc.text"
     @State private var newTemplatePrompt = ""
     @FocusState private var focusedTemplateField: TemplateField?
+    @State private var showAutoDetectExplanation = false
 
     var body: some View {
         Form {
@@ -223,6 +225,87 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Meeting Detection") {
+                Toggle("Auto-detect meetings", isOn: $settings.meetingAutoDetectEnabled)
+                    .font(.system(size: 12))
+                    .onChange(of: settings.meetingAutoDetectEnabled) {
+                        if settings.meetingAutoDetectEnabled && !settings.hasShownAutoDetectExplanation {
+                            settings.meetingAutoDetectEnabled = false
+                            showAutoDetectExplanation = true
+                        }
+                    }
+
+                Text("When enabled, OpenOats monitors microphone activation to detect when a meeting app starts a call. No audio is captured until you accept the notification.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                LaunchAtLogin.Toggle("Launch at login")
+                    .font(.system(size: 12))
+            }
+            .sheet(isPresented: $showAutoDetectExplanation) {
+                VStack(spacing: 16) {
+                    Image(systemName: "waveform.badge.magnifyingglass")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.tint)
+
+                    Text("How Meeting Detection Works")
+                        .font(.headline)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("OpenOats watches for microphone activation by meeting apps (Zoom, Teams, FaceTime, etc.)", systemImage: "mic")
+                        Label("Only activation status is checked. No audio is captured or recorded until you accept.", systemImage: "lock.shield")
+                        Label("When a meeting is detected, you get a macOS notification to start transcribing.", systemImage: "bell")
+                        Label("You can always dismiss the notification or mark it as \"not a meeting\".", systemImage: "hand.raised")
+                    }
+                    .font(.system(size: 12))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack {
+                        Button("Cancel") {
+                            showAutoDetectExplanation = false
+                        }
+                        .keyboardShortcut(.cancelAction)
+
+                        Button("Enable Detection") {
+                            settings.hasShownAutoDetectExplanation = true
+                            settings.meetingAutoDetectEnabled = true
+                            showAutoDetectExplanation = false
+                        }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+                .padding(24)
+                .frame(width: 400)
+            }
+
+            if settings.meetingAutoDetectEnabled {
+                DisclosureGroup("Advanced Detection Settings") {
+                    HStack {
+                        Text("Silence timeout")
+                            .font(.system(size: 12))
+                        Spacer()
+                        TextField("", value: $settings.silenceTimeoutMinutes, format: .number)
+                            .font(.system(size: 12, design: .monospaced))
+                            .frame(width: 50)
+                            .multilineTextAlignment(.trailing)
+                        Text("min")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("Auto-detected sessions stop after this many minutes of silence.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    Toggle("Detection log", isOn: $settings.detectionLogEnabled)
+                        .font(.system(size: 12))
+                    Text("Print detection events to the system console for debugging.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .font(.system(size: 12))
+            }
+
             Section("Updates") {
                 Toggle("Automatically check for updates", isOn: $automaticallyChecksForUpdates)
                 .font(.system(size: 12))
@@ -347,7 +430,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 450, height: 700)
+        .frame(width: 450, height: 750)
         .onAppear {
             refreshViewState()
         }
