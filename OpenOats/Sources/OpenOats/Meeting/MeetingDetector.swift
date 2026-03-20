@@ -283,6 +283,7 @@ actor MeetingDetector {
 
     private static let defaultMeetingApps: [MeetingAppEntry] = [
         MeetingAppEntry(bundleID: "us.zoom.xos", displayName: "Zoom"),
+        MeetingAppEntry(bundleID: "com.microsoft.teams", displayName: "Microsoft Teams (classic)"),
         MeetingAppEntry(bundleID: "com.microsoft.teams2", displayName: "Microsoft Teams"),
         MeetingAppEntry(bundleID: "com.apple.FaceTime", displayName: "FaceTime"),
         MeetingAppEntry(bundleID: "com.cisco.webexmeetingsapp", displayName: "Webex"),
@@ -290,5 +291,7 @@ actor MeetingDetector {
         MeetingAppEntry(bundleID: "co.around.Around", displayName: "Around"),
         MeetingAppEntry(bundleID: "com.slack.Slack", displayName: "Slack"),
         MeetingAppEntry(bundleID: "com.hnc.Discord", displayName: "Discord"),
+        MeetingAppEntry(bundleID: "net.whatsapp.WhatsApp", displayName: "WhatsApp"),
+        MeetingAppEntry(bundleID: "com.google.Chrome.app.kjgfgldnnfobanmcafgkdilakhehfkbm", displayName: "Google Meet (PWA)"),
     ]
 }

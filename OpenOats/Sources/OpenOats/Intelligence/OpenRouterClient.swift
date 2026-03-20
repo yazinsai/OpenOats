@@ -51,7 +51,7 @@ actor OpenRouterClient {
                     guard let httpResponse = response as? HTTPURLResponse,
                           (200...299).contains(httpResponse.statusCode) else {
                         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                        continuation.finish(throwing: OpenRouterError.httpError(statusCode))
+                        continuation.finish(throwing: OpenRouterError.httpError(statusCode, host: targetURL.host))
                         return
                     }
 
@@ -111,7 +111,7 @@ actor OpenRouterClient {
         guard let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode) else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw OpenRouterError.httpError(statusCode)
+            throw OpenRouterError.httpError(statusCode, host: targetURL.host)
         }
 
         let completionResponse = try JSONDecoder().decode(CompletionResponse.self, from: data)
@@ -119,11 +119,18 @@ actor OpenRouterClient {
     }
 
     enum OpenRouterError: Error, LocalizedError {
-        case httpError(Int)
+        case httpError(Int, host: String?)
 
         var errorDescription: String? {
             switch self {
-            case .httpError(let code): "OpenRouter API error (HTTP \(code))"
+            case .httpError(let code, let host):
+                let provider = switch host {
+                case let h? where h.contains("openrouter.ai"): "OpenRouter"
+                case let h? where h.contains("localhost"), let h? where h.contains("127.0.0.1"): "Local LLM"
+                case let h?: h
+                case nil: "LLM"
+                }
+                return "\(provider) API error (HTTP \(code))"
             }
         }
     }
