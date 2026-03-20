@@ -359,7 +359,9 @@ actor SessionStore {
                 templateSnapshot: idx.templateSnapshot,
                 title: idx.title,
                 utteranceCount: idx.utteranceCount,
-                hasNotes: true
+                hasNotes: true,
+                meetingApp: idx.meetingApp,
+                engine: idx.engine
             ),
             notes: notes
         )
@@ -390,7 +392,9 @@ actor SessionStore {
                 templateSnapshot: idx.templateSnapshot,
                 title: newTitle.isEmpty ? nil : newTitle,
                 utteranceCount: idx.utteranceCount,
-                hasNotes: idx.hasNotes
+                hasNotes: idx.hasNotes,
+                meetingApp: idx.meetingApp,
+                engine: idx.engine
             ),
             notes: sidecar.notes
         )

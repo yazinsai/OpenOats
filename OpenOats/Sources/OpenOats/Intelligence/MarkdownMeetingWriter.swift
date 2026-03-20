@@ -217,6 +217,8 @@ enum MarkdownMeetingWriter {
         let escaped = value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\t", with: "\\t")
         return "\"\(escaped)\""
     }
 
@@ -337,35 +339,13 @@ enum MarkdownMeetingWriter {
             return nil
         }
 
-        var frontmatterLines = parts[1].components(separatedBy: "\n")
         let bodyContent = parts.dropFirst(2).joined(separator: "---")
+        let originalFrontmatterLines = parts[1].components(separatedBy: "\n")
+            .filter { !$0.isEmpty }
 
-        // Update title in frontmatter if provided
-        if let newTitle, !newTitle.isEmpty {
-            frontmatterLines = frontmatterLines.map { line in
-                if line.trimmingCharacters(in: .whitespaces).hasPrefix("title:") {
-                    return "title: \(yamlQuote(newTitle))"
-                }
-                return line
-            }
-        }
-
-        // Add tags to frontmatter if provided
-        if let tags, !tags.isEmpty {
-            // Remove any existing tags lines
-            frontmatterLines = frontmatterLines.filter { line in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                return !trimmed.hasPrefix("tags:") && !trimmed.hasPrefix("- ") ||
-                       trimmed.hasPrefix("- You") || trimmed.hasPrefix("- Them")
-            }
-            // Actually, the above filter is too aggressive. Let me take a different approach.
-            // Re-read and rebuild properly.
-        }
-
-        // Rebuild: simpler approach - reconstruct the entire file
-        let resolvedTitle = newTitle ?? extractTitle(from: frontmatterLines)
+        let resolvedTitle = newTitle ?? extractTitle(from: originalFrontmatterLines)
         var updatedFrontmatter = rebuildFrontmatterWithUpdates(
-            originalLines: parts[1].components(separatedBy: "\n"),
+            originalLines: originalFrontmatterLines,
             newTitle: newTitle,
             tags: tags
         )
@@ -460,8 +440,9 @@ enum MarkdownMeetingWriter {
                 // Remove quotes
                 if value.hasPrefix("\"") && value.hasSuffix("\"") {
                     value = String(value.dropFirst().dropLast())
+                    value = value.replacingOccurrences(of: "\\\\", with: "\u{0000}")
                     value = value.replacingOccurrences(of: "\\\"", with: "\"")
-                    value = value.replacingOccurrences(of: "\\\\", with: "\\")
+                    value = value.replacingOccurrences(of: "\u{0000}", with: "\\")
                 }
                 return value
             }
@@ -478,7 +459,7 @@ enum MarkdownMeetingWriter {
         var result: [String] = []
         var insideParticipants = false
         var insideTags = false
-        var tagsInserted = false
+        // Tags are re-inserted at the end after stripping originals
 
         for line in originalLines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -506,7 +487,7 @@ enum MarkdownMeetingWriter {
         }
 
         // Insert tags before the end
-        if let tags, !tags.isEmpty, !tagsInserted {
+        if let tags, !tags.isEmpty {
             // Find a good insertion point (after recorder or engine, before closing ---)
             var insertIndex = result.count
             for (i, line) in result.enumerated().reversed() {
