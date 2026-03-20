@@ -12,6 +12,11 @@ final class Qwen3Backend: TranscriptionBackend, @unchecked Sendable {
         return exists ? .ready : .needsDownload(prompt: "Qwen3 ASR requires a one-time model download.")
     }
 
+    func clearModelCache() {
+        let cacheDir = Qwen3AsrModels.defaultCacheDirectory()
+        try? FileManager.default.removeItem(at: cacheDir)
+    }
+
     func prepare(onStatus: @Sendable (String) -> Void) async throws {
         onStatus("Downloading \(displayName)...")
         let modelsDirectory = try await Qwen3AsrModels.download()

@@ -23,6 +23,11 @@ final class ParakeetBackend: TranscriptionBackend, @unchecked Sendable {
         return exists ? .ready : .needsDownload(prompt: "Transcription requires a one-time model download.")
     }
 
+    func clearModelCache() {
+        let cacheDir = AsrModels.defaultCacheDirectory(for: version)
+        try? FileManager.default.removeItem(at: cacheDir)
+    }
+
     func prepare(onStatus: @Sendable (String) -> Void) async throws {
         onStatus("Downloading \(displayName)...")
         let models = try await AsrModels.downloadAndLoad(version: version)

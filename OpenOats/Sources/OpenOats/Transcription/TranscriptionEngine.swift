@@ -212,6 +212,11 @@ final class TranscriptionEngine {
             lastError = msg
             assetStatus = "Ready"
             isRunning = false
+            // Clear corrupt cache so the next attempt triggers a fresh download
+            settings.transcriptionModel.makeBackend().clearModelCache()
+            diagLog("[ENGINE-2-FAIL] cleared model cache for \(settings.transcriptionModel.rawValue)")
+            needsModelDownload = true
+            downloadConfirmed = false
             return
         }
 

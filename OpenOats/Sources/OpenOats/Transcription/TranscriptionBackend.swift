@@ -25,6 +25,13 @@ protocol TranscriptionBackend: Sendable {
     /// Transcribe a segment of Float32 audio samples at 16kHz mono.
     /// Returns the transcribed text, or empty string if no speech detected.
     func transcribe(_ samples: [Float], locale: Locale) async throws -> String
+
+    /// Remove cached model files so the next prepare() triggers a fresh download.
+    func clearModelCache()
+}
+
+extension TranscriptionBackend {
+    func clearModelCache() {}
 }
 
 enum TranscriptionBackendError: Error {

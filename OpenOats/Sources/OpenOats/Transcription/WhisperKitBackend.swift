@@ -19,6 +19,20 @@ final class WhisperKitBackend: TranscriptionBackend, @unchecked Sendable {
         )
     }
 
+    func clearModelCache() {
+        let fm = FileManager.default
+        guard let documentsDir = fm.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let hfCacheDir = documentsDir
+            .appendingPathComponent("huggingface")
+            .appendingPathComponent("models")
+            .appendingPathComponent("argmaxinc")
+            .appendingPathComponent("whisperkit-coreml")
+        guard let contents = try? fm.contentsOfDirectory(atPath: hfCacheDir.path) else { return }
+        for entry in contents where entry.contains("whisper-\(variant.rawValue)") {
+            try? fm.removeItem(at: hfCacheDir.appendingPathComponent(entry))
+        }
+    }
+
     func prepare(onStatus: @Sendable (String) -> Void) async throws {
         onStatus("Downloading \(displayName)...")
         let manager = WhisperKitManager(variant: variant)
