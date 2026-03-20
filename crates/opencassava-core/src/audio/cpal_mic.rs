@@ -79,7 +79,7 @@ impl MicCaptureService for CpalMicCapture {
             return Box::pin(stream::empty());
         };
 
-        let (tx, rx) = mpsc::channel::<Vec<f32>>(500);
+        let (tx, rx) = mpsc::channel::<Vec<f32>>(200);
         let finished = self.finished.clone();
         let level_arc = self.audio_level.clone();
 

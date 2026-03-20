@@ -157,7 +157,7 @@ function App() {
     onToggleSidebar: () => setSidebarOpen((prev) => !prev),
   });
 
-  // Check model and set up event listeners
+  // Check model whenever settings change
   useEffect(() => {
     if (!settings) {
       return;
@@ -170,7 +170,11 @@ function App() {
         setModelError(String(err));
         setModelState("missing");
       });
+  }, [settings]);
 
+  // Register event listeners once on mount — listeners don't depend on settings
+  // and must not re-register on settings changes (would cause duplicate events).
+  useEffect(() => {
     const unlisteners = [
       listen<{ text: string; speaker: string; participantId?: string; participantLabel?: string }>("transcript", (e) => {
         const { text, speaker, participantId, participantLabel } = e.payload;
@@ -185,14 +189,14 @@ function App() {
             timestamp: new Date().toISOString(),
           },
         ]);
-        
+
         if (speaker === "you") {
           setVolatileYouText("");
         } else {
           setVolatileThemText("");
         }
       }),
-      
+
       listen<{ text: string; speaker: string }>("transcript-volatile", (e) => {
         const { text, speaker } = e.payload;
         if (speaker === "you") {
@@ -252,7 +256,7 @@ function App() {
     return () => {
       unlisteners.forEach((p) => p.then((f) => f()));
     };
-  }, [settings]);
+  }, []);
 
   const handleDownload = async () => {
     setModelError(null);

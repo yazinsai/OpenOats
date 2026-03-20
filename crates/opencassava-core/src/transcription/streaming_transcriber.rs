@@ -58,7 +58,7 @@ impl StreamingTranscriber {
     {
         use futures::StreamExt;
 
-        let (seg_tx, seg_rx) = mpsc::sync_channel::<Vec<f32>>(10);
+        let (seg_tx, seg_rx) = mpsc::sync_channel::<Vec<f32>>(30);
         let on_final = self.on_final;
         let on_volatile = self.on_volatile;
         let language = self.language.clone();
@@ -137,7 +137,10 @@ impl StreamingTranscriber {
                         speaking = false;
                         silence_count = 0;
                         if speech_buf.len() > Vad::MIN_SPEECH_SAMPLES {
-                            let _ = seg_tx.send(std::mem::take(&mut speech_buf));
+                            match seg_tx.try_send(std::mem::take(&mut speech_buf)) {
+                                Ok(_) => {}
+                                Err(e) => { log::warn!("[vad] seg dropped (end-of-speech): {e}"); }
+                            }
                         } else {
                             speech_buf.clear();
                         }
@@ -145,7 +148,10 @@ impl StreamingTranscriber {
                 }
 
                 if speaking && speech_buf.len() >= Vad::FLUSH_SAMPLES {
-                    let _ = seg_tx.send(std::mem::take(&mut speech_buf));
+                    match seg_tx.try_send(std::mem::take(&mut speech_buf)) {
+                        Ok(_) => {}
+                        Err(e) => { log::warn!("[vad] seg dropped (flush): {e}"); }
+                    }
                 }
 
                 // Emit volatile text while speech is active

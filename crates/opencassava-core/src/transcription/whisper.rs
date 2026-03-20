@@ -22,7 +22,7 @@ impl WhisperManager {
     }
 
     pub fn transcribe(state: &mut WhisperState, samples: &[f32], language: &str) -> String {
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 0 });
+        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_n_threads(4);
         if language.trim().is_empty() {
             params.set_language(None);
@@ -36,8 +36,28 @@ impl WhisperManager {
         params.set_no_context(true);
         params.set_suppress_blank(true);
 
-        if state.full(params, samples).is_err() {
-            return String::new();
+        // whisper.cpp requires at least 1 second (16 000 samples at 16 kHz).
+        // Use 16 100 (one VAD chunk above the boundary) to avoid any off-by-one
+        // in whisper's internal duration check.
+        const MIN_SAMPLES: usize = 16_100;
+        let padded;
+        let samples = if samples.len() < MIN_SAMPLES {
+            padded = {
+                let mut v = samples.to_vec();
+                v.resize(MIN_SAMPLES, 0.0);
+                v
+            };
+            padded.as_slice()
+        } else {
+            samples
+        };
+
+        match state.full(params, samples) {
+            Err(e) => {
+                log::warn!("[whisper] state.full error: {e:?}");
+                return String::new();
+            }
+            Ok(_) => {}
         }
 
         let n = state.full_n_segments().unwrap_or(0);
