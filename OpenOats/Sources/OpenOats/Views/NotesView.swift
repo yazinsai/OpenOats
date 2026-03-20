@@ -239,17 +239,26 @@ struct NotesView: View {
             .disabled(copyContentIsEmpty)
             .help("Copy to clipboard")
 
-            // Regenerate (icon-only, only in notes mode when notes exist)
+            // Regenerate (split button: click = same template, chevron = pick template)
             if detailViewMode == .notes && loadedNotes != nil {
-                Button {
-                    regenerateNotes()
+                Menu {
+                    ForEach(coordinator.templateStore.templates) { template in
+                        Button {
+                            regenerateNotes(with: template)
+                        } label: {
+                            Label(template.name, systemImage: template.icon)
+                        }
+                        .disabled(loadedNotes?.template.id == template.id)
+                    }
                 } label: {
                     Label("Regenerate", systemImage: "arrow.clockwise")
                         .font(.system(size: 12))
+                } primaryAction: {
+                    regenerateNotes()
                 }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.bordered)
-                .help("Regenerate notes")
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Regenerate notes (click) or pick a different template (arrow)")
             }
         }
         .padding(.horizontal, 20)
@@ -629,8 +638,11 @@ struct NotesView: View {
         }
     }
 
-    private func regenerateNotes() {
+    private func regenerateNotes(with template: MeetingTemplate? = nil) {
         guard let sessionID = selectedSessionID else { return }
+        if let template {
+            selectedTemplateForGeneration = template
+        }
         loadedNotes = nil
         generateNotes(sessionID: sessionID)
     }
