@@ -140,7 +140,7 @@ fn default_model() -> String {
     "nvidia/nemotron-3-nano-4b".into()
 }
 fn default_locale() -> String {
-    "en-US".into()
+    "auto".into()
 }
 fn default_transcription_model() -> String {
     "whisper-base".into()
@@ -204,7 +204,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("nonexistent.json");
         let s = AppSettings::load_from(path);
-        assert_eq!(s.transcription_locale, "en-US");
+        assert_eq!(s.transcription_locale, "auto");
     }
 
     #[test]

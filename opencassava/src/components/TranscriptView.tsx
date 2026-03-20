@@ -83,6 +83,7 @@ function UtteranceBubble({
   searchQuery?: string;
 }) {
   const isYou = utterance.speaker === "you";
+  const speakerLabel = utterance.participantLabel || (isYou ? "You" : "Them");
 
   return (
     <div
@@ -100,7 +101,7 @@ function UtteranceBubble({
       {/* Speaker label */}
       <div
         style={{
-          minWidth: 40,
+          minWidth: 72,
           textAlign: "right",
           fontSize: typography.sm,
           fontWeight: 600,
@@ -110,7 +111,7 @@ function UtteranceBubble({
           paddingTop: 2,
         }}
       >
-        {isYou ? "You" : "Them"}
+        {speakerLabel}
       </div>
 
       {/* Content */}
@@ -142,7 +143,7 @@ function VolatileIndicator({ text, speaker }: { text: string; speaker: "you" | "
     >
       <div
         style={{
-          minWidth: 40,
+          minWidth: 72,
           textAlign: "right",
           fontSize: typography.sm,
           fontWeight: 600,

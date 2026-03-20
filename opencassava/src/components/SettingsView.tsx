@@ -6,6 +6,7 @@ import { colors, typography, spacing } from "../theme";
 type Tab = "general" | "ai" | "advanced";
 
 const transcriptionLocaleOptions = [
+  { value: "auto", label: "Auto Detect (English/Spanish)" },
   { value: "en-US", label: "English (US)" },
   { value: "en-GB", label: "English (UK)" },
   { value: "es-ES", label: "Spanish (Spain)" },
@@ -18,17 +19,20 @@ const transcriptionLocaleOptions = [
 ];
 
 const whisperModelOptions = [
-  { value: "auto", label: "Auto", description: "Base-en for English, base for other languages" },
-  { value: "tiny", label: "Tiny", description: "Fastest, less accurate" },
-  { value: "base", label: "Base", description: "Balanced speed and accuracy" },
-  { value: "small", label: "Small", description: "Better accuracy, slower" },
+  { value: "auto", label: "Auto", description: "Base multilingual with automatic language detection for English and Spanish" },
+  { value: "tiny", label: "Tiny", description: "Fastest, lowest accuracy" },
+  { value: "base", label: "Base", description: "Lightweight multilingual model" },
+  { value: "small", label: "Small", description: "Recommended multilingual balance with automatic language detection" },
+  { value: "medium", label: "Medium", description: "Higher accuracy, more CPU/RAM" },
+  { value: "large-v3-turbo", label: "Large v3 Turbo", description: "Best local multilingual accuracy, heaviest option" },
 ];
 
 function resolveWhisperModel(
   locale: string,
   whisperModel: string,
-): "tiny" | "tiny-en" | "base" | "base-en" | "small" | "small-en" {
-  const isEnglish = locale.trim().toLowerCase().startsWith("en") || locale.trim() === "";
+): "tiny" | "tiny-en" | "base" | "base-en" | "small" | "small-en" | "medium" | "medium-en" | "large-v3-turbo" {
+  const normalized = locale.trim().toLowerCase();
+  const isEnglish = normalized.startsWith("en");
 
   switch (whisperModel) {
     case "tiny":
@@ -43,8 +47,14 @@ function resolveWhisperModel(
       return "base-en";
     case "small-en":
       return "small-en";
+    case "medium":
+      return isEnglish ? "medium-en" : "medium";
+    case "medium-en":
+      return "medium-en";
+    case "large-v3-turbo":
+      return "large-v3-turbo";
     default:
-      return isEnglish ? "base-en" : "base";
+      return "base";
   }
 }
 
@@ -747,7 +757,7 @@ export function SettingsView({ settings: initialSettings = null, onSettingsChang
                 ))}
               </select>
               <span style={{ fontSize: typography.sm, color: colors.textMuted, marginTop: 4, display: "block" }}>
-                OpenCassava will download and use {resolveWhisperModel(settings.transcriptionLocale, settings.whisperModel)} for this language.
+                OpenCassava will download and use {resolveWhisperModel(settings.transcriptionLocale, settings.whisperModel)}. Choose Auto Detect for mixed English/Spanish conversations.
               </span>
             </div>
             <div style={styles.fieldWrap}>

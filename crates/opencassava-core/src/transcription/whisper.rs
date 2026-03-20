@@ -24,7 +24,11 @@ impl WhisperManager {
     pub fn transcribe(state: &mut WhisperState, samples: &[f32], language: &str) -> String {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 0 });
         params.set_n_threads(4);
-        params.set_language(Some(language));
+        if language.trim().is_empty() {
+            params.set_language(None);
+        } else {
+            params.set_language(Some(language));
+        }
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);

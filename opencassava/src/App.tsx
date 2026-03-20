@@ -20,12 +20,22 @@ type SuggestionCheckEvent = {
   surfaced: boolean;
 };
 
-type WhisperModelId = "auto" | "tiny" | "tiny-en" | "base" | "base-en" | "small" | "small-en";
+type WhisperModelId =
+  | "auto"
+  | "tiny"
+  | "tiny-en"
+  | "base"
+  | "base-en"
+  | "small"
+  | "small-en"
+  | "medium"
+  | "medium-en"
+  | "large-v3-turbo";
 
 function resolveWhisperModel(settings: AppSettings | null): Exclude<WhisperModelId, "auto"> {
   const configured = (settings?.whisperModel || "auto") as WhisperModelId;
-  const locale = settings?.transcriptionLocale?.trim().toLowerCase() || "";
-  const isEnglish = !locale || locale.startsWith("en");
+  const locale = settings?.transcriptionLocale?.trim().toLowerCase() || "auto";
+  const isEnglish = locale.startsWith("en");
 
   switch (configured) {
     case "tiny":
@@ -40,9 +50,15 @@ function resolveWhisperModel(settings: AppSettings | null): Exclude<WhisperModel
       return isEnglish ? "small-en" : "small";
     case "small-en":
       return "small-en";
+    case "medium":
+      return isEnglish ? "medium-en" : "medium";
+    case "medium-en":
+      return "medium-en";
+    case "large-v3-turbo":
+      return "large-v3-turbo";
     case "auto":
     default:
-      return isEnglish ? "base-en" : "base";
+      return "base";
   }
 }
 
@@ -54,6 +70,9 @@ function whisperModelLabel(model: Exclude<WhisperModelId, "auto">): string {
     "base-en": "Whisper base-en (English)",
     small: "Whisper small (multilingual)",
     "small-en": "Whisper small-en (English)",
+    medium: "Whisper medium (multilingual)",
+    "medium-en": "Whisper medium-en (English)",
+    "large-v3-turbo": "Whisper large-v3-turbo (multilingual)",
   };
   return labels[model];
 }
@@ -62,6 +81,25 @@ function compactModelName(modelName: string): string {
   if (!modelName) return "Unknown";
   if (modelName.length <= 20) return modelName;
   return modelName.split("/").pop() || modelName;
+}
+
+function transcriptionLocaleLabel(locale?: string | null): string {
+  switch ((locale || "auto").trim().toLowerCase()) {
+    case "auto":
+      return "auto-detect";
+    case "en-us":
+      return "English (US)";
+    case "en-gb":
+      return "English (UK)";
+    case "es-es":
+      return "Spanish (Spain)";
+    case "es-co":
+      return "Spanish (Colombia)";
+    case "es-mx":
+      return "Spanish (Mexico)";
+    default:
+      return locale || "auto-detect";
+  }
 }
 
 function App() {
@@ -134,14 +172,16 @@ function App() {
       });
 
     const unlisteners = [
-      listen<{ text: string; speaker: string }>("transcript", (e) => {
-        const { text, speaker } = e.payload;
+      listen<{ text: string; speaker: string; participantId?: string; participantLabel?: string }>("transcript", (e) => {
+        const { text, speaker, participantId, participantLabel } = e.payload;
         setUtterances((prev) => [
           ...prev,
           {
             id: crypto.randomUUID(),
             text,
             speaker: speaker === "you" ? "you" : "them",
+            participantId: participantId || null,
+            participantLabel: participantLabel || null,
             timestamp: new Date().toISOString(),
           },
         ]);
@@ -184,7 +224,6 @@ function App() {
             kbHits: e.payload.kbHits || [],
           },
         ]);
-        setTab("suggestions");
       }),
 
       listen("suggestion-generating", () => {
@@ -548,7 +587,7 @@ function App() {
             }}
             title="Active Whisper transcription model"
           >
-            {activeWhisperModel} | {settings?.transcriptionLocale || "auto"}
+            {activeWhisperModel} | {transcriptionLocaleLabel(settings?.transcriptionLocale)}
           </span>
         </div>
 

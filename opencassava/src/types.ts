@@ -2,6 +2,8 @@ export interface Utterance {
   id: string;
   text: string;
   speaker: "you" | "them";
+  participantId?: string | null;
+  participantLabel?: string | null;
   timestamp: string;
 }
 

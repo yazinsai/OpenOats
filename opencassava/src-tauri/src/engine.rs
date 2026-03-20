@@ -30,7 +30,6 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindo
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::Mutex as AsyncMutex;
 
-const SUGGESTION_CONTEXT_WINDOW_SECS: i64 = 180;
 const OVERLAY_LABEL: &str = "overlay";
 const OVERLAY_SUGGESTION_EVENT: &str = "overlay-suggestion";
 
@@ -68,9 +67,12 @@ fn emit_overlay_suggestion(window: WebviewWindow, payload: SuggestionPayload) {
 // ── Payloads ────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TranscriptPayload {
     pub text: String,
     pub speaker: String,
+    pub participant_id: String,
+    pub participant_label: String,
 }
 
 #[derive(Clone, Serialize, serde::Deserialize)]
@@ -126,6 +128,7 @@ pub struct AppState {
     pub poll_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     pub overlay_suggestion: Mutex<Option<SuggestionPayload>>,
     pub is_running: Mutex<bool>,
+    pub stop_requested: Arc<std::sync::atomic::AtomicBool>,
     pub mic_level: Arc<AtomicU32>,
     pub sys_level: Arc<AtomicU32>,
 }
@@ -159,6 +162,7 @@ impl AppState {
             poll_task: Mutex::new(None),
             overlay_suggestion: Mutex::new(None),
             is_running: Mutex::new(false),
+            stop_requested: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             mic_level: Arc::new(AtomicU32::new(0)),
             sys_level: Arc::new(AtomicU32::new(0)),
         }
@@ -198,20 +202,38 @@ fn resolve_whisper_model(settings: &AppSettings) -> &'static str {
             }
         }
         "small-en" => "small-en",
-        "auto" => {
+        "medium" => {
             if is_english {
-                "base-en"
+                "medium-en"
             } else {
-                "base"
+                "medium"
             }
+        }
+        "medium-en" => "medium-en",
+        "large-v3-turbo" => "large-v3-turbo",
+        "auto" => {
+            "base"
         }
         _ => {
-            if is_english {
-                "base-en"
-            } else {
-                "base"
-            }
+            "base"
         }
+    }
+}
+
+fn resolve_transcription_language(settings: &AppSettings, model: &str) -> String {
+    let locale = settings.transcription_locale.trim().to_ascii_lowercase();
+    if !locale.is_empty() && locale != "auto" {
+        return locale
+            .split('-')
+            .next()
+            .unwrap_or("en")
+            .to_string();
+    }
+
+    if model.ends_with("-en") {
+        "en".into()
+    } else {
+        String::new()
     }
 }
 
@@ -280,8 +302,9 @@ fn compute_rms(samples: &[f32]) -> f32 {
 fn push_recent_utterance(
     buffer: &Arc<Mutex<Vec<opencassava_core::models::Utterance>>>,
     utterance: opencassava_core::models::Utterance,
+    retention_window_secs: i64,
 ) {
-    let cutoff = chrono::Utc::now() - chrono::Duration::seconds(SUGGESTION_CONTEXT_WINDOW_SECS);
+    let cutoff = chrono::Utc::now() - chrono::Duration::seconds(retention_window_secs);
     let mut entries = buffer.lock().unwrap();
     entries.push(utterance);
     entries.retain(|entry| entry.timestamp >= cutoff);
@@ -391,6 +414,9 @@ pub fn start_transcription(
         return Ok(session_id);
     }
     *running = true;
+    state
+        .stop_requested
+        .store(false, std::sync::atomic::Ordering::Relaxed);
     drop(running);
 
     let session_id = {
@@ -414,13 +440,10 @@ pub fn start_transcription(
 
     let device_name = settings.input_device_name.clone();
     let sys_device_name = settings.system_audio_device_name.clone();
-    let language = settings
-        .transcription_locale
-        .split('-')
-        .next()
-        .unwrap_or("en")
-        .to_string();
+    let language = resolve_transcription_language(&settings, whisper_model);
     let suggestion_interval_secs = settings.suggestion_interval_seconds.max(30);
+    let suggestion_context_window_secs =
+        (suggestion_interval_secs.saturating_mul(2).min(180)) as i64;
 
     let recent_utterances: Arc<Mutex<Vec<opencassava_core::models::Utterance>>> =
         Arc::new(Mutex::new(Vec::new()));
@@ -484,6 +507,8 @@ pub fn start_transcription(
                     id: uuid::Uuid::new_v4(),
                     text: text.clone(),
                     speaker: Speaker::Them,
+                    participant_id: Some("remote_1".into()),
+                    participant_label: Some("Speaker A".into()),
                     timestamp: chrono::Utc::now(),
                 };
 
@@ -491,12 +516,16 @@ pub fn start_transcription(
                 let payload = TranscriptPayload {
                     text: text.clone(),
                     speaker: "them".into(),
+                    participant_id: "remote_1".into(),
+                    participant_label: "Speaker A".into(),
                 };
                 app_sg.emit("transcript", &payload).ok();
 
                 // Append to session store and logger
                 let record = SessionRecord {
                     speaker: Speaker::Them,
+                    participant_id: Some("remote_1".into()),
+                    participant_label: Some("Speaker A".into()),
                     text: text.clone(),
                     timestamp: chrono::Utc::now(),
                     suggestions: None,
@@ -512,12 +541,16 @@ pub fn start_transcription(
                     .append_record(&record)
                     .ok();
                 state_sg.transcript_logger.lock().unwrap().append(
-                    "Them",
+                    "Speaker A",
                     &text,
                     chrono::Utc::now(),
                 );
 
-                push_recent_utterance(&recent_utterances_clone, utterance.clone());
+                push_recent_utterance(
+                    &recent_utterances_clone,
+                    utterance.clone(),
+                    suggestion_context_window_secs,
+                );
             };
             let app_vol_t = them_app.clone();
             let state_vol_t = Arc::clone(&them_state);
@@ -531,12 +564,15 @@ pub fn start_transcription(
                         &TranscriptPayload {
                             text: "...".into(),
                             speaker: "them".into(),
+                            participant_id: "remote_1".into(),
+                            participant_label: "Speaker A".into(),
                         },
                     )
                     .ok();
             };
             let transcriber = StreamingTranscriber::new(them_model, them_lang, Box::new(on_them))
-                .with_volatile(Box::new(on_them_vol));
+                .with_volatile(Box::new(on_them_vol))
+                .with_stop_signal(Arc::clone(&them_state.stop_requested));
             transcriber.run(them_stream_leveled).await;
         });
         *state_clone.system_audio_task.lock().unwrap() = Some(them_handle);
@@ -556,8 +592,8 @@ pub fn start_transcription(
                     break;
                 }
 
-                let cutoff =
-                    chrono::Utc::now() - chrono::Duration::seconds(SUGGESTION_CONTEXT_WINDOW_SECS);
+                let cutoff = chrono::Utc::now()
+                    - chrono::Duration::seconds(suggestion_context_window_secs);
                 let recent_buf = suggestion_recent_utterances
                     .lock()
                     .unwrap()
@@ -578,10 +614,7 @@ pub fn start_transcription(
 
                 let transcript_window = recent_buf
                     .iter()
-                    .map(|u| match u.speaker {
-                        Speaker::You => format!("You: {}", u.text),
-                        Speaker::Them => format!("Them: {}", u.text),
-                    })
+                    .map(|u| format!("{}: {}", u.display_label(), u.text))
                     .collect::<Vec<_>>()
                     .join("\n");
                 if transcript_window.trim().is_empty() {
@@ -734,6 +767,8 @@ pub fn start_transcription(
             let payload = TranscriptPayload {
                 text: text.clone(),
                 speaker: "you".into(),
+                participant_id: "you".into(),
+                participant_label: "You".into(),
             };
             app_y.emit("transcript", &payload).ok();
             push_recent_utterance(
@@ -742,11 +777,16 @@ pub fn start_transcription(
                     id: uuid::Uuid::new_v4(),
                     text: text.clone(),
                     speaker: Speaker::You,
+                    participant_id: Some("you".into()),
+                    participant_label: Some("You".into()),
                     timestamp: chrono::Utc::now(),
                 },
+                suggestion_context_window_secs,
             );
             let record = SessionRecord {
                 speaker: Speaker::You,
+                participant_id: Some("you".into()),
+                participant_label: Some("You".into()),
                 text: text.clone(),
                 timestamp: chrono::Utc::now(),
                 suggestions: None,
@@ -781,12 +821,15 @@ pub fn start_transcription(
                     &TranscriptPayload {
                         text: "...".into(),
                         speaker: "you".into(),
+                        participant_id: "you".into(),
+                        participant_label: "You".into(),
                     },
                 )
                 .ok();
         };
         let transcriber = StreamingTranscriber::new(model_str, language, Box::new(on_you))
-            .with_volatile(Box::new(on_you_vol));
+            .with_volatile(Box::new(on_you_vol))
+            .with_stop_signal(Arc::clone(&state_clone.stop_requested));
         transcriber.run(mic_stream_leveled).await;
     });
 
@@ -795,20 +838,32 @@ pub fn start_transcription(
 }
 
 #[tauri::command]
-pub fn stop_transcription(
+pub async fn stop_transcription(
     app: AppHandle,
     state: tauri::State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    if let Some(handle) = state.audio_task.lock().unwrap().take() {
+    state
+        .stop_requested
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+
+    let audio_handle = state.audio_task.lock().unwrap().take();
+    let system_audio_handle = state.system_audio_task.lock().unwrap().take();
+    let suggestion_handle = state.suggestion_task.lock().unwrap().take();
+    let poll_handle = state.poll_task.lock().unwrap().take();
+
+    if let Some(handle) = audio_handle {
+        let _ = handle.await;
+    }
+    if let Some(handle) = system_audio_handle {
+        let _ = handle.await;
+    }
+
+    *state.is_running.lock().unwrap() = false;
+
+    if let Some(handle) = suggestion_handle {
         handle.abort();
     }
-    if let Some(handle) = state.system_audio_task.lock().unwrap().take() {
-        handle.abort();
-    }
-    if let Some(handle) = state.suggestion_task.lock().unwrap().take() {
-        handle.abort();
-    }
-    if let Some(handle) = state.poll_task.lock().unwrap().take() {
+    if let Some(handle) = poll_handle {
         handle.abort();
     }
     state.session_store.lock().unwrap().end_session();
@@ -817,7 +872,6 @@ pub fn stop_transcription(
     if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.hide();
     }
-    *state.is_running.lock().unwrap() = false;
     state.mic_level.store(0u32, Ordering::Relaxed);
     state.sys_level.store(0u32, Ordering::Relaxed);
     Ok(())

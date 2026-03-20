@@ -1,5 +1,9 @@
 use crate::transcription::vad::Vad;
 use futures::Stream;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::sync::mpsc;
 use std::thread;
 
@@ -12,6 +16,7 @@ pub struct StreamingTranscriber {
     model_path: Option<String>,
     language: String,
     on_volatile: Option<OnVolatile>,
+    stop_signal: Option<Arc<AtomicBool>>,
 }
 
 impl StreamingTranscriber {
@@ -21,6 +26,7 @@ impl StreamingTranscriber {
             model_path: Some(model_path),
             language,
             on_volatile: None,
+            stop_signal: None,
         }
     }
 
@@ -31,12 +37,18 @@ impl StreamingTranscriber {
             model_path: None,
             language: "en".into(),
             on_volatile: None,
+            stop_signal: None,
         }
     }
 
     /// Builder: attach a volatile (in-progress) speech callback.
     pub fn with_volatile(mut self, on_volatile: OnVolatile) -> Self {
         self.on_volatile = Some(on_volatile);
+        self
+    }
+
+    pub fn with_stop_signal(mut self, stop_signal: Arc<AtomicBool>) -> Self {
+        self.stop_signal = Some(stop_signal);
         self
     }
 
@@ -51,6 +63,7 @@ impl StreamingTranscriber {
         let on_volatile = self.on_volatile;
         let language = self.language.clone();
         let model_path = self.model_path.clone();
+        let stop_signal = self.stop_signal.clone();
 
         let transcribe_thread = thread::spawn(move || {
             if let Some(path) = model_path {
@@ -93,10 +106,22 @@ impl StreamingTranscriber {
         let mut speaking_samples_since_volatile: usize = 0;
 
         let mut stream = Box::pin(stream);
-        while let Some(samples) = stream.next().await {
+        'outer: while let Some(samples) = stream.next().await {
+            if stop_signal
+                .as_ref()
+                .is_some_and(|signal| signal.load(Ordering::Relaxed))
+            {
+                break;
+            }
             vad_buf.extend_from_slice(&samples);
 
             while vad_buf.len() >= Vad::CHUNK_SIZE {
+                if stop_signal
+                    .as_ref()
+                    .is_some_and(|signal| signal.load(Ordering::Relaxed))
+                {
+                    break 'outer;
+                }
                 let chunk: Vec<f32> = vad_buf.drain(..Vad::CHUNK_SIZE).collect();
                 let active = vad.process_chunk(&chunk);
 

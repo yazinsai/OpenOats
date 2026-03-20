@@ -9,9 +9,9 @@ pub struct Vad {
 
 impl Vad {
     pub const CHUNK_SIZE: usize = 1_600;
-    pub const SILENCE_END_CHUNKS: usize = 5;
-    pub const MIN_SPEECH_SAMPLES: usize = 8_000;
-    pub const FLUSH_SAMPLES: usize = 48_000;
+    pub const SILENCE_END_CHUNKS: usize = 3;
+    pub const MIN_SPEECH_SAMPLES: usize = 4_800;
+    pub const FLUSH_SAMPLES: usize = 24_000;
 
     pub fn new() -> Self {
         Self {

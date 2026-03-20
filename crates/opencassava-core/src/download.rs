@@ -8,7 +8,10 @@ pub fn model_filename(whisper_model: &str) -> &'static str {
         "base-en" => "ggml-base.en.bin",
         "small" => "ggml-small.bin",
         "small-en" => "ggml-small.en.bin",
-        _ => "ggml-base.en.bin",
+        "medium" => "ggml-medium.bin",
+        "medium-en" => "ggml-medium.en.bin",
+        "large-v3-turbo" => "ggml-large-v3-turbo.bin",
+        _ => "ggml-small.bin",
     }
 }
 
@@ -20,7 +23,10 @@ fn model_url(whisper_model: &str) -> &'static str {
         "base-en" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
         "small" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
         "small-en" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
-        _ => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
+        "medium" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
+        "medium-en" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
+        "large-v3-turbo" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+        _ => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
     }
 }
 
@@ -29,7 +35,7 @@ pub fn model_exists(path: &Path) -> bool {
 }
 
 /// Download a Whisper model to `dest`, emitting progress via `on_progress(pct: u32)`.
-/// `model` is a whisper.cpp model id like `tiny`, `tiny-en`, `base`, `base-en`, `small`, or `small-en`.
+/// `model` is a whisper.cpp model id like `small`, `medium`, or `large-v3-turbo`.
 /// Uses `.tmp` then atomic rename.
 pub async fn download_model<F>(model: &str, dest: PathBuf, on_progress: F) -> Result<(), String>
 where
@@ -116,7 +122,7 @@ mod tests {
 
     #[test]
     fn model_filename_unknown_defaults_to_en() {
-        assert_eq!(model_filename("garbage"), "ggml-base.en.bin");
+        assert_eq!(model_filename("garbage"), "ggml-small.bin");
     }
 
     #[test]

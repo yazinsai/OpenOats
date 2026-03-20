@@ -1,4 +1,4 @@
-use crate::models::{MeetingTemplate, SessionRecord, Speaker};
+use crate::models::{MeetingTemplate, SessionRecord};
 
 const MAX_TRANSCRIPT_CHARS: usize = 60_000;
 
@@ -7,12 +7,8 @@ pub fn format_transcript(records: &[SessionRecord]) -> String {
     records
         .iter()
         .map(|r| {
-            let label = match r.speaker {
-                Speaker::You => "You",
-                Speaker::Them => "Them",
-            };
             let ts = r.timestamp.format("%H:%M:%S");
-            format!("[{ts}] {label}: {}", r.text)
+            format!("[{ts}] {}: {}", r.display_label(), r.text)
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -69,6 +65,8 @@ mod tests {
     fn make_record(speaker: Speaker, text: &str) -> SessionRecord {
         SessionRecord {
             speaker,
+            participant_id: None,
+            participant_label: None,
             text: text.into(),
             timestamp: Utc::now(),
             suggestions: None,
@@ -88,6 +86,14 @@ mod tests {
         let text = format_transcript(&records);
         assert!(text.contains("You: hello"));
         assert!(text.contains("Them: hi there"));
+    }
+
+    #[test]
+    fn format_transcript_prefers_participant_label() {
+        let mut record = make_record(Speaker::Them, "hi there");
+        record.participant_label = Some("Speaker A".into());
+        let text = format_transcript(&[record]);
+        assert!(text.contains("Speaker A: hi there"));
     }
 
     #[test]

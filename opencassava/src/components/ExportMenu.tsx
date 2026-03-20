@@ -21,7 +21,7 @@ export function ExportMenu({ utterances, onClose }: Props) {
         return utterances
           .map(
             (u) =>
-              `**${u.speaker === "you" ? "You" : "Them"}** (${new Date(
+              `**${u.participantLabel || (u.speaker === "you" ? "You" : "Them")}** (${new Date(
                 u.timestamp
               ).toLocaleTimeString()})\n${u.text}\n`
           )
@@ -30,7 +30,7 @@ export function ExportMenu({ utterances, onClose }: Props) {
         return utterances
           .map(
             (u) =>
-              `[${u.speaker === "you" ? "You" : "Them"}] ${new Date(
+              `[${u.participantLabel || (u.speaker === "you" ? "You" : "Them")}] ${new Date(
                 u.timestamp
               ).toLocaleTimeString()}: ${u.text}`
           )

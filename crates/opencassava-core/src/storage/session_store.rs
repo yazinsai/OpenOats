@@ -223,6 +223,8 @@ mod tests {
         store.start_session();
         let record = SessionRecord {
             speaker: Speaker::You,
+            participant_id: None,
+            participant_label: None,
             text: "hello".into(),
             timestamp: Utc::now(),
             suggestions: None,

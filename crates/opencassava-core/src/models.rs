@@ -18,6 +18,17 @@ impl Speaker {
             Speaker::Them => "them",
         }
     }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Speaker::You => "You",
+            Speaker::Them => "Them",
+        }
+    }
+
+    pub fn default_participant_id(&self) -> &'static str {
+        self.label()
+    }
 }
 
 // ── Utterance ─────────────────────────────────────────────────────────────────
@@ -27,6 +38,10 @@ pub struct Utterance {
     pub id: Uuid,
     pub text: String,
     pub speaker: Speaker,
+    #[serde(default)]
+    pub participant_id: Option<String>,
+    #[serde(default)]
+    pub participant_label: Option<String>,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -36,8 +51,22 @@ impl Utterance {
             id: Uuid::new_v4(),
             text,
             speaker,
+            participant_id: None,
+            participant_label: None,
             timestamp: Utc::now(),
         }
+    }
+
+    pub fn display_label(&self) -> &str {
+        self.participant_label
+            .as_deref()
+            .unwrap_or_else(|| self.speaker.display_name())
+    }
+
+    pub fn stable_participant_id(&self) -> &str {
+        self.participant_id
+            .as_deref()
+            .unwrap_or_else(|| self.speaker.default_participant_id())
     }
 }
 
@@ -144,6 +173,10 @@ impl Suggestion {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionRecord {
     pub speaker: Speaker,
+    #[serde(default)]
+    pub participant_id: Option<String>,
+    #[serde(default)]
+    pub participant_label: Option<String>,
     pub text: String,
     pub timestamp: DateTime<Utc>,
     pub suggestions: Option<Vec<String>>,
@@ -151,6 +184,20 @@ pub struct SessionRecord {
     pub suggestion_decision: Option<SuggestionDecision>,
     pub surfaced_suggestion_text: Option<String>,
     pub conversation_state_summary: Option<String>,
+}
+
+impl SessionRecord {
+    pub fn display_label(&self) -> &str {
+        self.participant_label
+            .as_deref()
+            .unwrap_or_else(|| self.speaker.display_name())
+    }
+
+    pub fn stable_participant_id(&self) -> &str {
+        self.participant_id
+            .as_deref()
+            .unwrap_or_else(|| self.speaker.default_participant_id())
+    }
 }
 
 // ── MeetingTemplate ───────────────────────────────────────────────────────────
@@ -287,12 +334,15 @@ mod tests {
         let back: Utterance = serde_json::from_str(&json).unwrap();
         assert_eq!(back.text, "hello world");
         assert_eq!(back.speaker, Speaker::You);
+        assert_eq!(back.display_label(), "You");
     }
 
     #[test]
     fn session_record_roundtrips_json() {
         let r = SessionRecord {
             speaker: Speaker::Them,
+            participant_id: Some("remote_1".into()),
+            participant_label: Some("Speaker A".into()),
             text: "test".into(),
             timestamp: Utc::now(),
             suggestions: None,
@@ -305,6 +355,19 @@ mod tests {
         let back: SessionRecord = serde_json::from_str(&json).unwrap();
         assert_eq!(back.text, "test");
         assert_eq!(back.speaker, Speaker::Them);
+        assert_eq!(back.stable_participant_id(), "remote_1");
+        assert_eq!(back.display_label(), "Speaker A");
+    }
+
+    #[test]
+    fn legacy_session_record_defaults_to_binary_labels() {
+        let json = format!(
+            r#"{{"speaker":"them","text":"test","timestamp":"{}","suggestions":null,"kb_hits":null,"suggestion_decision":null,"surfaced_suggestion_text":null,"conversation_state_summary":null}}"#,
+            Utc::now().to_rfc3339()
+        );
+        let back: SessionRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.display_label(), "Them");
+        assert_eq!(back.stable_participant_id(), "them");
     }
 
     #[test]
