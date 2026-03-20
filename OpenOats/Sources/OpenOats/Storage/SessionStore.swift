@@ -128,28 +128,34 @@ actor SessionStore {
         }
     }
 
-    /// Rewrite the current JSONL file, backfilling `refinedText` from the in-memory TranscriptStore.
-    ///
-    /// The 5-second delayed write often captures `refinedText` as nil because the LLM refinement
-    /// call hasn't finished yet. This method is called after both the refinement engine and pending
-    /// writes have drained, so the TranscriptStore now has the final refined text for all utterances.
+    /// Backfill refined text into the current session's JSONL from the in-memory TranscriptStore.
     func backfillRefinedText(from utterances: [Utterance]) {
         guard let currentFile else { return }
 
-        // Close the file handle so we can read/rewrite the file safely
         try? fileHandle?.close()
         fileHandle = nil
 
-        guard let content = try? String(contentsOf: currentFile, encoding: .utf8) else { return }
+        let updated = rewriteJSONLWithRefinedText(file: currentFile, utterances: utterances)
+        _ = updated
+
+        fileHandle = try? FileHandle(forWritingTo: currentFile)
+    }
+
+    /// Backfill refined text into a past session's JSONL.
+    func backfillRefinedText(sessionID: String, from utterances: [Utterance]) {
+        rewriteJSONLWithRefinedText(file: jsonlURL(for: sessionID), utterances: utterances)
+    }
+
+    @discardableResult
+    private func rewriteJSONLWithRefinedText(file: URL, utterances: [Utterance]) -> Bool {
+        guard let content = try? String(contentsOf: file, encoding: .utf8) else { return false }
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
         let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
-        guard !lines.isEmpty else { return }
+        guard !lines.isEmpty else { return false }
 
-        // Build a lookup from (timestamp, speaker) -> refinedText
-        // Uses ISO8601 string representation of the date for reliable matching
         let iso8601Formatter = ISO8601DateFormatter()
         iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         var refinedLookup: [String: String] = [:]
@@ -159,11 +165,7 @@ actor SessionStore {
             refinedLookup[key] = refined
         }
 
-        guard !refinedLookup.isEmpty else {
-            // No refined text to backfill; reopen file handle and return
-            fileHandle = try? FileHandle(forWritingTo: currentFile)
-            return
-        }
+        guard !refinedLookup.isEmpty else { return false }
 
         var updatedLines: [String] = []
         var anyUpdated = false
@@ -175,7 +177,6 @@ actor SessionStore {
                 continue
             }
 
-            // Only backfill if the record doesn't already have refinedText
             if record.refinedText == nil {
                 let key = "\(iso8601Formatter.string(from: record.timestamp))|\(record.speaker.rawValue)"
                 if let refined = refinedLookup[key] {
@@ -204,11 +205,10 @@ actor SessionStore {
 
         if anyUpdated {
             let newContent = updatedLines.joined(separator: "\n") + "\n"
-            try? newContent.write(to: currentFile, atomically: true, encoding: .utf8)
+            try? newContent.write(to: file, atomically: true, encoding: .utf8)
         }
 
-        // Reopen file handle for any subsequent writes before endSession()
-        fileHandle = try? FileHandle(forWritingTo: currentFile)
+        return anyUpdated
     }
 
     func endSession() {

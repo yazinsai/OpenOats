@@ -19,3 +19,7 @@ REPO_POLICY.md
 # Local crash and package artifacts
 *.ips
 *.dmg
+
+# Local marketing video project
+video/
+docs/superpowers/

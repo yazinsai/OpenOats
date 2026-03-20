@@ -42,22 +42,15 @@ actor TranscriptRefinementEngine {
     }
 
     /// Await all pending and in-flight refinements, with a timeout.
-    func drain(timeout: Duration = .seconds(5)) async {
-        guard inFlightCount > 0 || !pendingQueue.isEmpty else { return }
-
-        let tasks = activeTasks.values.map { $0 }
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask {
-                for task in tasks {
-                    await task.value
-                }
+    func drain(timeout: Duration = .seconds(300)) async {
+        let deadline = ContinuousClock.now + timeout
+        while (inFlightCount > 0 || !pendingQueue.isEmpty) && ContinuousClock.now < deadline {
+            guard let anyTask = activeTasks.values.first else {
+                drainQueue()
+                try? await Task.sleep(for: .milliseconds(50))
+                continue
             }
-            group.addTask {
-                try? await Task.sleep(for: timeout)
-            }
-            // Return as soon as either completes
-            await group.next()
-            group.cancelAll()
+            await anyTask.value
         }
     }
 
