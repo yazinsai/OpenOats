@@ -67,11 +67,9 @@ final class AppCoordinator {
         set { withMutation(keyPath: \.requestedSessionSelectionID) { _requestedSessionSelectionID = newValue } }
     }
 
-    /// Reflects whether a transcription session is currently active (set by ContentView).
-    @ObservationIgnored nonisolated(unsafe) private var _isRecording = false
     var isRecording: Bool {
-        get { access(keyPath: \.isRecording); return _isRecording }
-        set { withMutation(keyPath: \.isRecording) { _isRecording = newValue } }
+        if case .recording = state { return true }
+        return false
     }
 
     @ObservationIgnored nonisolated(unsafe) private var _sessionHistory: [SessionIndex] = []

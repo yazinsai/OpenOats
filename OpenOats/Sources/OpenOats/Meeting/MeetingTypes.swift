@@ -67,4 +67,16 @@ struct MeetingMetadata: Sendable, Equatable, Codable {
     let title: String?
     let startedAt: Date
     var endedAt: Date?
+
+    static func manual() -> MeetingMetadata {
+        let now = Date()
+        return MeetingMetadata(
+            detectionContext: DetectionContext(
+                signal: .manual, detectedAt: now,
+                meetingApp: nil, calendarEvent: nil
+            ),
+            calendarEvent: nil, title: nil,
+            startedAt: now, endedAt: nil
+        )
+    }
 }

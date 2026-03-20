@@ -328,19 +328,7 @@ struct ContentView: View {
         }
 
         suggestionEngine?.clear()
-        let metadata = MeetingMetadata(
-            detectionContext: DetectionContext(
-                signal: .manual,
-                detectedAt: Date(),
-                meetingApp: nil,
-                calendarEvent: nil
-            ),
-            calendarEvent: nil,
-            title: nil,
-            startedAt: Date(),
-            endedAt: nil
-        )
-        coordinator.handle(.userStarted(metadata), settings: settings)
+        coordinator.handle(.userStarted(.manual()), settings: settings)
     }
 
     private func stopSession() {
@@ -548,7 +536,6 @@ struct ContentView: View {
 
         if currentViewState.isRunning != observedIsRunning {
             observedIsRunning = currentViewState.isRunning
-            coordinator.isRecording = currentViewState.isRunning
         }
 
         let pendingExternalCommandID = coordinator.pendingExternalCommand?.id
