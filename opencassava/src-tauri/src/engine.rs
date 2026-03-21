@@ -840,6 +840,12 @@ pub fn start_transcription(
                     .ok();
 
                 let settings = suggestion_state.settings.lock().unwrap().clone();
+                {
+                    let mut engine = suggestion_state.suggestion_engine.lock().await;
+                    engine.kb_surfacing_system_prompt = settings.kb_surfacing_system_prompt.clone();
+                    engine.suggestion_synthesis_system_prompt = settings.suggestion_synthesis_system_prompt.clone();
+                    engine.smart_question_system_prompt = settings.smart_question_system_prompt.clone();
+                }
                 let (embed_url, embed_key, embed_model) = embed_config(&settings);
                 let (llm_url, llm_key) = llm_base_url_and_key(&settings);
                 let llm_model = if settings.llm_provider == "ollama" {

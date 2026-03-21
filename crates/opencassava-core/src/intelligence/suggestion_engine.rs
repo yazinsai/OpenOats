@@ -16,6 +16,9 @@ pub struct SuggestionEngine {
     surfaced_smart_questions: HashSet<String>,
     last_suggestion_time: Option<Instant>,
     utterance_count: usize,
+    pub kb_surfacing_system_prompt: String,
+    pub suggestion_synthesis_system_prompt: String,
+    pub smart_question_system_prompt: String,
 }
 
 impl SuggestionEngine {
@@ -26,6 +29,9 @@ impl SuggestionEngine {
             surfaced_smart_questions: HashSet::new(),
             last_suggestion_time: None,
             utterance_count: 0,
+            kb_surfacing_system_prompt: "You decide if an AI suggestion should be shown. Return only valid JSON.".into(),
+            suggestion_synthesis_system_prompt: "You write brief, helpful suggestions for meeting participants.".into(),
+            smart_question_system_prompt: "You decide when a smart clarifying question should be suggested. Return only valid JSON.".into(),
         }
     }
 
@@ -245,9 +251,7 @@ impl SuggestionEngine {
         );
 
         let messages = vec![
-            Message::system(
-                "You decide if an AI suggestion should be shown. Return only valid JSON.",
-            ),
+            Message::system(&self.kb_surfacing_system_prompt),
             Message::user(prompt),
         ];
 
@@ -293,7 +297,7 @@ impl SuggestionEngine {
         );
 
         let messages = vec![
-            Message::system("You write brief, helpful suggestions for meeting participants."),
+            Message::system(&self.suggestion_synthesis_system_prompt),
             Message::user(prompt),
         ];
 
@@ -349,7 +353,7 @@ impl SuggestionEngine {
         );
 
         let messages = vec![
-            Message::system("You decide when a smart clarifying question should be suggested. Return only valid JSON."),
+            Message::system(&self.smart_question_system_prompt),
             Message::user(prompt),
         ];
 

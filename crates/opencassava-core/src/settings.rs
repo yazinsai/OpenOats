@@ -87,6 +87,15 @@ pub struct AppSettings {
 
     #[serde(default, alias = "has_completed_onboarding")]
     pub has_completed_onboarding: bool,
+
+    #[serde(default = "default_kb_surfacing_system_prompt")]
+    pub kb_surfacing_system_prompt: String,
+
+    #[serde(default = "default_suggestion_synthesis_system_prompt")]
+    pub suggestion_synthesis_system_prompt: String,
+
+    #[serde(default = "default_smart_question_system_prompt")]
+    pub smart_question_system_prompt: String,
 }
 
 impl AppSettings {
@@ -154,6 +163,9 @@ impl Default for AppSettings {
             has_acknowledged_recording_consent: false,
             hide_from_screen_share: true,
             has_completed_onboarding: false,
+            kb_surfacing_system_prompt: default_kb_surfacing_system_prompt(),
+            suggestion_synthesis_system_prompt: default_suggestion_synthesis_system_prompt(),
+            smart_question_system_prompt: default_smart_question_system_prompt(),
         }
     }
 }
@@ -211,6 +223,15 @@ fn default_suggestion_interval_seconds() -> u64 {
 }
 fn default_true() -> bool {
     true
+}
+fn default_kb_surfacing_system_prompt() -> String {
+    "You decide if an AI suggestion should be shown. Return only valid JSON.".into()
+}
+fn default_suggestion_synthesis_system_prompt() -> String {
+    "You write brief, helpful suggestions for meeting participants.".into()
+}
+fn default_smart_question_system_prompt() -> String {
+    "You decide when a smart clarifying question should be suggested. Return only valid JSON.".into()
 }
 fn default_notes_folder() -> String {
     dirs::document_dir()

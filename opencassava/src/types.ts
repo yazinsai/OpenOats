@@ -47,6 +47,9 @@ export interface AppSettings {
   hasAcknowledgedRecordingConsent: boolean;
   hideFromScreenShare: boolean;
   hasCompletedOnboarding: boolean;
+  kbSurfacingSystemPrompt: string;
+  suggestionSynthesisSystemPrompt: string;
+  smartQuestionSystemPrompt: string;
 }
 
 export interface ApiKeys {
