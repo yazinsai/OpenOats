@@ -641,6 +641,7 @@ function App() {
             sessionId={currentSessionId}
             initialNotes={currentSessionNotes}
             onNotesChange={setCurrentSessionNotes}
+            isRunning={isRunning}
           />
         )}
       </div>
