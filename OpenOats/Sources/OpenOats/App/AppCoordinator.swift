@@ -90,10 +90,17 @@ final class AppCoordinator {
         set { withMutation(keyPath: \.lastStorageError) { _lastStorageError = newValue } }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _batchStatus: BatchTranscriptionEngine.Status = .idle
+    var batchStatus: BatchTranscriptionEngine.Status {
+        get { access(keyPath: \.batchStatus); return _batchStatus }
+        set { withMutation(keyPath: \.batchStatus) { _batchStatus = newValue } }
+    }
+
     var transcriptLogger: TranscriptLogger?
     var transcriptionEngine: TranscriptionEngine?
     var refinementEngine: TranscriptRefinementEngine?
     var audioRecorder: AudioRecorder?
+    var batchEngine: BatchTranscriptionEngine?
 
     /// The template snapshot frozen at session start (not stop).
     private var sessionTemplateSnapshot: TemplateSnapshot?
@@ -197,6 +204,11 @@ final class AppCoordinator {
     // MARK: - Transcription Lifecycle
 
     private func startTranscription(metadata: MeetingMetadata, settings: AppSettings?) async {
+        // Live session preempts any running batch transcription
+        if let batchEngine {
+            Task { await batchEngine.cancel() }
+        }
+
         lastEndedSession = nil
         lastStorageError = nil
         transcriptStore.clear()
@@ -222,7 +234,7 @@ final class AppCoordinator {
         await transcriptLogger?.startSession()
 
         if let settings {
-            if settings.saveAudioRecording {
+            if settings.saveAudioRecording || settings.enableBatchRefinement {
                 audioRecorder?.startSession()
                 transcriptionEngine?.audioRecorder = audioRecorder
             } else {
@@ -313,8 +325,69 @@ final class AppCoordinator {
         await transcriptLogger?.endSession()
 
         // 6b. Merge and encode audio recording (after all audio drained)
-        if let settings, settings.saveAudioRecording {
-            await audioRecorder?.finalizeRecording()
+        // If batch refinement is enabled, stash CAFs for offline transcription.
+        if let settings, let recorder = audioRecorder {
+            let wantsBatch = settings.enableBatchRefinement
+            let wantsExport = settings.saveAudioRecording
+
+            if wantsBatch && wantsExport {
+                // Both: copy temp CAFs for batch, then let finalizeRecording merge + clean originals
+                let tempURLs = recorder.tempFileURLs()
+                let anchorsData = recorder.timingAnchors()
+                let fm = FileManager.default
+
+                let copiedMic: URL?
+                if let micSrc = tempURLs.mic, fm.fileExists(atPath: micSrc.path) {
+                    let dst = URL(fileURLWithPath: NSTemporaryDirectory())
+                        .appendingPathComponent("batch_mic_\(sessionID).caf")
+                    try? fm.copyItem(at: micSrc, to: dst)
+                    copiedMic = dst
+                } else {
+                    copiedMic = nil
+                }
+
+                let copiedSys: URL?
+                if let sysSrc = tempURLs.sys, fm.fileExists(atPath: sysSrc.path) {
+                    let dst = URL(fileURLWithPath: NSTemporaryDirectory())
+                        .appendingPathComponent("batch_sys_\(sessionID).caf")
+                    try? fm.copyItem(at: sysSrc, to: dst)
+                    copiedSys = dst
+                } else {
+                    copiedSys = nil
+                }
+
+                await sessionStore.stashAudioForBatch(
+                    sessionID: sessionID,
+                    micURL: copiedMic,
+                    sysURL: copiedSys,
+                    anchors: BatchAnchors(
+                        micStartDate: anchorsData.micStartDate,
+                        sysStartDate: anchorsData.sysStartDate,
+                        micAnchors: anchorsData.micAnchors,
+                        sysAnchors: anchorsData.sysAnchors
+                    )
+                )
+
+                // Now finalize: merges originals to M4A and cleans temp files
+                await recorder.finalizeRecording()
+            } else if wantsBatch {
+                // Batch only: seal and stash, skip merge
+                let sealed = recorder.sealForBatch()
+                await sessionStore.stashAudioForBatch(
+                    sessionID: sessionID,
+                    micURL: sealed.mic,
+                    sysURL: sealed.sys,
+                    anchors: BatchAnchors(
+                        micStartDate: sealed.micStartDate,
+                        sysStartDate: sealed.sysStartDate,
+                        micAnchors: sealed.micAnchors,
+                        sysAnchors: sealed.sysAnchors
+                    )
+                )
+                // No finalizeRecording needed — files moved to session subdir
+            } else if wantsExport {
+                await recorder.finalizeRecording()
+            }
         }
 
         // 7. Update UI state + refresh history so Notes window sees the new session
@@ -326,6 +399,24 @@ final class AppCoordinator {
         silenceCheckTask?.cancel()
         silenceCheckTask = nil
         lastUtteranceAt = nil
+
+        // 9. Kick off batch transcription if enabled
+        if let settings, settings.enableBatchRefinement, let batchEngine {
+            let batchSessionID = sessionID
+            let batchModel = settings.batchTranscriptionModel
+            let batchLocale = settings.locale
+            let notesDir = URL(fileURLWithPath: settings.notesFolderPath)
+            let store = sessionStore
+            Task.detached { [batchEngine] in
+                await batchEngine.process(
+                    sessionID: batchSessionID,
+                    model: batchModel,
+                    locale: batchLocale,
+                    sessionStore: store,
+                    notesDirectory: notesDir
+                )
+            }
+        }
     }
 
     // MARK: - History

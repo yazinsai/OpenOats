@@ -32,6 +32,9 @@ actor SessionStore {
         Self.dropMetadataNeverIndex(in: sessionsDirectory)
 
         encoder.dateEncodingStrategy = .iso8601
+
+        // Clean up orphaned batch audio older than 24 hours
+        Self.cleanupOrphanedBatchAudio(in: sessionsDirectory)
     }
 
     /// Place a .metadata_never_index sentinel so Spotlight skips this directory.
@@ -223,6 +226,150 @@ actor SessionStore {
         return anyUpdated
     }
 
+    // MARK: - Batch Audio Persistence
+
+    /// Directory for a session's batch audio and metadata.
+    private func sessionSubdirectory(for sessionID: String) -> URL {
+        sessionsDirectory.appendingPathComponent(sessionID, isDirectory: true)
+    }
+
+    /// Move/copy sealed CAF files into a per-session subdirectory and write timing anchors.
+    func stashAudioForBatch(
+        sessionID: String,
+        micURL: URL?,
+        sysURL: URL?,
+        anchors: BatchAnchors
+    ) {
+        let fm = FileManager.default
+        let dir = sessionSubdirectory(for: sessionID)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        if let src = micURL, fm.fileExists(atPath: src.path) {
+            let dst = dir.appendingPathComponent("mic.caf")
+            try? fm.moveItem(at: src, to: dst)
+        }
+        if let src = sysURL, fm.fileExists(atPath: src.path) {
+            let dst = dir.appendingPathComponent("sys.caf")
+            try? fm.moveItem(at: src, to: dst)
+        }
+
+        // Write batch-meta.json with timing anchors
+        let meta = BatchMeta(
+            micStartDate: anchors.micStartDate,
+            sysStartDate: anchors.sysStartDate,
+            micAnchors: anchors.micAnchors.map { .init(frame: $0.frame, date: $0.date) },
+            sysAnchors: anchors.sysAnchors.map { .init(frame: $0.frame, date: $0.date) }
+        )
+        if let data = try? JSONEncoder.iso8601Encoder.encode(meta) {
+            try? data.write(to: dir.appendingPathComponent("batch-meta.json"), options: .atomic)
+        }
+    }
+
+    /// Returns URLs for batch audio files, if they exist.
+    func batchAudioURLs(sessionID: String) -> (mic: URL?, sys: URL?) {
+        let fm = FileManager.default
+        let dir = sessionSubdirectory(for: sessionID)
+        let micURL = dir.appendingPathComponent("mic.caf")
+        let sysURL = dir.appendingPathComponent("sys.caf")
+        return (
+            mic: fm.fileExists(atPath: micURL.path) ? micURL : nil,
+            sys: fm.fileExists(atPath: sysURL.path) ? sysURL : nil
+        )
+    }
+
+    /// Remove the session subdirectory (batch audio + metadata).
+    func cleanupBatchAudio(sessionID: String) {
+        let dir = sessionSubdirectory(for: sessionID)
+        // Keep batch.jsonl if present by only removing audio files
+        let fm = FileManager.default
+        try? fm.removeItem(at: dir.appendingPathComponent("mic.caf"))
+        try? fm.removeItem(at: dir.appendingPathComponent("sys.caf"))
+        try? fm.removeItem(at: dir.appendingPathComponent("batch-meta.json"))
+
+        // If only batch.jsonl remains or directory is empty, leave it
+    }
+
+    /// Load batch metadata for a session.
+    func loadBatchMeta(sessionID: String) -> BatchMeta? {
+        let metaURL = sessionSubdirectory(for: sessionID).appendingPathComponent("batch-meta.json")
+        guard let data = try? Data(contentsOf: metaURL) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(BatchMeta.self, from: data)
+    }
+
+    /// Whether a batch transcript already exists for this session.
+    func hasBatchTranscript(sessionID: String) -> Bool {
+        let url = sessionSubdirectory(for: sessionID).appendingPathComponent("batch.jsonl")
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    /// Atomic write of batch transcript records.
+    func writeBatchTranscript(sessionID: String, records: [SessionRecord]) {
+        let dir = sessionSubdirectory(for: sessionID)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        var payload = Data()
+        for record in records {
+            if let data = try? encoder.encode(record) {
+                payload.append(data)
+                payload.append(Data("\n".utf8))
+            }
+        }
+
+        let finalURL = dir.appendingPathComponent("batch.jsonl")
+        let tempURL = dir.appendingPathComponent("batch.jsonl.tmp")
+
+        do {
+            try payload.write(to: tempURL, options: .atomic)
+            let fm = FileManager.default
+            if fm.fileExists(atPath: finalURL.path) {
+                try fm.removeItem(at: finalURL)
+            }
+            try fm.moveItem(at: tempURL, to: finalURL)
+        } catch {
+            diagLog("[SESSION-STORE] Failed to write batch transcript: \(error)")
+        }
+    }
+
+    /// Remove orphaned batch audio files older than 24 hours.
+    private static func cleanupOrphanedBatchAudio(in sessionsDirectory: URL) {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: sessionsDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey]
+        ) else { return }
+
+        let cutoff = Date().addingTimeInterval(-24 * 3600)
+
+        for item in contents {
+            guard let values = try? item.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey]),
+                  values.isDirectory == true else { continue }
+
+            // Only look at session subdirectories (not .recently-deleted etc.)
+            let name = item.lastPathComponent
+            guard name.hasPrefix("session_") else { continue }
+
+            let micURL = item.appendingPathComponent("mic.caf")
+            let sysURL = item.appendingPathComponent("sys.caf")
+
+            let hasMic = fm.fileExists(atPath: micURL.path)
+            let hasSys = fm.fileExists(atPath: sysURL.path)
+
+            guard hasMic || hasSys else { continue }
+
+            if let modDate = values.contentModificationDate, modDate < cutoff {
+                try? fm.removeItem(at: micURL)
+                try? fm.removeItem(at: sysURL)
+                try? fm.removeItem(at: item.appendingPathComponent("batch-meta.json"))
+                diagLog("[SESSION-STORE] Cleaned up orphaned batch audio in \(name)")
+            }
+        }
+    }
+
     func endSession() {
         try? fileHandle?.close()
         fileHandle = nil
@@ -317,9 +464,27 @@ actor SessionStore {
     }
 
     func loadTranscript(sessionID: String) -> [SessionRecord] {
+        // Prefer batch transcript when available
+        let batchURL = sessionSubdirectory(for: sessionID)
+            .appendingPathComponent("batch.jsonl")
+        if FileManager.default.fileExists(atPath: batchURL.path),
+           let content = try? String(contentsOf: batchURL, encoding: .utf8) {
+            let records = parseJSONL(content)
+            if !records.isEmpty { return records }
+        }
+
+        // Fallback to live JSONL
+        return loadLiveTranscript(sessionID: sessionID)
+    }
+
+    /// Load the original live transcript (ignoring batch).
+    func loadLiveTranscript(sessionID: String) -> [SessionRecord] {
         let url = jsonlURL(for: sessionID)
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        return parseJSONL(content)
+    }
 
+    private func parseJSONL(_ content: String) -> [SessionRecord] {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
@@ -398,6 +563,11 @@ actor SessionStore {
         let fm = FileManager.default
         try? fm.removeItem(at: jsonlURL(for: sessionID))
         try? fm.removeItem(at: sidecarURL(for: sessionID))
+        // Remove batch audio subdirectory if present
+        let subdir = sessionSubdirectory(for: sessionID)
+        if fm.fileExists(atPath: subdir.path) {
+            try? fm.removeItem(at: subdir)
+        }
     }
 
     func renameSession(sessionID: String, newTitle: String) {
@@ -501,4 +671,35 @@ actor SessionStore {
             try? fm.removeItem(at: file)
         }
     }
+}
+
+// MARK: - Batch Transcription Support Types
+
+/// Timing anchor data passed from AudioRecorder to SessionStore.
+struct BatchAnchors: Sendable {
+    let micStartDate: Date?
+    let sysStartDate: Date?
+    let micAnchors: [(frame: Int64, date: Date)]
+    let sysAnchors: [(frame: Int64, date: Date)]
+}
+
+/// Codable batch metadata persisted as batch-meta.json.
+struct BatchMeta: Codable, Sendable {
+    let micStartDate: Date?
+    let sysStartDate: Date?
+    let micAnchors: [TimingAnchor]
+    let sysAnchors: [TimingAnchor]
+
+    struct TimingAnchor: Codable, Sendable {
+        let frame: Int64
+        let date: Date
+    }
+}
+
+extension JSONEncoder {
+    static let iso8601Encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }()
 }

@@ -28,6 +28,7 @@ struct ContentView: View {
         var voyageApiKey = ""
         var transcriptionModel: TranscriptionModel = .parakeetV2
         var inputDeviceID: AudioDeviceID = 0
+        var batchStatus: BatchTranscriptionEngine.Status = .idle
     }
 
     @Bindable var settings: AppSettings
@@ -52,6 +53,7 @@ struct ContentView: View {
     @State private var observedVoyageApiKey = ""
     @State private var observedTranscriptionModel: TranscriptionModel = .parakeetV2
     @State private var observedInputDeviceID: AudioDeviceID = 0
+    @State private var previousBatchStatus: BatchTranscriptionEngine.Status = .idle
 
     var body: some View {
         bodyWithModifiers
@@ -136,6 +138,51 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+                .background(.ultraThinMaterial)
+
+                Divider()
+            }
+
+            // Batch transcription progress banner
+            if case .transcribing(let progress) = viewState.batchStatus {
+                HStack(spacing: 8) {
+                    ProgressView(value: progress, total: 1.0)
+                        .progressViewStyle(.linear)
+                        .frame(maxWidth: .infinity)
+                    Text("Enhancing transcript... \(Int(progress * 100))%")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial)
+
+                Divider()
+            } else if case .loading = viewState.batchStatus {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading batch model...")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial)
+
+                Divider()
+            } else if case .completed = viewState.batchStatus {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.system(size: 12))
+                    Text("Transcript enhanced")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
                 .background(.ultraThinMaterial)
 
                 Divider()
@@ -312,6 +359,31 @@ struct ContentView: View {
 
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(100))
+
+                // Poll batch engine status (actor-isolated)
+                if let engine = coordinator.batchEngine {
+                    let status = await engine.status
+                    let prev = coordinator.batchStatus
+                    coordinator.batchStatus = status
+
+                    // Send notification on completion if app is not focused
+                    if case .completed(let sid) = status, prev != status {
+                        if !NSApp.isActive, let notifService = coordinator.notificationService {
+                            await notifService.postBatchCompleted(sessionID: sid)
+                        }
+                        // Refresh history so the updated transcript is visible
+                        await coordinator.loadHistory()
+
+                        // Auto-dismiss after 3 seconds
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(3))
+                            if case .completed = coordinator.batchStatus {
+                                coordinator.batchStatus = .idle
+                            }
+                        }
+                    }
+                }
+
                 refreshViewState()
                 synchronizeDerivedState()
             }
@@ -486,6 +558,7 @@ struct ContentView: View {
         nextViewState.voyageApiKey = settings.voyageApiKey
         nextViewState.transcriptionModel = settings.transcriptionModel
         nextViewState.inputDeviceID = settings.inputDeviceID
+        nextViewState.batchStatus = coordinator.batchStatus
 
         viewState = nextViewState
     }

@@ -13,6 +13,14 @@ final class AudioRecorder: @unchecked Sendable {
     private var micWriteCount = 0
     private var sysWriteCount = 0
 
+    /// Wall-clock timestamp of the first buffer write for each stream.
+    private var micStartDate: Date?
+    private var sysStartDate: Date?
+
+    /// Timing anchors mapping frame positions to wall-clock dates.
+    private(set) var micAnchors: [(frame: Int64, date: Date)] = []
+    private(set) var sysAnchors: [(frame: Int64, date: Date)] = []
+
     init(outputDirectory: URL) {
         self.outputDirectory = outputDirectory
     }
@@ -27,6 +35,10 @@ final class AudioRecorder: @unchecked Sendable {
             sysFile = nil
             micWriteCount = 0
             sysWriteCount = 0
+            micStartDate = nil
+            sysStartDate = nil
+            micAnchors = []
+            sysAnchors = []
 
             let fmt = DateFormatter()
             fmt.dateFormat = "yyyy-MM-dd_HH-mm"
@@ -51,6 +63,13 @@ final class AudioRecorder: @unchecked Sendable {
                 )!
                 micFile = try? AVAudioFile(forWriting: url, settings: monoFormat.settings)
                 diagLog("[RECORDER] mic file created: \(url.lastPathComponent) mono at \(buffer.format.sampleRate)Hz")
+            }
+
+            // Record timing anchor on first write
+            if micStartDate == nil {
+                let now = Date()
+                micStartDate = now
+                micAnchors.append((frame: micFile?.length ?? 0, date: now))
             }
 
             // Downmix to mono inline — handle float32, int16, and int32 formats
@@ -151,15 +170,67 @@ final class AudioRecorder: @unchecked Sendable {
                     interleaved: buffer.format.isInterleaved
                 )
             }
+
+            // Record timing anchor on first write
+            if sysStartDate == nil {
+                let now = Date()
+                sysStartDate = now
+                sysAnchors.append((frame: sysFile?.length ?? 0, date: now))
+            }
+
             try? sysFile?.write(from: buffer)
         }
     }
 
-    func finalizeRecording() async {
+    /// Read-only access to current temp file URLs (for copying before finalize).
+    func tempFileURLs() -> (mic: URL?, sys: URL?) {
+        lock.withLock { (micTempURL, sysTempURL) }
+    }
+
+    /// Read-only access to timing anchor data.
+    func timingAnchors() -> (
+        micStartDate: Date?, sysStartDate: Date?,
+        micAnchors: [(frame: Int64, date: Date)],
+        sysAnchors: [(frame: Int64, date: Date)]
+    ) {
+        lock.withLock {
+            (micStartDate, sysStartDate, micAnchors, sysAnchors)
+        }
+    }
+
+    /// Close file handles without merging or deleting temp files.
+    /// Returns the temp CAF URLs and timing data for batch transcription.
+    func sealForBatch() -> (
+        mic: URL?, sys: URL?,
+        micStartDate: Date?, sysStartDate: Date?,
+        micAnchors: [(frame: Int64, date: Date)],
+        sysAnchors: [(frame: Int64, date: Date)]
+    ) {
         lock.withLock {
             micFile = nil
             sysFile = nil
+            let result = (
+                mic: micTempURL, sys: sysTempURL,
+                micStartDate: self.micStartDate, sysStartDate: self.sysStartDate,
+                micAnchors: self.micAnchors, sysAnchors: self.sysAnchors
+            )
+            micTempURL = nil
+            sysTempURL = nil
+            return result
         }
+    }
+
+    func finalizeRecording() async {
+        let alreadySealed: Bool = lock.withLock {
+            let sealed = micFile == nil && sysFile == nil && micTempURL == nil && sysTempURL == nil
+            if !sealed {
+                micFile = nil
+                sysFile = nil
+            }
+            return sealed
+        }
+
+        guard !alreadySealed else { return }
 
         await Task.detached(priority: .userInitiated) { [self] in
             self.mergeAndEncode()

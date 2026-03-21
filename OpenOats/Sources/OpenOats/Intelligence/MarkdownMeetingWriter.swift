@@ -561,6 +561,64 @@ enum MarkdownMeetingWriter {
         return sections.joined(separator: "\n\n")
     }
 
+    // MARK: - Patch Transcript Section
+
+    /// Replace only the transcript section of an existing Markdown file,
+    /// preserving frontmatter, title, and any LLM-generated sections.
+    @discardableResult
+    static func patchTranscriptSection(
+        fileURL: URL,
+        records: [SessionRecord]
+    ) -> Bool {
+        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
+            writerLogger.error("Failed to read file for transcript patch: \(fileURL.lastPathComponent, privacy: .public)")
+            return false
+        }
+
+        let lines = content.components(separatedBy: "\n")
+
+        // Find the "## Transcript" line
+        guard let transcriptStart = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces) == "## Transcript"
+        }) else {
+            writerLogger.warning("No ## Transcript section found in \(fileURL.lastPathComponent, privacy: .public)")
+            return false
+        }
+
+        // Find the next ## heading after Transcript (if any)
+        let afterTranscript = transcriptStart + 1
+        let nextHeadingIndex = lines[afterTranscript...].firstIndex(where: {
+            let trimmed = $0.trimmingCharacters(in: .whitespaces)
+            return trimmed.hasPrefix("## ") && trimmed != "## Transcript"
+        })
+
+        // Extract the start date from frontmatter or first record
+        let startedAt = records.first?.timestamp ?? Date()
+
+        // Build new transcript lines
+        let newTranscript = formatTranscriptLines(records: records, startedAt: startedAt)
+
+        // Reconstruct: everything before ## Transcript + new transcript + everything after
+        var result: [String] = Array(lines[..<transcriptStart])
+        result.append("## Transcript")
+        result.append("")
+        result.append(newTranscript)
+
+        if let nextIdx = nextHeadingIndex {
+            result.append(contentsOf: lines[nextIdx...])
+        }
+
+        let finalContent = result.joined(separator: "\n")
+        do {
+            try finalContent.write(to: fileURL, atomically: true, encoding: .utf8)
+            writerLogger.info("Patched transcript in \(fileURL.lastPathComponent, privacy: .public)")
+            return true
+        } catch {
+            writerLogger.error("Failed to patch transcript: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
     // MARK: - Find Markdown File for Session
 
     /// Find the `.md` file for a given session ID in the output directory.

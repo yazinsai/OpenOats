@@ -476,6 +476,30 @@ final class AppSettings {
         }
     }
 
+    /// When true, re-transcribes audio with a higher-quality model after each meeting.
+    @ObservationIgnored nonisolated(unsafe) private var _enableBatchRefinement: Bool
+    var enableBatchRefinement: Bool {
+        get { access(keyPath: \.enableBatchRefinement); return _enableBatchRefinement }
+        set {
+            withMutation(keyPath: \.enableBatchRefinement) {
+                _enableBatchRefinement = newValue
+                defaults.set(newValue, forKey: "enableBatchRefinement")
+            }
+        }
+    }
+
+    /// The transcription model used for batch (offline) refinement.
+    @ObservationIgnored nonisolated(unsafe) private var _batchTranscriptionModel: TranscriptionModel
+    var batchTranscriptionModel: TranscriptionModel {
+        get { access(keyPath: \.batchTranscriptionModel); return _batchTranscriptionModel }
+        set {
+            withMutation(keyPath: \.batchTranscriptionModel) {
+                _batchTranscriptionModel = newValue
+                defaults.set(newValue.rawValue, forKey: "batchTranscriptionModel")
+            }
+        }
+    }
+
     /// When true, all app windows are invisible to screen sharing / recording.
     @ObservationIgnored nonisolated(unsafe) private var _hideFromScreenShare: Bool
     var hideFromScreenShare: Bool {
@@ -605,6 +629,10 @@ final class AppSettings {
         self._hasAcknowledgedRecordingConsent = defaults.bool(forKey: "hasAcknowledgedRecordingConsent")
         self._saveAudioRecording = defaults.bool(forKey: "saveAudioRecording")
         self._enableTranscriptRefinement = defaults.bool(forKey: "enableTranscriptRefinement")
+        self._enableBatchRefinement = defaults.bool(forKey: "enableBatchRefinement")
+        self._batchTranscriptionModel = TranscriptionModel(
+            rawValue: defaults.string(forKey: "batchTranscriptionModel") ?? ""
+        ) ?? .whisperSmall
 
         // Echo cancellation — default to enabled
         if defaults.object(forKey: "enableEchoCancellation") == nil {

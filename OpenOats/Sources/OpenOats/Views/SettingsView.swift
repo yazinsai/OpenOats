@@ -235,6 +235,23 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Batch Refinement") {
+                Toggle("Enhance transcript after meeting", isOn: $settings.enableBatchRefinement)
+                    .font(.system(size: 12))
+                Text("Re-transcribes audio with a higher-quality model after each meeting for better accuracy. Runs in the background.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                if settings.enableBatchRefinement {
+                    Picker("Batch Model", selection: $settings.batchTranscriptionModel) {
+                        ForEach(TranscriptionModel.allCases) { model in
+                            Text(model.displayName).tag(model)
+                        }
+                    }
+                    .font(.system(size: 12))
+                }
+            }
+
             Section("Privacy") {
                 Toggle("Hide from screen sharing", isOn: $settings.hideFromScreenShare)
                     .font(.system(size: 12))
