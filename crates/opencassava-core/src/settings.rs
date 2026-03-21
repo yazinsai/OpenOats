@@ -40,6 +40,12 @@ pub struct AppSettings {
     )]
     pub faster_whisper_device: String,
 
+    #[serde(default = "default_parakeet_model", alias = "parakeet_model")]
+    pub parakeet_model: String,
+
+    #[serde(default = "default_parakeet_device", alias = "parakeet_device")]
+    pub parakeet_device: String,
+
     #[serde(default, alias = "system_audio_device_name")]
     pub system_audio_device_name: Option<String>,
 
@@ -139,6 +145,8 @@ impl Default for AppSettings {
             faster_whisper_model: default_faster_whisper_model(),
             faster_whisper_compute_type: default_faster_whisper_compute_type(),
             faster_whisper_device: default_faster_whisper_device(),
+            parakeet_model: default_parakeet_model(),
+            parakeet_device: default_parakeet_device(),
             system_audio_device_name: None,
             llm_provider: default_llm_provider(),
             embedding_provider: default_embedding_provider(),
@@ -171,6 +179,12 @@ fn default_faster_whisper_compute_type() -> String {
     "default".into()
 }
 fn default_faster_whisper_device() -> String {
+    "auto".into()
+}
+fn default_parakeet_model() -> String {
+    "nvidia/parakeet-tdt-0.6b-v3".into()
+}
+fn default_parakeet_device() -> String {
     "auto".into()
 }
 fn default_model() -> String {
@@ -307,6 +321,30 @@ mod tests {
         assert_eq!(s2.faster_whisper_model, "small");
         assert_eq!(s2.faster_whisper_compute_type, "int8");
         assert_eq!(s2.faster_whisper_device, "cpu");
+    }
+
+    #[test]
+    fn parakeet_provider_defaults() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("nonexistent.json");
+        let s = AppSettings::load_from(path);
+        assert_eq!(s.parakeet_model, "nvidia/parakeet-tdt-0.6b-v3");
+        assert_eq!(s.parakeet_device, "auto");
+    }
+
+    #[test]
+    fn parakeet_provider_persists_and_reloads() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut s = AppSettings::load_from(path.clone());
+        s.stt_provider = "parakeet".into();
+        s.parakeet_model = "nvidia/parakeet-tdt-0.6b-v3".into();
+        s.parakeet_device = "cuda".into();
+        s.save_to(path.clone());
+        let s2 = AppSettings::load_from(path);
+        assert_eq!(s2.stt_provider, "parakeet");
+        assert_eq!(s2.parakeet_model, "nvidia/parakeet-tdt-0.6b-v3");
+        assert_eq!(s2.parakeet_device, "cuda");
     }
 
     #[test]

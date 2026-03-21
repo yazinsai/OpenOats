@@ -6,7 +6,7 @@ import { colors, typography, spacing } from "../theme";
 type Tab = "general" | "ai" | "advanced";
 
 const transcriptionLocaleOptions = [
-  { value: "auto", label: "Auto Detect (English/Spanish)" },
+  { value: "auto", label: "Auto Detect" },
   { value: "en-US", label: "English (US)" },
   { value: "en-GB", label: "English (UK)" },
   { value: "es-ES", label: "Spanish (Spain)" },
@@ -15,7 +15,27 @@ const transcriptionLocaleOptions = [
   { value: "fr-FR", label: "French" },
   { value: "de-DE", label: "German" },
   { value: "pt-BR", label: "Portuguese (Brazil)" },
+  { value: "pt-PT", label: "Portuguese (Portugal)" },
   { value: "it-IT", label: "Italian" },
+  { value: "bg-BG", label: "Bulgarian" },
+  { value: "hr-HR", label: "Croatian" },
+  { value: "cs-CZ", label: "Czech" },
+  { value: "da-DK", label: "Danish" },
+  { value: "nl-NL", label: "Dutch" },
+  { value: "et-EE", label: "Estonian" },
+  { value: "fi-FI", label: "Finnish" },
+  { value: "el-GR", label: "Greek" },
+  { value: "hu-HU", label: "Hungarian" },
+  { value: "lv-LV", label: "Latvian" },
+  { value: "lt-LT", label: "Lithuanian" },
+  { value: "mt-MT", label: "Maltese" },
+  { value: "pl-PL", label: "Polish" },
+  { value: "ro-RO", label: "Romanian" },
+  { value: "ru-RU", label: "Russian" },
+  { value: "sk-SK", label: "Slovak" },
+  { value: "sl-SI", label: "Slovenian" },
+  { value: "sv-SE", label: "Swedish" },
+  { value: "uk-UA", label: "Ukrainian" },
 ];
 
 const whisperModelOptions = [
@@ -30,6 +50,18 @@ const whisperModelOptions = [
 const sttProviderOptions = [
   { value: "whisper-rs", label: "whisper-rs", description: "Current in-process local transcription with ggml Whisper models." },
   { value: "faster-whisper", label: "faster-whisper", description: "Bundled worker-based backend with app-managed Python runtime." },
+  { value: "parakeet", label: "parakeet", description: "NVIDIA Parakeet TDT v3 — multilingual, 25 languages, automatic language detection. Requires Python and ~3 GB disk." },
+];
+
+const parakeetModelOptions = [
+  { value: "nvidia/parakeet-tdt-0.6b-v3", label: "Parakeet TDT 0.6B v3 (Recommended)", description: "600M params, 25 languages, best speed/accuracy balance." },
+  { value: "nvidia/parakeet-tdt-1.1b-v2", label: "Parakeet TDT 1.1B v2", description: "1.1B params, English-focused, highest accuracy." },
+];
+
+const parakeetDeviceOptions = [
+  { value: "auto", label: "Auto" },
+  { value: "cpu", label: "CPU" },
+  { value: "cuda", label: "CUDA (NVIDIA GPU)" },
 ];
 
 const fasterWhisperModelOptions = [
@@ -812,8 +844,10 @@ export function SettingsView({
               </select>
               <span style={{ fontSize: typography.sm, color: colors.textMuted, marginTop: 4, display: "block" }}>
                 {settings.sttProvider === "faster-whisper"
-                  ? `OpenCassava will use faster-whisper ${settings.fasterWhisperModel}. Choose Auto Detect for mixed English/Spanish conversations.`
-                  : `OpenCassava will download and use ${resolveWhisperModel(settings.transcriptionLocale, settings.whisperModel)}. Choose Auto Detect for mixed English/Spanish conversations.`}
+                  ? `OpenCassava will use faster-whisper ${settings.fasterWhisperModel}.`
+                  : settings.sttProvider === "parakeet"
+                  ? `OpenCassava will use Parakeet v3 (${settings.parakeetModel}). Language is auto-detected from audio.`
+                  : `OpenCassava will download and use ${resolveWhisperModel(settings.transcriptionLocale, settings.whisperModel)}. Choose Auto Detect for mixed-language conversations.`}
               </span>
             </div>
             {settings.sttProvider === "whisper-rs" ? (
@@ -836,7 +870,7 @@ export function SettingsView({
                   {whisperModelOptions.find((option) => option.value === settings.whisperModel)?.description}. Effective model: `{resolveWhisperModel(settings.transcriptionLocale, settings.whisperModel)}`.
                 </span>
               </div>
-            ) : (
+            ) : settings.sttProvider === "faster-whisper" ? (
               <>
                 <div style={styles.fieldWrap}>
                   <label style={styles.labelStyle}>faster-whisper Model</label>
@@ -889,7 +923,45 @@ export function SettingsView({
                   </div>
                 </div>
               </>
-            )}
+            ) : settings.sttProvider === "parakeet" ? (
+              <>
+                <div style={styles.fieldWrap}>
+                  <label style={styles.labelStyle}>Parakeet Model</label>
+                  <select
+                    value={settings.parakeetModel}
+                    onChange={(e) =>
+                      saveSettings({ ...settings, parakeetModel: e.target.value })
+                    }
+                    style={styles.selectStyle}
+                  >
+                    {parakeetModelOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span style={{ fontSize: typography.sm, color: colors.textMuted, marginTop: 4, display: "block" }}>
+                    {parakeetModelOptions.find((option) => option.value === settings.parakeetModel)?.description}
+                  </span>
+                </div>
+                <div style={styles.fieldWrap}>
+                  <label style={styles.labelStyle}>Device</label>
+                  <select
+                    value={settings.parakeetDevice}
+                    onChange={(e) =>
+                      saveSettings({ ...settings, parakeetDevice: e.target.value })
+                    }
+                    style={styles.selectStyle}
+                  >
+                    {parakeetDeviceOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            ) : null}
             {sttStatus && (
               <div style={{ marginTop: spacing[2], display: "flex", flexDirection: "column", gap: spacing[2] }}>
                 <span style={styles.statusBadge(sttStatus.ready ? (sttStatus.usingFallback ? "warning" : "success") : "error")}>
@@ -898,13 +970,17 @@ export function SettingsView({
                 <span style={{ fontSize: typography.sm, color: colors.textMuted }}>
                   Active backend: `{sttStatus.effectiveProvider}` using `{sttStatus.effectiveModel}`.
                 </span>
-                {settings.sttProvider === "faster-whisper" && (
+                {(settings.sttProvider === "faster-whisper" || settings.sttProvider === "parakeet") && (
                   <button
                     style={styles.button}
                     onClick={() => onSetupStt?.()}
                     disabled={isSettingUpStt}
                   >
-                    {isSettingUpStt ? "Setting up faster-whisper..." : sttStatus.selectedProviderReady ? "Reinstall faster-whisper" : "Set up faster-whisper"}
+                    {isSettingUpStt
+                      ? `Setting up ${settings.sttProvider}...`
+                      : sttStatus.selectedProviderReady
+                      ? `Reinstall ${settings.sttProvider}`
+                      : `Set up ${settings.sttProvider}`}
                   </button>
                 )}
               </div>

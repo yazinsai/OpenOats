@@ -20,6 +20,7 @@ pub enum SegmentProgress {
 pub enum SttBackend {
     WhisperRs { model_path: String },
     FasterWhisper(crate::transcription::faster_whisper::FasterWhisperConfig),
+    Parakeet(crate::transcription::parakeet::ParakeetConfig),
     Passthrough,
 }
 
@@ -143,6 +144,30 @@ impl StreamingTranscriber {
                             }
                         }
                         Err(e) => log::error!("Failed to launch faster-whisper worker: {e}"),
+                    }
+                }
+                SttBackend::Parakeet(config) => {
+                    match crate::transcription::parakeet::ParakeetWorker::spawn(&config) {
+                        Ok(mut worker) => {
+                            for samples in seg_rx.iter() {
+                                match worker.transcribe(&samples) {
+                                    Ok(text) if !text.is_empty() => {
+                                        if let Some(ref on_progress) = progress_for_backend {
+                                            on_progress(SegmentProgress::Processed);
+                                        }
+                                        log::info!("[transcriber] {}", &text[..text.len().min(80)]);
+                                        on_final(text);
+                                    }
+                                    Ok(_) => {
+                                        if let Some(ref on_progress) = progress_for_backend {
+                                            on_progress(SegmentProgress::Processed);
+                                        }
+                                    }
+                                    Err(e) => log::error!("parakeet transcribe error: {e}"),
+                                }
+                            }
+                        }
+                        Err(e) => log::error!("Failed to launch parakeet worker: {e}"),
                     }
                 }
                 SttBackend::Passthrough => {

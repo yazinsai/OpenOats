@@ -31,6 +31,8 @@ export interface AppSettings {
   fasterWhisperModel: string;
   fasterWhisperComputeType: string;
   fasterWhisperDevice: string;
+  parakeetModel: string;
+  parakeetDevice: string;
   inputDeviceName: string | null;
   systemAudioDeviceName: string | null;
   llmProvider: string;

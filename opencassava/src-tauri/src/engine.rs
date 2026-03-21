@@ -22,6 +22,7 @@ use opencassava_core::{
     },
     transcription::{
         faster_whisper::{self, FasterWhisperConfig},
+        parakeet::{self, ParakeetConfig},
         streaming_transcriber::{SegmentProgress, StreamingTranscriber, SttBackend},
     },
 };
@@ -242,6 +243,23 @@ impl AppState {
             compute_type: settings.faster_whisper_compute_type.clone(),
         }
     }
+
+    pub fn parakeet_root() -> PathBuf {
+        Self::persistent_data_dir().join("stt").join("parakeet")
+    }
+
+    pub fn parakeet_config(settings: &AppSettings) -> ParakeetConfig {
+        let runtime_root = Self::parakeet_root();
+        ParakeetConfig {
+            worker_script_path: runtime_root.join("worker.py"),
+            requirements_path: runtime_root.join("requirements.txt"),
+            venv_path: runtime_root.join("venv"),
+            models_dir: runtime_root.join("models"),
+            runtime_root,
+            model: settings.parakeet_model.clone(),
+            device: settings.parakeet_device.clone(),
+        }
+    }
 }
 
 fn resolve_whisper_model(settings: &AppSettings) -> &'static str {
@@ -294,6 +312,7 @@ fn resolve_whisper_model(settings: &AppSettings) -> &'static str {
 fn selected_stt_provider(settings: &AppSettings) -> &str {
     match settings.stt_provider.trim() {
         "faster-whisper" => "faster-whisper",
+        "parakeet" => "parakeet",
         _ => "whisper-rs",
     }
 }
@@ -351,6 +370,52 @@ fn resolve_stt_status(app: &AppHandle, settings: &AppSettings) -> SttStatusPaylo
         };
     }
 
+    if selected_provider == "parakeet" {
+        let config = AppState::parakeet_config(settings);
+        let selected_ready =
+            parakeet::health_check(&config).is_ok() && parakeet::model_storage_exists(&config);
+
+        if selected_ready {
+            return SttStatusPayload {
+                selected_provider,
+                effective_provider: "parakeet".into(),
+                selected_model: config.model.clone(),
+                effective_model: config.model.clone(),
+                selected_provider_ready: true,
+                ready: true,
+                using_fallback: false,
+                download_required: false,
+                message: format!("parakeet is ready with {}.", config.model),
+            };
+        }
+
+        if whisper_ready {
+            return SttStatusPayload {
+                selected_provider,
+                effective_provider: "whisper-rs".into(),
+                selected_model: config.model.clone(),
+                effective_model: whisper_model,
+                selected_provider_ready: false,
+                ready: true,
+                using_fallback: true,
+                download_required: true,
+                message: "parakeet is unavailable. Falling back to whisper-rs.".into(),
+            };
+        }
+
+        return SttStatusPayload {
+            selected_provider,
+            effective_provider: "parakeet".into(),
+            selected_model: config.model.clone(),
+            effective_model: config.model.clone(),
+            selected_provider_ready: false,
+            ready: false,
+            using_fallback: false,
+            download_required: true,
+            message: "parakeet needs setup before transcription can start.".into(),
+        };
+    }
+
     SttStatusPayload {
         selected_provider,
         effective_provider: "whisper-rs".into(),
@@ -381,6 +446,8 @@ fn resolve_stt_backend(
     let language = resolve_transcription_language(settings, &status.effective_model);
     let backend = if status.effective_provider == "faster-whisper" {
         SttBackend::FasterWhisper(AppState::faster_whisper_config(settings))
+    } else if status.effective_provider == "parakeet" {
+        SttBackend::Parakeet(AppState::parakeet_config(settings))
     } else {
         let model_path = AppState::whisper_model_path_for(app, &status.effective_model)?
             .to_string_lossy()
@@ -1176,6 +1243,59 @@ pub async fn download_stt_model(
             &SttSetupStatusPayload {
                 stage: "done".into(),
                 message: "faster-whisper is ready.".into(),
+            },
+        )
+        .ok();
+        app.emit("model-download-done", ()).ok();
+        return Ok(());
+    }
+
+    if selected_provider == "parakeet" {
+        let config = AppState::parakeet_config(&settings);
+        app.emit(
+            "stt-setup-status",
+            &SttSetupStatusPayload {
+                stage: "prepare".into(),
+                message: "Preparing parakeet runtime directories...".into(),
+            },
+        )
+        .ok();
+        app.emit("model-download-progress", 5).ok();
+        app.emit(
+            "stt-setup-status",
+            &SttSetupStatusPayload {
+                stage: "venv".into(),
+                message: "Creating and updating the Python environment (this may take a while)...".into(),
+            },
+        )
+        .ok();
+        parakeet::install_runtime(&config)?;
+        app.emit("model-download-progress", 35).ok();
+        app.emit(
+            "stt-setup-status",
+            &SttSetupStatusPayload {
+                stage: "health".into(),
+                message: "Validating the parakeet worker...".into(),
+            },
+        )
+        .ok();
+        parakeet::health_check(&config)?;
+        app.emit("model-download-progress", 60).ok();
+        app.emit(
+            "stt-setup-status",
+            &SttSetupStatusPayload {
+                stage: "model".into(),
+                message: format!("Downloading or loading parakeet model {}...", config.model),
+            },
+        )
+        .ok();
+        parakeet::ensure_model(&config)?;
+        app.emit("model-download-progress", 100).ok();
+        app.emit(
+            "stt-setup-status",
+            &SttSetupStatusPayload {
+                stage: "done".into(),
+                message: "parakeet is ready.".into(),
             },
         )
         .ok();
