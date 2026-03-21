@@ -1,4 +1,4 @@
-import { Fragment, type CSSProperties, type ReactNode, useEffect, useState } from "react";
+import { Fragment, useRef, type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { EnhancedNotes } from "../types";
@@ -13,10 +13,24 @@ const TEMPLATES = [
   { id: "00000000-0000-0000-0000-000000000005", name: "Weekly Meeting" },
 ];
 
+const REGEN_INTERVALS = [
+  { value: 30, label: "30s" },
+  { value: 60, label: "1 min" },
+  { value: 120, label: "2 min" },
+  { value: 300, label: "5 min" },
+  { value: 600, label: "10 min" },
+];
+
+interface SummarySnapshot {
+  timestamp: string;
+  markdown: string;
+}
+
 interface Props {
   sessionId?: string;
   initialNotes?: EnhancedNotes | null;
   onNotesChange?: (notes: EnhancedNotes | null) => void;
+  isRunning?: boolean;
 }
 
 type MarkdownBlock =
@@ -27,12 +41,32 @@ type MarkdownBlock =
   | { type: "blockquote"; lines: string[] }
   | { type: "code"; code: string };
 
-export function NotesView({ sessionId, initialNotes, onNotesChange }: Props) {
+export function NotesView({ sessionId, initialNotes, onNotesChange, isRunning }: Props) {
   const [selectedTemplate, setSelectedTemplate] = useState(TEMPLATES[0].id);
   const [markdown, setMarkdown] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showThoughts, setShowThoughts] = useState(false);
+
+  // Auto-regenerate state
+  const [autoRegen, setAutoRegen] = useState(false);
+  const [regenIntervalSec, setRegenIntervalSec] = useState(60);
+  const [summaryHistory, setSummaryHistory] = useState<SummarySnapshot[]>([]);
+  const [previousMarkdown, setPreviousMarkdown] = useState<string>("");
+  const [lastRegenAt, setLastRegenAt] = useState<Date | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyViewIndex, setHistoryViewIndex] = useState<number | null>(null);
+  const [secondsSinceRegen, setSecondsSinceRegen] = useState<number | null>(null);
+
+  // Refs to avoid stale closures in interval
+  const isGeneratingRef = useRef(isGenerating);
+  isGeneratingRef.current = isGenerating;
+  const markdownRef = useRef(markdown);
+  markdownRef.current = markdown;
+  const selectedTemplateRef = useRef(selectedTemplate);
+  selectedTemplateRef.current = selectedTemplate;
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
 
   useEffect(() => {
     const unlisten = listen<string>("notes-chunk", (e) => {
@@ -49,6 +83,12 @@ export function NotesView({ sessionId, initialNotes, onNotesChange }: Props) {
       setSelectedTemplate(TEMPLATES[0].id);
       setError(null);
       setShowThoughts(false);
+      setSummaryHistory([]);
+      setPreviousMarkdown("");
+      setLastRegenAt(null);
+      setAutoRegen(false);
+      setShowHistory(false);
+      setHistoryViewIndex(null);
       return;
     }
 
@@ -62,7 +102,75 @@ export function NotesView({ sessionId, initialNotes, onNotesChange }: Props) {
 
     setError(null);
     setShowThoughts(false);
+    setSummaryHistory([]);
+    setPreviousMarkdown("");
+    setLastRegenAt(null);
+    setShowHistory(false);
+    setHistoryViewIndex(null);
   }, [sessionId, initialNotes]);
+
+  // Turn off auto-regen when recording stops
+  useEffect(() => {
+    if (!isRunning) {
+      setAutoRegen(false);
+    }
+  }, [isRunning]);
+
+  // Auto-regen interval
+  useEffect(() => {
+    if (!autoRegen || !isRunning || !sessionId) return;
+
+    const intervalId = window.setInterval(async () => {
+      if (isGeneratingRef.current || !sessionIdRef.current) return;
+
+      const currentMarkdown = markdownRef.current;
+      if (currentMarkdown) {
+        setPreviousMarkdown(currentMarkdown);
+        setSummaryHistory((prev) => [
+          ...prev.slice(-9),
+          { timestamp: new Date().toISOString(), markdown: currentMarkdown },
+        ]);
+      }
+
+      setMarkdown("");
+      setIsGenerating(true);
+      setError(null);
+      setShowThoughts(false);
+      try {
+        await invoke("generate_notes", {
+          sessionId: sessionIdRef.current,
+          templateId: selectedTemplateRef.current,
+        });
+        const persistedNotes = await invoke<EnhancedNotes | null>("load_session_notes", {
+          id: sessionIdRef.current,
+        });
+        if (persistedNotes) {
+          setMarkdown(persistedNotes.markdown);
+          setSelectedTemplate(persistedNotes.template.id);
+          onNotesChange?.(persistedNotes);
+          setLastRegenAt(new Date());
+          setSecondsSinceRegen(0);
+        }
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setIsGenerating(false);
+      }
+    }, regenIntervalSec * 1000);
+
+    return () => clearInterval(intervalId);
+  }, [autoRegen, isRunning, sessionId, regenIntervalSec, onNotesChange]);
+
+  // Countdown ticker
+  useEffect(() => {
+    if (!autoRegen || !isRunning || lastRegenAt === null) return;
+
+    const ticker = window.setInterval(() => {
+      setSecondsSinceRegen((s) => (s !== null ? s + 1 : null));
+    }, 1000);
+
+    return () => clearInterval(ticker);
+  }, [autoRegen, isRunning, lastRegenAt]);
 
   const handleGenerate = async () => {
     if (!sessionId) return;
@@ -77,6 +185,8 @@ export function NotesView({ sessionId, initialNotes, onNotesChange }: Props) {
         setMarkdown(persistedNotes.markdown);
         setSelectedTemplate(persistedNotes.template.id);
         onNotesChange?.(persistedNotes);
+        setLastRegenAt(new Date());
+        setSecondsSinceRegen(0);
       }
     } catch (e) {
       setError(String(e));
@@ -88,14 +198,28 @@ export function NotesView({ sessionId, initialNotes, onNotesChange }: Props) {
   const parsed = parseGeneratedNotes(markdown);
   const displayedMarkdown = isGenerating ? markdown : parsed.visible;
 
+  // Compute new lines for highlighting
+  const newLines = previousMarkdown ? computeNewLines(parsed.visible, parseGeneratedNotes(previousMarkdown).visible) : new Set<string>();
+
+  // History view: show a past summary
+  const historyEntry = historyViewIndex !== null ? summaryHistory[historyViewIndex] : null;
+  const historyParsed = historyEntry ? parseGeneratedNotes(historyEntry.markdown) : null;
+
+  const nextRegenIn =
+    autoRegen && isRunning && lastRegenAt !== null && secondsSinceRegen !== null
+      ? Math.max(0, regenIntervalSec - secondsSinceRegen)
+      : null;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", padding: spacing[4] }}>
-      <div style={{ display: "flex", gap: spacing[2], marginBottom: spacing[3] }}>
+      {/* Primary toolbar */}
+      <div style={{ display: "flex", gap: spacing[2], marginBottom: spacing[2], flexWrap: "wrap" }}>
         <select
           value={selectedTemplate}
           onChange={(e) => setSelectedTemplate(e.target.value)}
           style={{
             flex: 1,
+            minWidth: 120,
             padding: `${spacing[2]}px`,
             background: colors.surface,
             color: colors.text,
@@ -129,8 +253,176 @@ export function NotesView({ sessionId, initialNotes, onNotesChange }: Props) {
         </button>
       </div>
 
+      {/* Auto-regenerate toolbar */}
+      {sessionId && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: spacing[2],
+            marginBottom: spacing[3],
+            padding: `${spacing[2]}px ${spacing[3]}px`,
+            background: autoRegen && isRunning ? `${colors.accent}10` : colors.surfaceElevated,
+            border: `1px solid ${autoRegen && isRunning ? `${colors.accent}40` : colors.border}`,
+            borderRadius: 6,
+            flexWrap: "wrap",
+          }}
+        >
+          {/* Toggle */}
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: spacing[2],
+              cursor: isRunning ? "pointer" : "not-allowed",
+              opacity: isRunning ? 1 : 0.5,
+              userSelect: "none",
+            }}
+          >
+            <div
+              onClick={() => isRunning && setAutoRegen((v) => !v)}
+              style={{
+                width: 36,
+                height: 20,
+                borderRadius: 10,
+                background: autoRegen && isRunning ? colors.accent : colors.border,
+                position: "relative",
+                transition: "background 0.2s",
+                flexShrink: 0,
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  top: 2,
+                  left: autoRegen && isRunning ? 18 : 2,
+                  width: 16,
+                  height: 16,
+                  borderRadius: "50%",
+                  background: colors.textInverse,
+                  transition: "left 0.2s",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                }}
+              />
+            </div>
+            <span style={{ fontSize: typography.md, color: colors.text, fontWeight: 500 }}>
+              Auto-summarize
+            </span>
+          </label>
+
+          {/* Interval selector */}
+          {autoRegen && isRunning && (
+            <select
+              value={regenIntervalSec}
+              onChange={(e) => setRegenIntervalSec(Number(e.target.value))}
+              style={{
+                padding: `${spacing[1]}px ${spacing[2]}px`,
+                background: colors.surface,
+                color: colors.text,
+                border: `1px solid ${colors.border}`,
+                borderRadius: 4,
+                fontSize: typography.sm,
+              }}
+            >
+              {REGEN_INTERVALS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  every {o.label}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Status / countdown */}
+          <div style={{ flex: 1 }} />
+          {autoRegen && isRunning && (
+            <span style={{ fontSize: typography.sm, color: colors.textMuted }}>
+              {isGenerating
+                ? "Updating..."
+                : nextRegenIn !== null
+                ? lastRegenAt === null
+                  ? `First summary in ${nextRegenIn}s`
+                  : `Next in ${nextRegenIn}s`
+                : lastRegenAt
+                ? "Running"
+                : "Waiting..."}
+            </span>
+          )}
+
+          {/* Last updated */}
+          {lastRegenAt && (
+            <span style={{ fontSize: typography.sm, color: colors.textMuted }}>
+              Updated {formatTimeAgo(lastRegenAt)}
+            </span>
+          )}
+
+          {/* History button */}
+          {summaryHistory.length > 0 && (
+            <button
+              onClick={() => setShowHistory((v) => !v)}
+              style={{
+                padding: `${spacing[1]}px ${spacing[2]}px`,
+                background: "transparent",
+                color: showHistory ? colors.accent : colors.textMuted,
+                border: `1px solid ${showHistory ? colors.accent : colors.border}`,
+                borderRadius: 4,
+                cursor: "pointer",
+                fontSize: typography.sm,
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              History ({summaryHistory.length})
+            </button>
+          )}
+
+          {/* Not running hint */}
+          {!isRunning && (
+            <span style={{ fontSize: typography.sm, color: colors.textMuted, fontStyle: "italic" }}>
+              Available during active sessions
+            </span>
+          )}
+        </div>
+      )}
+
       {error && (
         <div style={{ color: colors.error, fontSize: typography.md, marginBottom: spacing[2] }}>{error}</div>
+      )}
+
+      {/* New-content badge */}
+      {!isGenerating && newLines.size > 0 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: spacing[2],
+            padding: `${spacing[1]}px ${spacing[3]}px`,
+            background: `${colors.success}12`,
+            border: `1px solid ${colors.success}30`,
+            borderRadius: 6,
+            marginBottom: spacing[2],
+            fontSize: typography.sm,
+            color: colors.success,
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>New content</span>
+          <span style={{ color: colors.textMuted }}>Highlighted in teal below</span>
+          <div style={{ flex: 1 }} />
+          <button
+            onClick={() => setPreviousMarkdown("")}
+            style={{
+              padding: `${spacing[1]}px ${spacing[2]}px`,
+              background: "transparent",
+              color: colors.textMuted,
+              border: `1px solid ${colors.border}`,
+              borderRadius: 4,
+              cursor: "pointer",
+              fontSize: typography.xs,
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
       )}
 
       {!isGenerating && parsed.thoughts && (
@@ -152,53 +444,200 @@ export function NotesView({ sessionId, initialNotes, onNotesChange }: Props) {
         </div>
       )}
 
-      {displayedMarkdown ? (
+      {/* Main content area: history panel + notes */}
+      <div style={{ flex: 1, overflow: "hidden", display: "flex", gap: spacing[3] }}>
+        {/* History side panel */}
+        {showHistory && summaryHistory.length > 0 && (
+          <div
+            style={{
+              width: 200,
+              flexShrink: 0,
+              display: "flex",
+              flexDirection: "column",
+              border: `1px solid ${colors.border}`,
+              borderRadius: 6,
+              overflow: "hidden",
+              background: colors.surface,
+            }}
+          >
+            <div
+              style={{
+                padding: `${spacing[2]}px ${spacing[3]}px`,
+                borderBottom: `1px solid ${colors.border}`,
+                fontSize: typography.sm,
+                fontWeight: 600,
+                color: colors.textSecondary,
+                background: colors.surfaceElevated,
+              }}
+            >
+              Previous Summaries
+            </div>
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {summaryHistory
+                .slice()
+                .reverse()
+                .map((entry, reversedIdx) => {
+                  const idx = summaryHistory.length - 1 - reversedIdx;
+                  const isSelected = historyViewIndex === idx;
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => setHistoryViewIndex(isSelected ? null : idx)}
+                      style={{
+                        width: "100%",
+                        textAlign: "left",
+                        padding: `${spacing[2]}px ${spacing[3]}px`,
+                        background: isSelected ? `${colors.accent}15` : "transparent",
+                        border: "none",
+                        borderBottom: `1px solid ${colors.border}`,
+                        cursor: "pointer",
+                        color: isSelected ? colors.accent : colors.textSecondary,
+                      }}
+                    >
+                      <div style={{ fontSize: typography.sm, fontWeight: isSelected ? 600 : 400 }}>
+                        {formatHistoryTime(entry.timestamp)}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: typography.xs,
+                          color: colors.textMuted,
+                          marginTop: 2,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {entry.markdown.replace(/<[^>]+>/g, "").slice(0, 60)}
+                      </div>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+
+        {/* Notes / history-entry view */}
         <div style={{ flex: 1, overflowY: "auto" }}>
-          <MarkdownPreview markdown={displayedMarkdown} />
-          {!isGenerating && showThoughts && parsed.thoughts && (
-            <div style={{ marginTop: spacing[4], borderTop: `1px solid ${colors.border}`, paddingTop: spacing[3] }}>
+          {historyViewIndex !== null && historyParsed ? (
+            // Viewing a history entry
+            <div>
               <div
                 style={{
-                  color: colors.textMuted,
-                  fontSize: typography.xs,
-                  marginBottom: spacing[2],
-                  textTransform: "uppercase",
-                  letterSpacing: "1px",
-                  fontWeight: 600,
-                }}
-              >
-                Thought
-              </div>
-              <pre
-                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: spacing[2],
+                  marginBottom: spacing[3],
+                  padding: `${spacing[2]}px ${spacing[3]}px`,
+                  background: `${colors.warning}10`,
+                  border: `1px solid ${colors.warning}30`,
+                  borderRadius: 6,
                   fontSize: typography.sm,
-                  color: colors.textSecondary,
-                  whiteSpace: "pre-wrap",
-                  lineHeight: 1.6,
-                  margin: 0,
+                  color: colors.warning,
                 }}
               >
-                {parsed.thoughts}
-              </pre>
+                <span>Viewing snapshot from {formatHistoryTime(summaryHistory[historyViewIndex].timestamp)}</span>
+                <div style={{ flex: 1 }} />
+                <button
+                  onClick={() => setHistoryViewIndex(null)}
+                  style={{
+                    padding: `${spacing[1]}px ${spacing[2]}px`,
+                    background: "transparent",
+                    color: colors.warning,
+                    border: `1px solid ${colors.warning}50`,
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    fontSize: typography.xs,
+                  }}
+                >
+                  Back to current
+                </button>
+              </div>
+              <MarkdownPreview markdown={historyParsed.visible} newLines={new Set()} />
+            </div>
+          ) : displayedMarkdown ? (
+            <div>
+              <MarkdownPreview markdown={displayedMarkdown} newLines={isGenerating ? new Set() : newLines} />
+              {!isGenerating && showThoughts && parsed.thoughts && (
+                <div style={{ marginTop: spacing[4], borderTop: `1px solid ${colors.border}`, paddingTop: spacing[3] }}>
+                  <div
+                    style={{
+                      color: colors.textMuted,
+                      fontSize: typography.xs,
+                      marginBottom: spacing[2],
+                      textTransform: "uppercase",
+                      letterSpacing: "1px",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Thought
+                  </div>
+                  <pre
+                    style={{
+                      fontSize: typography.sm,
+                      color: colors.textSecondary,
+                      whiteSpace: "pre-wrap",
+                      lineHeight: 1.6,
+                      margin: 0,
+                    }}
+                  >
+                    {parsed.thoughts}
+                  </pre>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: colors.textMuted,
+                fontSize: typography.md,
+                height: "100%",
+              }}
+            >
+              {sessionId ? "Select a template and click Generate Notes" : "Start a session to generate notes"}
             </div>
           )}
         </div>
-      ) : (
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: colors.textMuted,
-            fontSize: typography.md,
-          }}
-        >
-          {sessionId ? "Select a template and click Generate Notes" : "Start a session to generate notes"}
-        </div>
-      )}
+      </div>
     </div>
   );
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function computeNewLines(current: string, previous: string): Set<string> {
+  if (!previous) return new Set();
+  const prevLines = new Set(
+    previous
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean),
+  );
+  const result = new Set<string>();
+  current
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      if (!prevLines.has(line)) result.add(line);
+    });
+  return result;
+}
+
+function formatTimeAgo(date: Date): string {
+  const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.floor(mins / 60)}h ago`;
+}
+
+function formatHistoryTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 function parseGeneratedNotes(markdown: string): { visible: string; thoughts: string | null } {
@@ -218,10 +657,34 @@ function parseGeneratedNotes(markdown: string): { visible: string; thoughts: str
   return { visible, thoughts };
 }
 
-function MarkdownPreview({ markdown }: { markdown: string }) {
-  const blocks = parseMarkdownBlocks(markdown);
+// ─── Markdown Renderer ───────────────────────────────────────────────────────
 
-  return <div style={{ color: colors.text, fontSize: typography.md, lineHeight: 1.65 }}>{blocks.map(renderBlock)}</div>;
+function MarkdownPreview({ markdown, newLines }: { markdown: string; newLines: Set<string> }) {
+  const blocks = parseMarkdownBlocks(markdown);
+  return (
+    <div style={{ color: colors.text, fontSize: typography.md, lineHeight: 1.65 }}>
+      {blocks.map((block, idx) => renderBlock(block, idx, newLines))}
+    </div>
+  );
+}
+
+function isBlockNew(block: MarkdownBlock, newLines: Set<string>): boolean {
+  if (newLines.size === 0) return false;
+  switch (block.type) {
+    case "heading":
+      return newLines.has(block.text.trim()) || newLines.has(`${"#".repeat(block.level)} ${block.text}`.trim());
+    case "paragraph":
+      return newLines.has(block.text.trim());
+    case "unordered-list":
+    case "ordered-list":
+      return block.items.some((item) => newLines.has(item.trim()));
+    case "blockquote":
+      return block.lines.some((line) => newLines.has(line.trim()));
+    case "code":
+      return newLines.has(block.code.trim());
+    default:
+      return false;
+  }
 }
 
 function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
@@ -328,7 +791,18 @@ function parseMarkdownBlocks(markdown: string): MarkdownBlock[] {
   return blocks;
 }
 
-function renderBlock(block: MarkdownBlock, index: number) {
+function renderBlock(block: MarkdownBlock, index: number, newLines: Set<string>) {
+  const isNew = isBlockNew(block, newLines);
+  const newStyle: CSSProperties = isNew
+    ? {
+        borderLeft: `3px solid ${colors.accent}`,
+        paddingLeft: spacing[3],
+        background: `${colors.accent}08`,
+        borderRadius: "0 4px 4px 0",
+        marginLeft: -spacing[3] - 3,
+      }
+    : {};
+
   switch (block.type) {
     case "heading": {
       const sizeMap: Record<number, number> = {
@@ -346,26 +820,48 @@ function renderBlock(block: MarkdownBlock, index: number) {
           style={{
             fontSize: sizeMap[block.level] ?? typography.md,
             fontWeight: 700,
-            color: colors.text,
+            color: isNew ? colors.accent : colors.text,
             marginTop: index === 0 ? 0 : spacing[4],
             marginBottom: spacing[2],
             letterSpacing: block.level <= 2 ? "-0.02em" : "normal",
+            ...newStyle,
           }}
         >
           {renderInlineMarkdown(block.text)}
+          {isNew && (
+            <span
+              style={{
+                marginLeft: spacing[2],
+                fontSize: typography.xs,
+                fontWeight: 600,
+                color: colors.accent,
+                background: `${colors.accent}20`,
+                padding: "1px 6px",
+                borderRadius: 10,
+                verticalAlign: "middle",
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+              }}
+            >
+              new
+            </span>
+          )}
         </div>
       );
     }
     case "paragraph":
       return (
-        <p key={`paragraph-${index}`} style={{ margin: `0 0 ${spacing[3]}px`, color: colors.textSecondary }}>
+        <p
+          key={`paragraph-${index}`}
+          style={{ margin: `0 0 ${spacing[3]}px`, color: isNew ? colors.text : colors.textSecondary, ...newStyle }}
+        >
           {renderInlineMarkdown(block.text)}
         </p>
       );
     case "unordered-list":
-      return renderList(block.items, index, false);
+      return renderList(block.items, index, false, newLines);
     case "ordered-list":
-      return renderList(block.items, index, true);
+      return renderList(block.items, index, true, newLines);
     case "blockquote":
       return (
         <blockquote
@@ -373,8 +869,8 @@ function renderBlock(block: MarkdownBlock, index: number) {
           style={{
             margin: `0 0 ${spacing[3]}px`,
             padding: `${spacing[2]}px ${spacing[3]}px`,
-            borderLeft: `3px solid ${colors.accent}`,
-            background: colors.accentMuted,
+            borderLeft: `3px solid ${isNew ? colors.accent : colors.accent}`,
+            background: isNew ? `${colors.accent}12` : colors.accentMuted,
             color: colors.textSecondary,
             borderRadius: 6,
           }}
@@ -395,8 +891,8 @@ function renderBlock(block: MarkdownBlock, index: number) {
             padding: `${spacing[3]}px`,
             whiteSpace: "pre-wrap",
             overflowX: "auto",
-            background: colors.surfaceElevated,
-            border: `1px solid ${colors.border}`,
+            background: isNew ? `${colors.accent}08` : colors.surfaceElevated,
+            border: `1px solid ${isNew ? `${colors.accent}40` : colors.border}`,
             borderRadius: 8,
             color: colors.text,
             fontSize: typography.sm,
@@ -409,7 +905,7 @@ function renderBlock(block: MarkdownBlock, index: number) {
   }
 }
 
-function renderList(items: string[], index: number, ordered: boolean) {
+function renderList(items: string[], index: number, ordered: boolean, newLines: Set<string>) {
   const listStyle: CSSProperties = {
     margin: `0 0 ${spacing[3]}px`,
     paddingLeft: spacing[4] + spacing[2],
@@ -419,11 +915,36 @@ function renderList(items: string[], index: number, ordered: boolean) {
   const ListTag = ordered ? "ol" : "ul";
   return (
     <ListTag key={`${ordered ? "ordered" : "unordered"}-${index}`} style={listStyle}>
-      {items.map((item, itemIndex) => (
-        <li key={itemIndex} style={{ marginBottom: spacing[1] }}>
-          {renderInlineMarkdown(item)}
-        </li>
-      ))}
+      {items.map((item, itemIndex) => {
+        const isItemNew = newLines.size > 0 && newLines.has(item.trim());
+        return (
+          <li
+            key={itemIndex}
+            style={{
+              marginBottom: spacing[1],
+              color: isItemNew ? colors.text : colors.textSecondary,
+              background: isItemNew ? `${colors.accent}10` : "transparent",
+              borderRadius: isItemNew ? 3 : 0,
+              padding: isItemNew ? `1px ${spacing[1]}px` : undefined,
+            }}
+          >
+            {renderInlineMarkdown(item)}
+            {isItemNew && (
+              <span
+                style={{
+                  marginLeft: spacing[1],
+                  fontSize: typography.xs,
+                  fontWeight: 600,
+                  color: colors.accent,
+                  verticalAlign: "middle",
+                }}
+              >
+                ●
+              </span>
+            )}
+          </li>
+        );
+      })}
     </ListTag>
   );
 }
