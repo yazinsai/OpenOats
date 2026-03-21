@@ -97,6 +97,15 @@ struct SettingsView: View {
 
                     TextField("Model", text: $settings.mlxModel, prompt: Text("e.g. mlx-community/Llama-3.2-3B-Instruct-4bit"))
                         .font(.system(size: 12, design: .monospaced))
+                case .openAICompatible:
+                    TextField("Endpoint URL", text: $settings.openAILLMBaseURL, prompt: Text("http://localhost:4000"))
+                        .font(.system(size: 12, design: .monospaced))
+
+                    SecureField("API Key (optional)", text: $settings.openAILLMApiKey)
+                        .font(.system(size: 12, design: .monospaced))
+
+                    TextField("Model", text: $settings.openAILLMModel, prompt: Text("e.g. gpt-4o-mini"))
+                        .font(.system(size: 12, design: .monospaced))
                 }
             }
 

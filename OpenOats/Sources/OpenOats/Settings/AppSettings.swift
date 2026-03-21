@@ -8,6 +8,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
     case openRouter
     case ollama
     case mlx
+    case openAICompatible
 
     var id: String { rawValue }
 
@@ -16,6 +17,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
         case .openRouter: "OpenRouter"
         case .ollama: "Ollama"
         case .mlx: "MLX"
+        case .openAICompatible: "OpenAI Compatible"
         }
     }
 }
@@ -347,6 +349,39 @@ final class AppSettings {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _openAILLMBaseURL: String
+    var openAILLMBaseURL: String {
+        get { access(keyPath: \.openAILLMBaseURL); return _openAILLMBaseURL }
+        set {
+            withMutation(keyPath: \.openAILLMBaseURL) {
+                _openAILLMBaseURL = newValue
+                defaults.set(newValue, forKey: "openAILLMBaseURL")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _openAILLMApiKey: String
+    var openAILLMApiKey: String {
+        get { access(keyPath: \.openAILLMApiKey); return _openAILLMApiKey }
+        set {
+            withMutation(keyPath: \.openAILLMApiKey) {
+                _openAILLMApiKey = newValue
+                secretStore.save(key: "openAILLMApiKey", value: newValue)
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _openAILLMModel: String
+    var openAILLMModel: String {
+        get { access(keyPath: \.openAILLMModel); return _openAILLMModel }
+        set {
+            withMutation(keyPath: \.openAILLMModel) {
+                _openAILLMModel = newValue
+                defaults.set(newValue, forKey: "openAILLMModel")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _openAIEmbedBaseURL: String
     var openAIEmbedBaseURL: String {
         get { access(keyPath: \.openAIEmbedBaseURL); return _openAIEmbedBaseURL }
@@ -561,6 +596,9 @@ final class AppSettings {
         self._ollamaEmbedModel = defaults.string(forKey: "ollamaEmbedModel") ?? "nomic-embed-text"
         self._mlxBaseURL = defaults.string(forKey: "mlxBaseURL") ?? "http://localhost:8080"
         self._mlxModel = defaults.string(forKey: "mlxModel") ?? "mlx-community/Llama-3.2-3B-Instruct-4bit"
+        self._openAILLMBaseURL = defaults.string(forKey: "openAILLMBaseURL") ?? "http://localhost:4000"
+        self._openAILLMApiKey = secretStore.load(key: "openAILLMApiKey") ?? ""
+        self._openAILLMModel = defaults.string(forKey: "openAILLMModel") ?? ""
         self._openAIEmbedBaseURL = defaults.string(forKey: "openAIEmbedBaseURL") ?? "http://localhost:8080"
         self._openAIEmbedApiKey = secretStore.load(key: "openAIEmbedApiKey") ?? ""
         self._openAIEmbedModel = defaults.string(forKey: "openAIEmbedModel") ?? "text-embedding-3-small"
@@ -773,7 +811,7 @@ final class AppSettings {
         defer { defaults.set(true, forKey: migrationKey) }
 
         let oldService = "com.opengranola.app"
-        let keychainKeys = ["openRouterApiKey", "voyageApiKey", "openAIEmbedApiKey"]
+        let keychainKeys = ["openRouterApiKey", "voyageApiKey", "openAIEmbedApiKey", "openAILLMApiKey"]
         for key in keychainKeys {
             if KeychainHelper.load(key: key) == nil,
                let oldValue = loadKeychain(service: oldService, key: key) {
@@ -825,6 +863,7 @@ final class AppSettings {
         case .openRouter: raw = selectedModel
         case .ollama: raw = ollamaLLMModel
         case .mlx: raw = mlxModel
+        case .openAICompatible: raw = openAILLMModel
         }
         return raw.split(separator: "/").last.map(String.init) ?? raw
     }

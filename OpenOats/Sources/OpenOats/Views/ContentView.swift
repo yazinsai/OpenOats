@@ -462,6 +462,7 @@ struct ContentView: View {
         case .openRouter: settings.selectedModel
         case .ollama: settings.ollamaLLMModel
         case .mlx: settings.mlxModel
+        case .openAICompatible: settings.openAILLMModel
         }
 
         var nextViewState = ViewState()

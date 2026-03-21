@@ -82,6 +82,16 @@ final class NotesEngine {
             }
             baseURL = mlxURL
             model = settings.mlxModel
+        case .openAICompatible:
+            apiKey = settings.openAILLMApiKey.isEmpty ? nil : settings.openAILLMApiKey
+            let base = settings.openAILLMBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard let openAIURL = URL(string: base + "/v1/chat/completions") else {
+                error = "Invalid OpenAI Compatible URL: \(settings.openAILLMBaseURL)"
+                isGenerating = false
+                return
+            }
+            baseURL = openAIURL
+            model = settings.openAILLMModel
         }
 
         let transcriptText = formatTranscript(transcript)

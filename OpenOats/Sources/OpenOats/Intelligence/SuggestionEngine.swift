@@ -61,6 +61,7 @@ final class SuggestionEngine {
         case .openRouter: settings.openRouterApiKey
         case .ollama: nil
         case .mlx: nil
+        case .openAICompatible: settings.openAILLMApiKey.isEmpty ? nil : settings.openAILLMApiKey
         }
     }
 
@@ -83,6 +84,13 @@ final class SuggestionEngine {
                 return nil
             }
             return url
+        case .openAICompatible:
+            let base = settings.openAILLMBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            guard let url = URL(string: base + "/v1/chat/completions") else {
+                print("[SuggestionEngine] Invalid OpenAI Compatible URL: \(settings.openAILLMBaseURL)")
+                return nil
+            }
+            return url
         }
     }
 
@@ -92,6 +100,7 @@ final class SuggestionEngine {
         case .openRouter: settings.selectedModel
         case .ollama: settings.ollamaLLMModel
         case .mlx: settings.mlxModel
+        case .openAICompatible: settings.openAILLMModel
         }
     }
 
@@ -110,6 +119,8 @@ final class SuggestionEngine {
         case .ollama:
             guard llmBaseURL != nil else { return }
         case .mlx:
+            guard llmBaseURL != nil else { return }
+        case .openAICompatible:
             guard llmBaseURL != nil else { return }
         }
 
