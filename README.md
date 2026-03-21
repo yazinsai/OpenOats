@@ -28,12 +28,14 @@ For first-time setup with LM Studio, start here: [LM Studio Setup Guide](docs/lm
 ## Features
 
 - **Invisible to the other side** — the overlay window is hidden from screen sharing by default, so no one knows you're using it.
-- **Fully offline transcription** — speech recognition runs entirely on your machine using local `whisper-rs` models; no audio ever leaves your device.
+- **Multi-language transcription** — supports both `whisper-rs` and [NVIDIA Parakeet](https://github.com/NVIDIA/NeMo) (25+ languages) for local, offline speech recognition; no audio ever leaves your device.
 - **Runs 100% locally** — tested primarily with LM Studio for LLM suggestions and local embeddings. It may also work with other local providers like [Ollama](https://ollama.com/), ensuring nothing touches the network at all.
 - **Flexible AI Integration** — pick any LLM. Use [OpenRouter](https://openrouter.ai/) for cloud models (GPT-4o, Claude, Gemini). *(Note: The Cloud AI version is currently untested, but will be reviewed at a later time).*
 - **Live transcript & Search** — see both sides of the conversation as it happens, search the active transcript in real-time, and copy or export the whole thing with one click.
 - **Session History** — automatically saves every session. Access your past sessions directly from the **History Sidebar**.
-- **Formatted Notes generation** — after each session, produce structured markdown notes from the transcript using templates.
+- **Auto-summarize during calls** — enable periodic meeting summary generation with live diff highlighting showing what's new. Configure the interval (30s to 10m), review summary history, and manually regenerate at any time.
+- **Customizable note & suggestion prompts** — create and edit custom note templates beyond the built-in presets. Fine-tune the system prompts used for knowledge base surfacing, suggestion synthesis, and smart question generation.
+- **Formatted Notes generation** — after each session, produce structured markdown notes from the transcript using your custom or built-in templates.
 - **Knowledge base search** — point it at a folder of notes and it retrieves what's relevant using Voyage AI embeddings, local Ollama embeddings, or any OpenAI-compatible endpoint.
 
 ---
