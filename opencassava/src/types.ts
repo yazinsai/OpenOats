@@ -49,6 +49,9 @@ export interface AppSettings {
   hasAcknowledgedRecordingConsent: boolean;
   hideFromScreenShare: boolean;
   hasCompletedOnboarding: boolean;
+  kbSurfacingSystemPrompt: string;
+  suggestionSynthesisSystemPrompt: string;
+  smartQuestionSystemPrompt: string;
 }
 
 export interface ApiKeys {
@@ -82,6 +85,14 @@ export interface SessionRecord {
   utteranceCount: number;
   hasNotes: boolean;
   title: string | null;
+}
+
+export interface MeetingTemplate {
+  id: string;
+  name: string;
+  icon: string;
+  system_prompt: string;
+  is_built_in: boolean;
 }
 
 export interface TemplateSnapshot {

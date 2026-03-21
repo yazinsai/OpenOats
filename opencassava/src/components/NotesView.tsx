@@ -1,16 +1,11 @@
 import { Fragment, useRef, type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { EnhancedNotes } from "../types";
+import type { EnhancedNotes, MeetingTemplate } from "../types";
 import { colors, typography, spacing } from "../theme";
 
-const TEMPLATES = [
-  { id: "00000000-0000-0000-0000-000000000000", name: "Generic" },
-  { id: "00000000-0000-0000-0000-000000000001", name: "1:1" },
-  { id: "00000000-0000-0000-0000-000000000002", name: "Customer Discovery" },
-  { id: "00000000-0000-0000-0000-000000000003", name: "Hiring" },
-  { id: "00000000-0000-0000-0000-000000000004", name: "Stand-Up" },
-  { id: "00000000-0000-0000-0000-000000000005", name: "Weekly Meeting" },
+const FALLBACK_TEMPLATES: MeetingTemplate[] = [
+  { id: "00000000-0000-0000-0000-000000000000", name: "Generic", icon: "doc.text", system_prompt: "", is_built_in: true },
 ];
 
 const REGEN_INTERVALS = [
@@ -42,7 +37,8 @@ type MarkdownBlock =
   | { type: "code"; code: string };
 
 export function NotesView({ sessionId, initialNotes, onNotesChange, isRunning }: Props) {
-  const [selectedTemplate, setSelectedTemplate] = useState(TEMPLATES[0].id);
+  const [templates, setTemplates] = useState<MeetingTemplate[]>(FALLBACK_TEMPLATES);
+  const [selectedTemplate, setSelectedTemplate] = useState(FALLBACK_TEMPLATES[0].id);
   const [markdown, setMarkdown] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +65,15 @@ export function NotesView({ sessionId, initialNotes, onNotesChange, isRunning }:
   sessionIdRef.current = sessionId;
 
   useEffect(() => {
+    invoke<MeetingTemplate[]>("list_templates").then((ts) => {
+      if (ts.length > 0) {
+        setTemplates(ts);
+        setSelectedTemplate((prev) => (ts.some((t) => t.id === prev) ? prev : ts[0].id));
+      }
+    });
+  }, []);
+
+  useEffect(() => {
     const unlisten = listen<string>("notes-chunk", (e) => {
       setMarkdown((prev) => prev + e.payload);
     });
@@ -80,7 +85,7 @@ export function NotesView({ sessionId, initialNotes, onNotesChange, isRunning }:
   useEffect(() => {
     if (!sessionId) {
       setMarkdown("");
-      setSelectedTemplate(TEMPLATES[0].id);
+      setSelectedTemplate(templates[0]?.id ?? FALLBACK_TEMPLATES[0].id);
       setError(null);
       setShowThoughts(false);
       setSummaryHistory([]);
@@ -97,7 +102,7 @@ export function NotesView({ sessionId, initialNotes, onNotesChange, isRunning }:
       setSelectedTemplate(initialNotes.template.id);
     } else {
       setMarkdown("");
-      setSelectedTemplate(TEMPLATES[0].id);
+      setSelectedTemplate(templates[0]?.id ?? FALLBACK_TEMPLATES[0].id);
     }
 
     setError(null);
@@ -228,7 +233,7 @@ export function NotesView({ sessionId, initialNotes, onNotesChange, isRunning }:
             fontSize: typography.md,
           }}
         >
-          {TEMPLATES.map((t) => (
+          {templates.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name}
             </option>

@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ApiKeys, AppSettings, SttStatus } from "../types";
 import { colors, typography, spacing } from "../theme";
+import { PromptsView } from "./PromptsView";
 
-type Tab = "general" | "ai" | "advanced";
+type Tab = "general" | "ai" | "advanced" | "prompts";
 
 const transcriptionLocaleOptions = [
   { value: "auto", label: "Auto Detect" },
@@ -448,6 +449,12 @@ export function SettingsView({
           onClick={() => setActiveTab("advanced")}
         >
           Advanced
+        </button>
+        <button
+          style={styles.tab(activeTab === "prompts")}
+          onClick={() => setActiveTab("prompts")}
+        >
+          Prompts
         </button>
       </div>
 
@@ -1024,6 +1031,9 @@ export function SettingsView({
           </div>
         </div>
       )}
+
+      {/* Prompts Tab */}
+      {activeTab === "prompts" && <PromptsView />}
 
       {/* Status Messages */}
       {error && (
