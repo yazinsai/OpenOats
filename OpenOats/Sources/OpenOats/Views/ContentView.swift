@@ -37,6 +37,7 @@ struct ContentView: View {
     @State private var knowledgeBase: KnowledgeBase?
     @State private var suggestionEngine: SuggestionEngine?
     @State private var overlayManager = OverlayManager()
+    @State private var miniBarManager = MiniBarManager()
     @AppStorage("isTranscriptExpanded") private var isTranscriptExpanded = true
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var showOnboarding = false
@@ -274,6 +275,7 @@ struct ContentView: View {
                 suggestionEngine = se
             }
             overlayManager.defaults = runtime.defaults
+            miniBarManager.defaults = runtime.defaults
             await runtime.seedIfNeeded(coordinator: coordinator)
             refreshViewState()
             indexKBIfNeeded()
@@ -335,6 +337,37 @@ struct ContentView: View {
 
     private func stopSession() {
         coordinator.handle(.userStopped, settings: settings)
+    }
+
+    private func showMiniBar() {
+        let content = MiniBarContent(
+            audioLevel: audioLevel,
+            suggestions: viewState.suggestions,
+            isGenerating: viewState.isGeneratingSuggestions,
+            onTap: {
+                // Tapping the bar brings focus back to main window
+                if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == OpenOatsRootApp.mainWindowID }) {
+                    window.makeKeyAndOrderFront(nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            }
+        )
+        miniBarManager.show(content: content)
+    }
+
+    private func updateMiniBarContent() {
+        let content = MiniBarContent(
+            audioLevel: audioLevel,
+            suggestions: viewState.suggestions,
+            isGenerating: viewState.isGeneratingSuggestions,
+            onTap: {
+                if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == OpenOatsRootApp.mainWindowID }) {
+                    window.makeKeyAndOrderFront(nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            }
+        )
+        miniBarManager.show(content: content)
     }
 
     private func toggleOverlay() {
@@ -539,6 +572,11 @@ struct ContentView: View {
 
         if currentViewState.isRunning != observedIsRunning {
             observedIsRunning = currentViewState.isRunning
+            if currentViewState.isRunning {
+                showMiniBar()
+            } else {
+                miniBarManager.hide()
+            }
         }
 
         let pendingExternalCommandID = coordinator.pendingExternalCommand?.id
@@ -554,6 +592,9 @@ struct ContentView: View {
 
         if currentViewState.isRunning {
             audioLevel = coordinator.transcriptionEngine?.audioLevel ?? 0
+            if miniBarManager.isVisible {
+                updateMiniBarContent()
+            }
         } else if audioLevel != 0 {
             audioLevel = 0
         }
