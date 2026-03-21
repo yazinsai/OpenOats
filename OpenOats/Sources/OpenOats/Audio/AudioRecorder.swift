@@ -40,11 +40,11 @@ final class AudioRecorder: @unchecked Sendable {
 
     func writeMicBuffer(_ buffer: AVAudioPCMBuffer) {
         lock.withLock {
-            guard buffer.frameLength > 0, let src = buffer.floatChannelData else { return }
+            guard buffer.frameLength > 0 else { return }
             let frames = Int(buffer.frameLength)
             let channels = Int(buffer.format.channelCount)
 
-            // Lazily create file as mono 48kHz (avoids deinterleaved format issues)
+            // Lazily create file as mono at the source sample rate
             if micFile == nil, let url = micTempURL {
                 let monoFormat = AVAudioFormat(
                     standardFormatWithSampleRate: buffer.format.sampleRate, channels: 1
@@ -53,7 +53,7 @@ final class AudioRecorder: @unchecked Sendable {
                 diagLog("[RECORDER] mic file created: \(url.lastPathComponent) mono at \(buffer.format.sampleRate)Hz")
             }
 
-            // Downmix to mono inline
+            // Downmix to mono inline — handle float32, int16, and int32 formats
             guard let monoFormat = AVAudioFormat(
                 standardFormatWithSampleRate: buffer.format.sampleRate, channels: 1
             ),
@@ -61,15 +61,70 @@ final class AudioRecorder: @unchecked Sendable {
             let dst = monoBuf.floatChannelData?[0] else { return }
             monoBuf.frameLength = buffer.frameLength
 
-            if channels == 1 {
-                memcpy(dst, src[0], frames * MemoryLayout<Float>.size)
-            } else {
-                let scale = 1.0 / Float(channels)
-                for i in 0..<frames {
-                    var sum: Float = 0
-                    for ch in 0..<channels { sum += src[ch][i] }
-                    dst[i] = sum * scale
+            if let src = buffer.floatChannelData {
+                if channels == 1 {
+                    if buffer.format.isInterleaved {
+                        memcpy(dst, src[0], frames * MemoryLayout<Float>.size)
+                    } else {
+                        memcpy(dst, src[0], frames * MemoryLayout<Float>.size)
+                    }
+                } else {
+                    let scale = 1.0 / Float(channels)
+                    if buffer.format.isInterleaved {
+                        for i in 0..<frames {
+                            var sum: Float = 0
+                            for ch in 0..<channels { sum += src[0][(i * channels) + ch] }
+                            dst[i] = sum * scale
+                        }
+                    } else {
+                        for i in 0..<frames {
+                            var sum: Float = 0
+                            for ch in 0..<channels { sum += src[ch][i] }
+                            dst[i] = sum * scale
+                        }
+                    }
                 }
+            } else if let src = buffer.int16ChannelData {
+                let scale = 1.0 / Float(Int16.max)
+                if channels == 1 {
+                    for i in 0..<frames { dst[i] = Float(src[0][i]) * scale }
+                } else if buffer.format.isInterleaved {
+                    let invCh = 1.0 / Float(channels)
+                    for i in 0..<frames {
+                        var sum: Float = 0
+                        for ch in 0..<channels { sum += Float(src[0][(i * channels) + ch]) * scale }
+                        dst[i] = sum * invCh
+                    }
+                } else {
+                    let invCh = 1.0 / Float(channels)
+                    for i in 0..<frames {
+                        var sum: Float = 0
+                        for ch in 0..<channels { sum += Float(src[ch][i]) * scale }
+                        dst[i] = sum * invCh
+                    }
+                }
+            } else if let src = buffer.int32ChannelData {
+                let scale = 1.0 / Float(Int32.max)
+                if channels == 1 {
+                    for i in 0..<frames { dst[i] = Float(src[0][i]) * scale }
+                } else if buffer.format.isInterleaved {
+                    let invCh = 1.0 / Float(channels)
+                    for i in 0..<frames {
+                        var sum: Float = 0
+                        for ch in 0..<channels { sum += Float(src[0][(i * channels) + ch]) * scale }
+                        dst[i] = sum * invCh
+                    }
+                } else {
+                    let invCh = 1.0 / Float(channels)
+                    for i in 0..<frames {
+                        var sum: Float = 0
+                        for ch in 0..<channels { sum += Float(src[ch][i]) * scale }
+                        dst[i] = sum * invCh
+                    }
+                }
+            } else {
+                diagLog("[RECORDER] mic write SKIP: unsupported buffer format \(buffer.format.commonFormat.rawValue)")
+                return
             }
 
             micWriteCount += 1

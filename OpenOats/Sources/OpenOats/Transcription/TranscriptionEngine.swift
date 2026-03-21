@@ -233,11 +233,21 @@ final class TranscriptionEngine {
             return
         }
         currentMicDeviceID = targetMicID
-        diagLog("[ENGINE-3] starting mic capture, targetMicID=\(String(describing: targetMicID))")
+        // AEC (voice processing) conflicts with system audio capture on macOS —
+        // both cause CoreAudio aggregate-device reconfiguration that can stall the
+        // mic stream. Since system audio capture is always active during recording,
+        // AEC must be disabled to prevent capture failures.
+        let useAEC = false
+        if settings.enableEchoCancellation {
+            diagLog("[ENGINE-3] AEC disabled — conflicts with system audio capture")
+        }
+
+        diagLog("[ENGINE-3] starting mic capture, targetMicID=\(String(describing: targetMicID)), aec=\(useAEC)")
         startMicStream(
             locale: locale,
             vadManager: vadManager,
-            deviceID: targetMicID
+            deviceID: targetMicID,
+            echoCancellation: useAEC
         )
 
         // Check for immediate mic capture failure
@@ -246,13 +256,28 @@ final class TranscriptionEngine {
             lastError = micError
         }
 
-        // Health check: warn if mic produces no audio within 5 seconds
+        // Health check: if mic produces no audio within 5 seconds, retry once
+        // without AEC before surfacing the error.
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(5))
             guard let self, self.isRunning else { return }
             if !self.micCapture.hasCapturedFrames && self.micCapture.captureError == nil {
-                diagLog("[ENGINE-HEALTH] no mic audio after 5s")
-                self.lastError = "Microphone is not producing audio. Check your input device in System Settings."
+                if useAEC {
+                    diagLog("[ENGINE-HEALTH] no mic audio after 5s with AEC, retrying without")
+                    self.micCapture.finishStream()
+                    await self.micTask?.value
+                    self.micTask = nil
+                    self.micCapture.stop()
+                    self.startMicStream(
+                        locale: locale,
+                        vadManager: vadManager,
+                        deviceID: targetMicID,
+                        echoCancellation: false
+                    )
+                } else {
+                    diagLog("[ENGINE-HEALTH] no mic audio after 5s")
+                    self.lastError = "Microphone is not producing audio. Check your input device in System Settings."
+                }
             }
         }
 
@@ -550,9 +575,10 @@ final class TranscriptionEngine {
     private func startMicStream(
         locale: Locale,
         vadManager: VadManager,
-        deviceID: AudioDeviceID
+        deviceID: AudioDeviceID,
+        echoCancellation: Bool = false
     ) {
-        var micStream = micCapture.bufferStream(deviceID: deviceID, echoCancellation: settings.enableEchoCancellation)
+        var micStream = micCapture.bufferStream(deviceID: deviceID, echoCancellation: echoCancellation)
         if let recorder = audioRecorder {
             micStream = Self.tappedStream(micStream) { buffer in
                 recorder.writeMicBuffer(buffer)

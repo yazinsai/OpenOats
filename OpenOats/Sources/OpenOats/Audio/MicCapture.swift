@@ -114,15 +114,19 @@ final class MicCapture: @unchecked Sendable {
                 return
             }
 
-            guard let tapFormat = AVAudioFormat(
-                standardFormatWithSampleRate: sampleRate,
-                channels: format.channelCount
-            ) else {
-                let msg = "Failed to build tap format from input format"
-                diagLog("[MIC-4-FAIL] \(msg)")
-                errorHolder.value = msg
-                continuation.finish()
-                return
+            // Try multiple tap formats — some devices report formats that don't
+            // round-trip through AVAudioFormat(standardFormat:). Fall back to the
+            // native input format as a last resort.
+            let tapFormat: AVAudioFormat
+            if let f = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: format.channelCount) {
+                tapFormat = f
+            } else if sampleRate != format.sampleRate,
+                      let f = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: format.channelCount) {
+                diagLog("[MIC-4] hardware-rate format failed, using node rate \(format.sampleRate)")
+                tapFormat = f
+            } else {
+                diagLog("[MIC-4] standard formats failed, using native input format")
+                tapFormat = format
             }
 
             diagLog("[MIC-4] tapFormat: sr=\(tapFormat.sampleRate) ch=\(tapFormat.channelCount)")

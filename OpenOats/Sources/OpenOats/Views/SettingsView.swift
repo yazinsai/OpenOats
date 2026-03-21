@@ -152,7 +152,7 @@ struct SettingsView: View {
 
                 Toggle("Echo cancellation", isOn: $settings.enableEchoCancellation)
                     .font(.system(size: 12))
-                Text("Reduces duplicate transcription when using speakers and microphone simultaneously. Takes effect on next session.")
+                Text("Reduces duplicate transcription when using speakers and microphone simultaneously. Currently disabled during recording because it conflicts with system audio capture on macOS.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
