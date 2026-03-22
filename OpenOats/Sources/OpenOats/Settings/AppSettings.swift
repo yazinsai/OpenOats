@@ -68,6 +68,23 @@ enum LLMProvider: String, CaseIterable, Identifiable {
     }
 }
 
+/// LS-EEND diarization model variant.
+enum DiarizationVariant: String, CaseIterable, Identifiable {
+    case ami
+    case callhome
+    case dihard3
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .ami: "AMI (In-person, 4 speakers)"
+        case .callhome: "CALLHOME (Phone, 7 speakers)"
+        case .dihard3: "DIHARD III (General, 10 speakers)"
+        }
+    }
+}
+
 enum TranscriptionModel: String, CaseIterable, Identifiable {
     case parakeetV2
     case parakeetV3
@@ -562,6 +579,32 @@ final class AppSettings {
         }
     }
 
+    // MARK: - Speaker Diarization
+
+    /// When true, LS-EEND diarization runs on system audio to distinguish multiple remote speakers.
+    @ObservationIgnored nonisolated(unsafe) private var _enableDiarization: Bool
+    var enableDiarization: Bool {
+        get { access(keyPath: \.enableDiarization); return _enableDiarization }
+        set {
+            withMutation(keyPath: \.enableDiarization) {
+                _enableDiarization = newValue
+                defaults.set(newValue, forKey: "enableDiarization")
+            }
+        }
+    }
+
+    /// The LS-EEND variant used for diarization.
+    @ObservationIgnored nonisolated(unsafe) private var _diarizationVariant: String
+    var diarizationVariant: DiarizationVariant {
+        get { access(keyPath: \.diarizationVariant); return DiarizationVariant(rawValue: _diarizationVariant) ?? .dihard3 }
+        set {
+            withMutation(keyPath: \.diarizationVariant) {
+                _diarizationVariant = newValue.rawValue
+                defaults.set(newValue.rawValue, forKey: "diarizationVariant")
+            }
+        }
+    }
+
     /// When true, all app windows are invisible to screen sharing / recording.
     @ObservationIgnored nonisolated(unsafe) private var _hideFromScreenShare: Bool
     var hideFromScreenShare: Bool {
@@ -714,6 +757,10 @@ final class AppSettings {
         self._batchTranscriptionModel = TranscriptionModel(
             rawValue: defaults.string(forKey: "batchTranscriptionModel") ?? ""
         ) ?? .whisperLargeV3Turbo
+
+        // Diarization — default to disabled
+        self._enableDiarization = defaults.bool(forKey: "enableDiarization")
+        self._diarizationVariant = defaults.string(forKey: "diarizationVariant") ?? DiarizationVariant.dihard3.rawValue
 
         // Echo cancellation — default to enabled
         if defaults.object(forKey: "enableEchoCancellation") == nil {

@@ -265,6 +265,23 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Speaker Diarization") {
+                Toggle("Identify multiple remote speakers", isOn: $settings.enableDiarization)
+                    .font(.system(size: 12))
+                Text("Uses LS-EEND to distinguish different speakers on system audio. Requires a one-time model download (~50 MB).")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                if settings.enableDiarization {
+                    Picker("Variant", selection: $settings.diarizationVariant) {
+                        ForEach(DiarizationVariant.allCases) { variant in
+                            Text(variant.displayName).tag(variant)
+                        }
+                    }
+                    .font(.system(size: 12))
+                }
+            }
+
             Section("Privacy") {
                 Toggle("Hide from screen sharing", isOn: $settings.hideFromScreenShare)
                     .font(.system(size: 12))

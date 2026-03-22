@@ -109,6 +109,9 @@ final class TranscriptionEngine {
     /// Audio recorder for tapping streams (set by ContentView when recording is enabled).
     var audioRecorder: AudioRecorder?
 
+    /// Speaker diarization manager for system audio (nil when diarization is disabled).
+    private var diarizationManager: DiarizationManager?
+
     /// Tracks the resolved mic device ID currently in use.
     private var currentMicDeviceID: AudioDeviceID = 0
 
@@ -212,6 +215,19 @@ final class TranscriptionEngine {
             diagLog("[ENGINE-1b] loading VAD model...")
             let vad = try await VadManager()
             self.vadManager = vad
+
+            // Optionally load speaker diarization model
+            if settings.enableDiarization {
+                assetStatus = "Loading diarization model..."
+                diagLog("[ENGINE-1c] loading LS-EEND diarization model...")
+                let dm = DiarizationManager()
+                let variant = LSEENDVariant(rawValue: settings.diarizationVariant.rawValue) ?? .dihard3
+                try await dm.load(variant: variant)
+                self.diarizationManager = dm
+                diagLog("[ENGINE-1c] diarization model loaded")
+            } else {
+                self.diarizationManager = nil
+            }
 
             needsModelDownload = false
             downloadConfirmed = false
@@ -467,6 +483,12 @@ final class TranscriptionEngine {
         pendingMicDeviceID = nil
         micKeepAliveTask = nil
         currentMicDeviceID = 0
+        // Finalize and release diarization manager
+        if let dm = diarizationManager {
+            await dm.finalize()
+        }
+        diarizationManager = nil
+
         micBackend = nil
         systemBackend = nil
         isRunning = false
@@ -645,6 +667,25 @@ final class TranscriptionEngine {
             }
         }
 
+        // Track cumulative audio time for diarizer speaker attribution
+        let sysAudioTime = SyncDouble()
+
+        // Tee system audio to diarization manager if enabled
+        let dm = diarizationManager
+        if dm != nil {
+            sysStream = Self.tappedStream(sysStream) { buffer in
+                guard let channelData = buffer.floatChannelData else { return }
+                let frameCount = Int(buffer.frameLength)
+                let sampleRate = buffer.format.sampleRate
+                sysAudioTime.add(Double(frameCount) / sampleRate)
+                let samples = Array(UnsafeBufferPointer(
+                    start: channelData[0],
+                    count: frameCount
+                ))
+                Task { try? await dm?.feedAudio(samples) }
+            }
+        }
+
         let store = transcriptStore
         guard let sysTranscriber = makeTranscriber(
             locale: locale,
@@ -653,10 +694,19 @@ final class TranscriptionEngine {
             onPartial: { text in
                 Task { @MainActor in store.volatileThemText = text }
             },
-            onFinal: { text in
+            onFinal: { [weak self] text in
                 Task { @MainActor in
                     store.volatileThemText = ""
-                    store.append(Utterance(text: text, speaker: .them))
+                    let speaker: Speaker
+                    if let dm = self?.diarizationManager {
+                        // Estimate segment time: each onFinal is ~3-5s of speech
+                        let endTime = sysAudioTime.value
+                        let startTime = max(0, endTime - 5.0)
+                        speaker = await dm.dominantSpeaker(from: startTime, to: endTime)
+                    } else {
+                        speaker = .them
+                    }
+                    store.append(Utterance(text: text, speaker: speaker))
                 }
             }
         ) else {

@@ -26,7 +26,9 @@ actor BatchTranscriptionEngine {
         model: TranscriptionModel,
         locale: Locale,
         sessionStore: SessionStore,
-        notesDirectory: URL
+        notesDirectory: URL,
+        enableDiarization: Bool = false,
+        diarizationVariant: DiarizationVariant = .dihard3
     ) async {
         // Cancel any existing task
         currentTask?.cancel()
@@ -39,7 +41,9 @@ actor BatchTranscriptionEngine {
                     model: model,
                     locale: locale,
                     sessionStore: sessionStore,
-                    notesDirectory: notesDirectory
+                    notesDirectory: notesDirectory,
+                    enableDiarization: enableDiarization,
+                    diarizationVariant: diarizationVariant
                 )
             } catch is CancellationError {
                 await self.setStatus(.cancelled)
@@ -72,7 +76,9 @@ actor BatchTranscriptionEngine {
         model: TranscriptionModel,
         locale: Locale,
         sessionStore: SessionStore,
-        notesDirectory: URL
+        notesDirectory: URL,
+        enableDiarization: Bool,
+        diarizationVariant: DiarizationVariant
     ) async throws {
         batchLog.info("Starting batch transcription for \(sessionID) with \(model.rawValue)")
         status = .loading(model: model.displayName)
@@ -129,6 +135,22 @@ actor BatchTranscriptionEngine {
         try Task.checkCancellation()
 
         if let sysURL = urls.sys {
+            // Optionally run diarization on the full system audio
+            var batchDiarizer: DiarizationManager?
+            if enableDiarization {
+                batchLog.info("Running LS-EEND diarization on system audio...")
+                let dm = DiarizationManager()
+                let variant = LSEENDVariant(rawValue: diarizationVariant.rawValue) ?? .dihard3
+                try await dm.load(variant: variant)
+                // Process complete audio file through diarizer
+                let converter = AudioConverter(sampleRate: 16000)
+                let samples = try converter.resampleAudioFile(sysURL)
+                try await dm.feedAudio(samples)
+                await dm.finalize()
+                batchDiarizer = dm
+                batchLog.info("Diarization complete")
+            }
+
             sysRecords = try await transcribeFile(
                 url: sysURL,
                 speaker: .them,
@@ -138,7 +160,8 @@ actor BatchTranscriptionEngine {
                 vad: vad,
                 locale: locale,
                 progressBase: Double(filesProcessed) / Double(totalFiles),
-                progressScale: 1.0 / Double(totalFiles)
+                progressScale: 1.0 / Double(totalFiles),
+                diarizationManager: batchDiarizer
             )
             batchLog.info("Sys transcription: \(sysRecords.count) records")
         }
@@ -188,7 +211,8 @@ actor BatchTranscriptionEngine {
         vad: VadManager,
         locale: Locale,
         progressBase: Double,
-        progressScale: Double
+        progressScale: Double,
+        diarizationManager: DiarizationManager? = nil
     ) async throws -> [SessionRecord] {
         guard let audioFile = try? AVAudioFile(forReading: url) else {
             batchLog.warning("Cannot open audio file: \(url.lastPathComponent)")
@@ -236,8 +260,19 @@ actor BatchTranscriptionEngine {
                 let timeOffset = sampleOffsetInFile / resolvedSampleRate
                 let timestamp = resolvedStartDate.addingTimeInterval(timeOffset)
 
+                // Resolve speaker from diarizer if available
+                let resolvedSpeaker: Speaker
+                if let dm = diarizationManager {
+                    let endSample = segment.startSample + segment.samples.count
+                    let segEndOffset = Double(frameOffset) + Double(endSample) * fileSampleRate / 16000.0
+                    let segEndTime = segEndOffset / resolvedSampleRate
+                    resolvedSpeaker = await dm.dominantSpeaker(from: timeOffset, to: segEndTime)
+                } else {
+                    resolvedSpeaker = speaker
+                }
+
                 records.append(SessionRecord(
-                    speaker: speaker,
+                    speaker: resolvedSpeaker,
                     text: text,
                     timestamp: timestamp
                 ))

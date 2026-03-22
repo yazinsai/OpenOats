@@ -408,13 +408,17 @@ final class AppCoordinator {
             let batchLocale = settings.locale
             let notesDir = URL(fileURLWithPath: settings.notesFolderPath)
             let store = sessionStore
+            let diarize = settings.enableDiarization
+            let diarizeVariant = settings.diarizationVariant
             Task.detached { [batchEngine] in
                 await batchEngine.process(
                     sessionID: batchSessionID,
                     model: batchModel,
                     locale: batchLocale,
                     sessionStore: store,
-                    notesDirectory: notesDir
+                    notesDirectory: notesDir,
+                    enableDiarization: diarize,
+                    diarizationVariant: diarizeVariant
                 )
             }
         }
