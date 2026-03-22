@@ -62,6 +62,13 @@ actor DiarizationManager {
 
         guard bestOverlap > 0 else { return .them }
 
+        // If only one speaker was detected in the entire session, fall back to .them
+        // for backward compatibility (no point labeling "Speaker 1" when there's only one).
+        let activeSpeakers = speakers.values.filter { $0.hasSegments }
+        if activeSpeakers.count <= 1 {
+            return .them
+        }
+
         // Map diarizer speaker index to Speaker enum
         // Index 0 → .remote(1), index 1 → .remote(2), etc.
         return .remote(bestSpeaker + 1)

@@ -423,8 +423,8 @@ struct NotesView: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(record.speaker.displayLabel)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(record.speaker == .you ? Color.youColor : Color.themColor)
-                .frame(width: 36, alignment: .trailing)
+                .foregroundStyle(record.speaker.color)
+                .frame(minWidth: 36, alignment: .trailing)
 
             let displayText = showingOriginal ? record.text : (record.refinedText ?? record.text)
             Text(displayText)

@@ -97,10 +97,19 @@ enum MarkdownMeetingWriter {
         lines.append("date: \(formatISO8601(metadata.startedAt))")
         lines.append("duration: \(computeDuration(records: records, metadata: metadata))")
 
-        // Participants - always You/Them for now
+        // Participants - derived from actual speakers in the transcript
+        let speakerLabels: [String] = {
+            var seen: [String] = []
+            for r in records {
+                let label = r.speaker.displayLabel
+                if !seen.contains(label) { seen.append(label) }
+            }
+            return seen.isEmpty ? ["You", "Them"] : seen
+        }()
         lines.append("participants:")
-        lines.append("  - You")
-        lines.append("  - Them")
+        for label in speakerLabels {
+            lines.append("  - \(label)")
+        }
 
         // Recorder (system user's full name)
         let recorderName = NSFullUserName()
