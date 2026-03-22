@@ -1,0 +1,242 @@
+[
+  {
+    "model": "large-v3-turbo",
+    "language": "polish",
+    "file": "polish_0.wav",
+    "wer": 0.02631578947368421,
+    "cer": 0.00392156862745098,
+    "elapsed": 29.61875581741333,
+    "ref": "stali\u015bmy wszyscy bezradni wobec tej szalej\u0105cej furii z\u0142o\u015bci kt\u00f3ra sama siebie tr",
+    "hyp": "stali\u015bmy wszyscy bezradni wobec tej szalej\u0105cej furyi z\u0142o\u015bci kt\u00f3ra sama siebie tr"
+  },
+  {
+    "model": "large-v3-turbo",
+    "language": "polish",
+    "file": "polish_1.wav",
+    "wer": 0.0,
+    "cer": 0.0,
+    "elapsed": 27.107510089874268,
+    "ref": "nawet w obecno\u015bci matki le\u017c\u0105cej z zawi\u0105zan\u0105 g\u0142ow\u0105 na sofie nie mog\u0142y si\u0119 powstrz",
+    "hyp": "nawet w obecno\u015bci matki le\u017c\u0105cej z zawi\u0105zan\u0105 g\u0142ow\u0105 na sofie nie mog\u0142y si\u0119 powstrz"
+  },
+  {
+    "model": "large-v3-turbo",
+    "language": "spanish",
+    "file": "spanish_0.wav",
+    "wer": 0.0,
+    "cer": 0.0,
+    "elapsed": 38.98723101615906,
+    "ref": "y las almas buscando alg\u00fan alivio se revuelven ansiosas y hacen el mundo que as\u00ed",
+    "hyp": "y las almas buscando alg\u00fan alivio se revuelven ansiosas y hacen el mundo que as\u00ed"
+  },
+  {
+    "model": "large-v3-turbo",
+    "language": "spanish",
+    "file": "spanish_1.wav",
+    "wer": 0.024390243902439025,
+    "cer": 0.0045871559633027525,
+    "elapsed": 28.40156626701355,
+    "ref": "cuando calla el dolor se oye a la muerte las alas tenebrosas batir en los profun",
+    "hyp": "cuando calla el dolor se oye a la muerte las alas tenebrosas batir en los profun"
+  },
+  {
+    "model": "large-v3-turbo",
+    "language": "french",
+    "file": "french_0.wav",
+    "wer": 0.0,
+    "cer": 0.0,
+    "elapsed": 28.643215894699097,
+    "ref": "pendant le second si\u00e8cle je fis serment douvrir tous les tr\u00e9sors de la terre \u00e0 q",
+    "hyp": "pendant le second si\u00e8cle je fis serment douvrir tous les tr\u00e9sors de la terre \u00e0 q"
+  },
+  {
+    "model": "large-v3-turbo",
+    "language": "french",
+    "file": "french_1.wav",
+    "wer": 0.03278688524590164,
+    "cer": 0.009615384615384616,
+    "elapsed": 29.78007411956787,
+    "ref": "non ta mort est certaine dit le g\u00e9nie choisis seulement de quelle sorte tu veux ",
+    "hyp": "non ta mort est certaine dit le g\u00e9nie choisis seulement de quelle sorte tu veux "
+  },
+  {
+    "model": "large-v3-turbo",
+    "language": "german",
+    "file": "german_0.wav",
+    "wer": 0.125,
+    "cer": 0.02127659574468085,
+    "elapsed": 31.323474884033203,
+    "ref": "denken sie soeben weilten meine gedanken bei ihnen in adelaide und ich w\u00fcnschte ",
+    "hyp": "denken sie soeben weilten meine gedanken bei ihnen in adelaide und ich wunschte "
+  },
+  {
+    "model": "large-v3-turbo",
+    "language": "german",
+    "file": "german_1.wav",
+    "wer": 0.0,
+    "cer": 0.0,
+    "elapsed": 29.706756830215454,
+    "ref": "also bei ihren technischen kenntnissen und ihrer erfindungsgabe auf diesem gebie",
+    "hyp": "also bei ihren technischen kenntnissen und ihrer erfindungsgabe auf diesem gebie"
+  },
+  {
+    "model": "small",
+    "language": "polish",
+    "file": "polish_0.wav",
+    "wer": 0.02631578947368421,
+    "cer": 0.00392156862745098,
+    "elapsed": 27.759119033813477,
+    "ref": "stali\u015bmy wszyscy bezradni wobec tej szalej\u0105cej furii z\u0142o\u015bci kt\u00f3ra sama siebie tr",
+    "hyp": "stali\u015bmy wszyscy bezradni wobec tej szalej\u0105cej furii z\u0142o\u015bci kt\u00f3ra sama siebie tr"
+  },
+  {
+    "model": "small",
+    "language": "polish",
+    "file": "polish_1.wav",
+    "wer": 0.13157894736842105,
+    "cer": 0.015267175572519083,
+    "elapsed": 29.2135751247406,
+    "ref": "nawet w obecno\u015bci matki le\u017c\u0105cej z zawi\u0105zan\u0105 g\u0142ow\u0105 na sofie nie mog\u0142y si\u0119 powstrz",
+    "hyp": "nawet wobecno\u015bci matki le\u017c\u0105cej z zawi\u0105zan\u0105 g\u0142ow\u0105 na sofie nie mog\u0142y si\u0119 powstrzy"
+  },
+  {
+    "model": "small",
+    "language": "spanish",
+    "file": "spanish_0.wav",
+    "wer": 0.03225806451612903,
+    "cer": 0.006211180124223602,
+    "elapsed": 12.09125018119812,
+    "ref": "y las almas buscando alg\u00fan alivio se revuelven ansiosas y hacen el mundo que as\u00ed",
+    "hyp": "y las almas buscando alg\u00fan alivio se revuelven ansioses y hacen el mundo que as\u00ed"
+  },
+  {
+    "model": "small",
+    "language": "spanish",
+    "file": "spanish_1.wav",
+    "wer": 0.024390243902439025,
+    "cer": 0.0045871559633027525,
+    "elapsed": 20.607052087783813,
+    "ref": "cuando calla el dolor se oye a la muerte las alas tenebrosas batir en los profun",
+    "hyp": "cuando calla el dolor se oye a la muerte las alas tenebrosas batir en los profun"
+  },
+  {
+    "model": "small",
+    "language": "french",
+    "file": "french_0.wav",
+    "wer": 0.15555555555555556,
+    "cer": 0.064,
+    "elapsed": 20.3839590549469,
+    "ref": "pendant le second si\u00e8cle je fis serment douvrir tous les tr\u00e9sors de la terre \u00e0 q",
+    "hyp": "pendant le second si\u00e8cle je fis serment douvrir tous les tr\u00e9sors de la terre \u00e0 q"
+  },
+  {
+    "model": "small",
+    "language": "french",
+    "file": "french_1.wav",
+    "wer": 0.09836065573770492,
+    "cer": 0.03205128205128205,
+    "elapsed": 33.21484398841858,
+    "ref": "non ta mort est certaine dit le g\u00e9nie choisis seulement de quelle sorte tu veux ",
+    "hyp": "non ta mort est certaine dit le g\u00e9nie choisis seulement de quelle sorte tu veux "
+  },
+  {
+    "model": "small",
+    "language": "german",
+    "file": "german_0.wav",
+    "wer": 0.09375,
+    "cer": 0.02127659574468085,
+    "elapsed": 39.31195306777954,
+    "ref": "denken sie soeben weilten meine gedanken bei ihnen in adelaide und ich w\u00fcnschte ",
+    "hyp": "denken sie soeben walten meine gedanken bei ihnen in adelaide und ich w\u00fcnschte m"
+  },
+  {
+    "model": "small",
+    "language": "german",
+    "file": "german_1.wav",
+    "wer": 0.07407407407407407,
+    "cer": 0.011111111111111112,
+    "elapsed": 18.51436424255371,
+    "ref": "also bei ihren technischen kenntnissen und ihrer erfindungsgabe auf diesem gebie",
+    "hyp": "also bei ihren technischen kenntnissen und ihrer erfindungsgabe auf diesem gebie"
+  },
+  {
+    "model": "base",
+    "language": "polish",
+    "file": "polish_0.wav",
+    "wer": 0.05263157894736842,
+    "cer": 0.00784313725490196,
+    "elapsed": 7.524443864822388,
+    "ref": "stali\u015bmy wszyscy bezradni wobec tej szalej\u0105cej furii z\u0142o\u015bci kt\u00f3ra sama siebie tr",
+    "hyp": "stali\u015bmy wszyscy bezradni wobec tej szalej\u0105cej furii z\u0142o\u015bci kt\u00f3ra sama siebie tr"
+  },
+  {
+    "model": "base",
+    "language": "polish",
+    "file": "polish_1.wav",
+    "wer": 0.3157894736842105,
+    "cer": 0.03816793893129771,
+    "elapsed": 11.547529935836792,
+    "ref": "nawet w obecno\u015bci matki le\u017c\u0105cej z zawi\u0105zan\u0105 g\u0142ow\u0105 na sofie nie mog\u0142y si\u0119 powstrz",
+    "hyp": "nawet wobecno\u015bci matki le\u017c\u0105cej z zawi\u0105zan\u0105 g\u0142ow\u0105 na sofi\u0119 nie mog\u0142y si\u0119 powstrzy"
+  },
+  {
+    "model": "base",
+    "language": "spanish",
+    "file": "spanish_0.wav",
+    "wer": 0.12903225806451613,
+    "cer": 0.037267080745341616,
+    "elapsed": 14.672544002532959,
+    "ref": "y las almas buscando alg\u00fan alivio se revuelven ansiosas y hacen el mundo que as\u00ed",
+    "hyp": "y las almas buscando alguna livio se revuelven ansiosas y hacen el mundo que as\u00ed"
+  },
+  {
+    "model": "base",
+    "language": "spanish",
+    "file": "spanish_1.wav",
+    "wer": 0.17073170731707318,
+    "cer": 0.03211009174311927,
+    "elapsed": 13.943961143493652,
+    "ref": "cuando calla el dolor se oye a la muerte las alas tenebrosas batir en los profun",
+    "hyp": "cuando calle el dolor se oye a la muerte las salas tenebrosas batire en los prof"
+  },
+  {
+    "model": "base",
+    "language": "french",
+    "file": "french_0.wav",
+    "wer": 0.2,
+    "cer": 0.104,
+    "elapsed": 9.866574048995972,
+    "ref": "pendant le second si\u00e8cle je fis serment douvrir tous les tr\u00e9sors de la terre \u00e0 q",
+    "hyp": "pendant le second si\u00e8cle je fiss\u00e8rement douvrir tous les tr\u00e9sors de la terre \u00e0 q"
+  },
+  {
+    "model": "base",
+    "language": "french",
+    "file": "french_1.wav",
+    "wer": 0.26229508196721313,
+    "cer": 0.08653846153846154,
+    "elapsed": 23.716958045959473,
+    "ref": "non ta mort est certaine dit le g\u00e9nie choisis seulement de quelle sorte tu veux ",
+    "hyp": "non ta mort est certaine dit de g\u00e9nie choisi seulement de quel sorte tu veux que"
+  },
+  {
+    "model": "base",
+    "language": "german",
+    "file": "german_0.wav",
+    "wer": 0.1875,
+    "cer": 0.05319148936170213,
+    "elapsed": 8.058078050613403,
+    "ref": "denken sie soeben weilten meine gedanken bei ihnen in adelaide und ich w\u00fcnschte ",
+    "hyp": "denken sie so eben walten meine gedanken bei ihnen in adelaide und ich w\u00fcnschte "
+  },
+  {
+    "model": "base",
+    "language": "german",
+    "file": "german_1.wav",
+    "wer": 0.2222222222222222,
+    "cer": 0.05555555555555555,
+    "elapsed": 7.411097764968872,
+    "ref": "also bei ihren technischen kenntnissen und ihrer erfindungsgabe auf diesem gebie",
+    "hyp": "also bei ihren technischen kenntnissen und ihre erfindungsgabe auf diesem gebiet"
+  }
+]
