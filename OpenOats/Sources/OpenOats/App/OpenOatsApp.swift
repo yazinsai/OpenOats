@@ -39,6 +39,7 @@ public struct OpenOatsRootApp: App {
                 .defaultAppStorage(defaults)
                 .task {
                     await container.activateIfNeeded()
+                    handleUITestScenarioIfNeeded()
                 }
                 .onAppear {
                     appDelegate.liveSessionController = liveSessionController
@@ -141,6 +142,12 @@ public struct OpenOatsRootApp: App {
 
 extension OpenOatsRootApp {
     static let mainWindowID = "main"
+
+    private func handleUITestScenarioIfNeeded() {
+        guard case .uiTest(.notesSmoke) = container.mode else { return }
+        navigationState.queueSessionSelection(AppContainer.notesSmokeSessionID)
+        openNotesWindow()
+    }
 
     private func openNotesWindow() {
         openWindow(id: "notes")
