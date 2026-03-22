@@ -26,7 +26,7 @@ final class Qwen3Backend: TranscriptionBackend, @unchecked Sendable {
         self.qwen3Manager = qwen3
     }
 
-    func transcribe(_ samples: [Float], locale: Locale) async throws -> String {
+    func transcribe(_ samples: [Float], locale: Locale, previousContext: String? = nil) async throws -> String {
         guard let qwen3Manager else {
             throw TranscriptionBackendError.notPrepared
         }

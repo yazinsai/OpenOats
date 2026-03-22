@@ -57,7 +57,7 @@ final class ParakeetBackend: TranscriptionBackend, @unchecked Sendable {
         self.asrManager = asr
     }
 
-    func transcribe(_ samples: [Float], locale: Locale) async throws -> String {
+    func transcribe(_ samples: [Float], locale: Locale, previousContext: String? = nil) async throws -> String {
         guard let asrManager else {
             throw TranscriptionBackendError.notPrepared
         }

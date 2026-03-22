@@ -42,8 +42,11 @@ final class StreamingTranscriber: @unchecked Sendable {
     private static let vadChunkSize = 4096
     private static let minimumSpeechSamples = 8000
     private static let prerollChunkCount = 2
-    /// Flush speech for transcription every ~3 seconds (48,000 samples at 16kHz).
-    private static let flushInterval = 48_000
+    /// Flush speech for transcription every ~5 seconds (80,000 samples at 16kHz).
+    /// A longer flush window reduces the streaming WER penalty with minimal latency impact.
+    private static let flushInterval = 80_000
+    /// Number of trailing words to carry across segment boundaries for decoder priming.
+    private static let contextWordCount = 5
 
     /// Main loop: reads audio buffers, runs VAD, transcribes speech segments.
     func run(stream: AsyncStream<AVAudioPCMBuffer>) async {
@@ -142,11 +145,17 @@ final class StreamingTranscriber: @unchecked Sendable {
         }
     }
 
+    /// Trailing words from the last transcribed segment, used to prime the next segment's decoder.
+    private var previousContext: String?
+
     private func transcribeSegment(_ samples: [Float]) async {
         do {
-            let text = try await backend.transcribe(samples, locale: locale)
+            let text = try await backend.transcribe(samples, locale: locale, previousContext: previousContext)
             guard !text.isEmpty else { return }
             log.info("[\(self.speaker.rawValue)] transcribed: \(text.prefix(80))")
+            // Store trailing words for cross-segment context
+            let words = text.split(separator: " ")
+            previousContext = words.suffix(Self.contextWordCount).joined(separator: " ")
             onFinal(text)
         } catch {
             log.error("ASR error: \(error.localizedDescription)")

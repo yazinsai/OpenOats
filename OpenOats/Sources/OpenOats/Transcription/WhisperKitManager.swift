@@ -44,14 +44,26 @@ final class WhisperKitManager: @unchecked Sendable {
 
     /// Transcribe a segment of 16kHz mono Float32 audio samples.
     /// Returns the transcribed text (empty string if nothing recognized).
-    func transcribe(_ samples: [Float]) async throws -> String {
+    /// - Parameter previousContext: Trailing words from the prior segment, encoded as prompt
+    ///   tokens to prime the Whisper decoder for cross-segment continuity.
+    func transcribe(_ samples: [Float], previousContext: String? = nil) async throws -> String {
         guard let pipe else {
             throw WhisperKitManagerError.notInitialized
+        }
+        var promptTokens: [Int]?
+        if let context = previousContext, !context.isEmpty, let tokenizer = pipe.tokenizer {
+            let encoded = tokenizer.encode(text: " " + context).filter {
+                $0 < tokenizer.specialTokens.specialTokenBegin
+            }
+            if !encoded.isEmpty {
+                promptTokens = encoded
+            }
         }
         let options = DecodingOptions(
             // Let Whisper auto-detect the language
             language: nil,
-            wordTimestamps: false
+            wordTimestamps: false,
+            promptTokens: promptTokens
         )
         let results = try await pipe.transcribe(audioArray: samples, decodeOptions: options)
         return results.map { $0.text }.joined(separator: " ")

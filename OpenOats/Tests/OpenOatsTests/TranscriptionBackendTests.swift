@@ -162,7 +162,7 @@ private final class MockTranscriptionBackend: TranscriptionBackend, @unchecked S
         prepared = true
     }
 
-    func transcribe(_ samples: [Float], locale: Locale) async throws -> String {
+    func transcribe(_ samples: [Float], locale: Locale, previousContext: String? = nil) async throws -> String {
         guard prepared else { throw TranscriptionBackendError.notPrepared }
         return "mock transcription"
     }

@@ -40,10 +40,10 @@ final class WhisperKitBackend: TranscriptionBackend, @unchecked Sendable {
         self.whisperManager = manager
     }
 
-    func transcribe(_ samples: [Float], locale: Locale) async throws -> String {
+    func transcribe(_ samples: [Float], locale: Locale, previousContext: String? = nil) async throws -> String {
         guard let whisperManager else {
             throw TranscriptionBackendError.notPrepared
         }
-        return try await whisperManager.transcribe(samples)
+        return try await whisperManager.transcribe(samples, previousContext: previousContext)
     }
 }
