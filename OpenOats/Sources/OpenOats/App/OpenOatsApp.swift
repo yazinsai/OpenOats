@@ -95,6 +95,14 @@ public struct OpenOatsRootApp: App {
         }
         .defaultSize(width: 700, height: 550)
 
+        Window("Transcript", id: "transcript") {
+            TranscriptWindowView()
+                .environment(runtime)
+                .environment(coordinator)
+                .defaultAppStorage(defaults)
+        }
+        .defaultSize(width: 600, height: 700)
+
         Settings {
             SettingsView(settings: settings, updater: updaterController.updater)
                 .environment(runtime)

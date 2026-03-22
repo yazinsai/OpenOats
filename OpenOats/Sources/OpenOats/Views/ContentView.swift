@@ -227,6 +227,18 @@ struct ContentView: View {
                         Spacer()
                         if isTranscriptExpanded && !viewState.utterances.isEmpty {
                             Button {
+                                openWindow(id: "transcript")
+                            } label: {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .padding(4)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Open transcript in separate window")
+
+                            Button {
                                 copyTranscript()
                             } label: {
                                 Image(systemName: "doc.on.doc")
@@ -236,9 +248,6 @@ struct ContentView: View {
                                     .clipShape(RoundedRectangle(cornerRadius: 4))
                             }
                             .buttonStyle(.plain)
-                            // Same hover executor crash as the Past Meetings button
-                            // and ControlBar toggle (b9625e7). Remove onHover to
-                            // avoid EXC_BAD_ACCESS in swift_getObjectType.
                             .help("Copy transcript")
                         }
                     }
