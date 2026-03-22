@@ -130,6 +130,24 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         return true
     }
 
+    /// Post a notification when batch transcription completes.
+    func postBatchCompleted(sessionID: String) async {
+        guard await ensurePermission() else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Transcript Enhanced"
+        content.body = "Batch transcription is complete. Your meeting transcript has been updated with higher-quality text."
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: "batch-completed-\(sessionID)",
+            content: content,
+            trigger: nil
+        )
+
+        try? await UNUserNotificationCenter.current().add(request)
+    }
+
     /// Remove any pending detection notification.
     func cancelPending() {
         pendingTimeoutTask?.cancel()

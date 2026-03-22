@@ -9,6 +9,7 @@ final class WhisperKitManager: @unchecked Sendable {
     enum Variant: String, Sendable {
         case base = "base"
         case small = "small"
+        case largeV3Turbo = "large-v3-v20240930"
 
         /// HuggingFace repo hosting the CoreML models.
         static let modelRepo = "argmaxinc/whisperkit-coreml"
@@ -18,6 +19,7 @@ final class WhisperKitManager: @unchecked Sendable {
             switch self {
             case .base: "~142 MB"
             case .small: "~244 MB"
+            case .largeV3Turbo: "~800 MB"
             }
         }
     }

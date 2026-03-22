@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 /// Batch transcript cleanup engine that sends transcript chunks to an LLM
 /// to remove filler words and fix punctuation, preserving meaning.
@@ -30,6 +31,7 @@ final class TranscriptCleanupEngine {
         set { withMutation(keyPath: \.error) { _error = newValue } }
     }
 
+    private nonisolated static let logger = Logger(subsystem: "com.openoats.app", category: "TranscriptCleanup")
     private let client = OpenRouterClient()
     private var currentTask: Task<[SessionRecord], Never>?
 
@@ -191,7 +193,7 @@ final class TranscriptCleanupEngine {
     }
 
     /// Splits records into chunks of approximately 2.5 minutes based on timestamps.
-    private static func chunkRecords(_ records: [SessionRecord]) -> [[SessionRecord]] {
+    static func chunkRecords(_ records: [SessionRecord]) -> [[SessionRecord]] {
         guard let first = records.first else { return [] }
 
         let chunkDuration: TimeInterval = 150 // 2.5 minutes
@@ -255,13 +257,14 @@ final class TranscriptCleanupEngine {
 
             return parseResponse(response, originalRecords: records)
         } catch {
+            logger.error("Cleanup chunk failed: \(error.localizedDescription)")
             return nil
         }
     }
 
     /// Parses the LLM response back into session records, stripping the
     /// `[HH:MM:SS] Speaker: ` prefix from each line.
-    private nonisolated static func parseResponse(
+    nonisolated static func parseResponse(
         _ response: String,
         originalRecords: [SessionRecord]
     ) -> [SessionRecord]? {

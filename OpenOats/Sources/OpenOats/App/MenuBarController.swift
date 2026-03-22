@@ -1,6 +1,5 @@
 import AppKit
 import Observation
-import Sparkle
 import SwiftUI
 
 @MainActor
@@ -14,7 +13,11 @@ final class MenuBarController {
     var onShowMainWindow: (() -> Void)?
     var onQuitApp: (() -> Void)?
 
-    init(coordinator: AppCoordinator, settings: AppSettings, updater: SPUUpdater) {
+    init(
+        coordinator: AppCoordinator,
+        settings: AppSettings,
+        onCheckForUpdates: @escaping () -> Void
+    ) {
         self.coordinator = coordinator
         self.settings = settings
 
@@ -27,10 +30,13 @@ final class MenuBarController {
         let popoverView = MenuBarPopoverView(
             coordinator: coordinator,
             settings: settings,
-            updater: updater,
             onShowMainWindow: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.onShowMainWindow?()
+            },
+            onCheckForUpdates: { [weak self] in
+                self?.popover.performClose(nil)
+                onCheckForUpdates()
             },
             onQuit: { [weak self] in
                 self?.popover.performClose(nil)

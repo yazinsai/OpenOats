@@ -19,6 +19,7 @@ struct AppServices {
     let transcriptLogger: TranscriptLogger
     let refinementEngine: TranscriptRefinementEngine
     let audioRecorder: AudioRecorder
+    let batchEngine: BatchTranscriptionEngine
 }
 
 struct AppLaunchContext {
@@ -165,7 +166,8 @@ final class AppRuntime {
                 settings: settings,
                 transcriptStore: coordinator.transcriptStore
             ),
-            audioRecorder: AudioRecorder(outputDirectory: notesDirectory)
+            audioRecorder: AudioRecorder(outputDirectory: notesDirectory),
+            batchEngine: BatchTranscriptionEngine()
         )
     }
 
@@ -178,6 +180,7 @@ final class AppRuntime {
         coordinator.transcriptLogger = services.transcriptLogger
         coordinator.refinementEngine = services.refinementEngine
         coordinator.audioRecorder = services.audioRecorder
+        coordinator.batchEngine = services.batchEngine
     }
 
     func seedIfNeeded(coordinator: AppCoordinator) async {

@@ -45,7 +45,7 @@ final class AppSettingsTests: XCTestCase {
 
     func testTranscriptionModelAllCases() {
         let cases = TranscriptionModel.allCases
-        XCTAssertEqual(cases.count, 5)
+        XCTAssertEqual(cases.count, 6)
     }
 
     func testTranscriptionModelDisplayNames() {

@@ -36,8 +36,8 @@ public struct OpenOatsRootApp: App {
                         appDelegate.setupMenuBarIfNeeded(
                             coordinator: coordinator,
                             settings: settings,
-                            updater: updaterController.updater,
-                            showMainWindow: { [self] in showMainWindow() }
+                            showMainWindow: { [self] in showMainWindow() },
+                            checkForUpdates: { updaterController.checkForUpdatesFromMenuBar() }
                         )
                     }
                     settings.applyScreenShareVisibility()
@@ -130,8 +130,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func setupMenuBarIfNeeded(
         coordinator: AppCoordinator,
         settings: AppSettings,
-        updater: SPUUpdater,
-        showMainWindow: @escaping () -> Void
+        showMainWindow: @escaping () -> Void,
+        checkForUpdates: @escaping () -> Void
     ) {
         guard menuBarController == nil else { return }
 
@@ -140,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let controller = MenuBarController(
             coordinator: coordinator,
             settings: settings,
-            updater: updater
+            onCheckForUpdates: checkForUpdates
         )
         controller.onShowMainWindow = showMainWindow
         controller.onQuitApp = { [weak self] in

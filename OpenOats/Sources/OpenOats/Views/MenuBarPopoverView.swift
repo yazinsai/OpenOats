@@ -1,11 +1,10 @@
-import Sparkle
 import SwiftUI
 
 struct MenuBarPopoverView: View {
     let coordinator: AppCoordinator
     let settings: AppSettings
-    let updater: SPUUpdater
     let onShowMainWindow: () -> Void
+    let onCheckForUpdates: () -> Void
     let onQuit: () -> Void
 
     @State private var elapsedSeconds: Int = 0
@@ -43,7 +42,7 @@ struct MenuBarPopoverView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
 
-            Button(action: { updater.checkForUpdates() }) {
+            Button(action: onCheckForUpdates) {
                 HStack {
                     Text("Check for Updates…")
                     Spacer()

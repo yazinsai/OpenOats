@@ -14,6 +14,10 @@ let package = Package(
             name: "OpenOats",
             targets: ["OpenOatsAppExecutable"]
         ),
+        .executable(
+            name: "Benchmark",
+            targets: ["Benchmark"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.7.9"),
@@ -37,6 +41,13 @@ let package = Package(
             name: "OpenOatsAppExecutable",
             dependencies: ["OpenOatsKit"],
             path: "Sources/OpenOatsApp"
+        ),
+        .executableTarget(
+            name: "Benchmark",
+            dependencies: [
+                .product(name: "WhisperKit", package: "WhisperKit"),
+            ],
+            path: "Sources/Benchmark"
         ),
         .testTarget(
             name: "OpenOatsTests",
