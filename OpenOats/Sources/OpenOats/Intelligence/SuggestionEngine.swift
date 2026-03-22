@@ -33,17 +33,23 @@ final class SuggestionEngine {
 
     // MARK: - Thresholds
 
-    private let cooldownSeconds: TimeInterval = 90
+    private var cooldownSeconds: TimeInterval { settings.suggestionVerbosity.cooldownSeconds }
     private let minUtteranceWordCount = 8
     private let minUtteranceCharCount = 30
     private let minKBRelevanceScore: Double = 0.35
 
-    // Gate thresholds
-    private let minRelevanceScore: Double = 0.72
-    private let minHelpfulnessScore: Double = 0.75
-    private let minTimingScore: Double = 0.70
-    private let minNoveltyScore: Double = 0.65
-    private let minConfidenceScore: Double = 0.75
+    // Base gate thresholds, scaled by verbosity
+    private static let baseRelevanceScore: Double = 0.72
+    private static let baseHelpfulnessScore: Double = 0.75
+    private static let baseTimingScore: Double = 0.70
+    private static let baseNoveltyScore: Double = 0.65
+    private static let baseConfidenceScore: Double = 0.75
+
+    private var minRelevanceScore: Double { Self.baseRelevanceScore * settings.suggestionVerbosity.thresholdMultiplier }
+    private var minHelpfulnessScore: Double { Self.baseHelpfulnessScore * settings.suggestionVerbosity.thresholdMultiplier }
+    private var minTimingScore: Double { Self.baseTimingScore * settings.suggestionVerbosity.thresholdMultiplier }
+    private var minNoveltyScore: Double { Self.baseNoveltyScore * settings.suggestionVerbosity.thresholdMultiplier }
+    private var minConfidenceScore: Double { Self.baseConfidenceScore * settings.suggestionVerbosity.thresholdMultiplier }
 
     private let transcriptStore: TranscriptStore
     private let knowledgeBase: KnowledgeBase

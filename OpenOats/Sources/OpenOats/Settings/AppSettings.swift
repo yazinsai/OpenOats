@@ -4,6 +4,52 @@ import Observation
 import Security
 import CoreAudio
 
+/// Controls how eagerly the suggestion engine surfaces talking points.
+enum SuggestionVerbosity: String, CaseIterable, Identifiable {
+    /// Mostly silent — surfaces suggestions only when highly relevant (current default behavior).
+    case quiet
+    /// Balanced — moderate cooldown, slightly lower thresholds.
+    case balanced
+    /// Eager — short cooldown, lower thresholds for frequent fact-retrieval style use.
+    case eager
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .quiet: "Quiet"
+        case .balanced: "Balanced"
+        case .eager: "Eager"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .quiet: "Surfaces suggestions only when highly relevant"
+        case .balanced: "Moderate frequency, good for most meetings"
+        case .eager: "Frequent suggestions, good for fact retrieval"
+        }
+    }
+
+    /// Seconds between consecutive suggestions.
+    var cooldownSeconds: TimeInterval {
+        switch self {
+        case .quiet: 90
+        case .balanced: 45
+        case .eager: 15
+        }
+    }
+
+    /// Multiplier applied to gate score thresholds. Lower = easier to surface.
+    var thresholdMultiplier: Double {
+        switch self {
+        case .quiet: 1.0
+        case .balanced: 0.85
+        case .eager: 0.70
+        }
+    }
+}
+
 enum LLMProvider: String, CaseIterable, Identifiable {
     case openRouter
     case ollama
@@ -603,6 +649,20 @@ final class AppSettings {
         }
     }
 
+    // MARK: - Suggestions
+
+    /// How eagerly the suggestion engine surfaces talking points.
+    @ObservationIgnored nonisolated(unsafe) private var _suggestionVerbosity: SuggestionVerbosity
+    var suggestionVerbosity: SuggestionVerbosity {
+        get { access(keyPath: \.suggestionVerbosity); return _suggestionVerbosity }
+        set {
+            withMutation(keyPath: \.suggestionVerbosity) {
+                _suggestionVerbosity = newValue
+                defaults.set(newValue.rawValue, forKey: "suggestionVerbosity")
+            }
+        }
+    }
+
     init(storage: AppSettingsStorage = .live()) {
         self.defaults = storage.defaults
         self.secretStore = storage.secretStore
@@ -681,6 +741,9 @@ final class AppSettings {
             ? defaults.integer(forKey: "silenceTimeoutMinutes") : 15
         self._customMeetingAppBundleIDs = defaults.stringArray(forKey: "customMeetingAppBundleIDs") ?? []
         self._detectionLogEnabled = defaults.bool(forKey: "detectionLogEnabled")
+        self._suggestionVerbosity = SuggestionVerbosity(
+            rawValue: defaults.string(forKey: "suggestionVerbosity") ?? ""
+        ) ?? .quiet
 
         // Default to true (hidden) if key has never been set
         if defaults.object(forKey: "hideFromScreenShare") == nil {

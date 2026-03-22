@@ -141,6 +141,19 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Suggestions") {
+                Picker("Verbosity", selection: $settings.suggestionVerbosity) {
+                    ForEach(SuggestionVerbosity.allCases) { level in
+                        Text(level.displayName).tag(level)
+                    }
+                }
+                .font(.system(size: 12))
+
+                Text(settings.suggestionVerbosity.description)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Audio Input") {
                 Picker("Microphone", selection: $settings.inputDeviceID) {
                     Text("System Default").tag(AudioDeviceID(0))
