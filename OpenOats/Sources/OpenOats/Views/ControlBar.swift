@@ -89,6 +89,7 @@ struct ControlBar: View {
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(isRunning ? "Live" : "Start")
                 .accessibilityIdentifier("app.controlBar.toggle")
 
                 // Audio level bars when running

@@ -25,6 +25,9 @@ struct NotesView: View {
         }
         .task {
             await notesController.activateIfNeeded()
+            if state.loadedSession != nil {
+                detailViewMode = .notes
+            }
         }
         .onChange(of: state.pendingDeleteSessionID) { _, pending in
             showDeleteConfirmation = pending != nil
