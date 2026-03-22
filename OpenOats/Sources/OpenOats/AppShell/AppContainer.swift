@@ -11,22 +11,11 @@ final class AppContainer {
 
     let mode: AppRuntimeMode
     let defaults: UserDefaults
-    let appSupportDirectory: URL
-    let notesDirectory: URL
 
     let settings: SettingsStore
     let templateStore: TemplateStore
     let repository: SessionRepository
     let navigationState: AppNavigationState
-    let transcriptStore: TranscriptStore
-    let knowledgeBase: KnowledgeBase
-    let suggestionEngine: SuggestionEngine
-    let transcriptionEngine: TranscriptionEngine
-    let refinementEngine: TranscriptRefinementEngine
-    let audioRecorder: AudioRecorder
-    let batchEngine: BatchTranscriptionEngine
-    let cleanupEngine: TranscriptCleanupEngine
-    let notesEngine: NotesEngine
     let liveSessionController: LiveSessionController
     let meetingDetectionController: MeetingDetectionController
     let notesController: NotesController
@@ -37,42 +26,20 @@ final class AppContainer {
     init(
         mode: AppRuntimeMode,
         defaults: UserDefaults,
-        appSupportDirectory: URL,
-        notesDirectory: URL,
         settings: SettingsStore,
         templateStore: TemplateStore,
         repository: SessionRepository,
         navigationState: AppNavigationState,
-        transcriptStore: TranscriptStore,
-        knowledgeBase: KnowledgeBase,
-        suggestionEngine: SuggestionEngine,
-        transcriptionEngine: TranscriptionEngine,
-        refinementEngine: TranscriptRefinementEngine,
-        audioRecorder: AudioRecorder,
-        batchEngine: BatchTranscriptionEngine,
-        cleanupEngine: TranscriptCleanupEngine,
-        notesEngine: NotesEngine,
         liveSessionController: LiveSessionController,
         meetingDetectionController: MeetingDetectionController,
         notesController: NotesController
     ) {
         self.mode = mode
         self.defaults = defaults
-        self.appSupportDirectory = appSupportDirectory
-        self.notesDirectory = notesDirectory
         self.settings = settings
         self.templateStore = templateStore
         self.repository = repository
         self.navigationState = navigationState
-        self.transcriptStore = transcriptStore
-        self.knowledgeBase = knowledgeBase
-        self.suggestionEngine = suggestionEngine
-        self.transcriptionEngine = transcriptionEngine
-        self.refinementEngine = refinementEngine
-        self.audioRecorder = audioRecorder
-        self.batchEngine = batchEngine
-        self.cleanupEngine = cleanupEngine
-        self.notesEngine = notesEngine
         self.liveSessionController = liveSessionController
         self.meetingDetectionController = meetingDetectionController
         self.notesController = notesController
@@ -89,15 +56,12 @@ final class AppContainer {
                 for: .applicationSupportDirectory,
                 in: .userDomainMask
             ).first!.appendingPathComponent("OpenOats", isDirectory: true)
-            let notesDirectory = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Documents/OpenOats", isDirectory: true)
             let settings = AppSettings()
             let updaterController = AppUpdaterController()
             let container = makeContainer(
                 mode: mode,
                 defaults: defaults,
                 appSupportDirectory: appSupportDirectory,
-                notesDirectory: notesDirectory,
                 settings: settings,
                 notesEngine: NotesEngine()
             )
@@ -140,7 +104,6 @@ final class AppContainer {
                 mode: .uiTest(scenario),
                 defaults: defaults,
                 appSupportDirectory: appSupportDirectory,
-                notesDirectory: notesDirectory,
                 settings: settings,
                 notesEngine: notesEngine
             )
@@ -164,7 +127,6 @@ final class AppContainer {
         mode: AppRuntimeMode,
         defaults: UserDefaults,
         appSupportDirectory: URL,
-        notesDirectory: URL,
         settings: SettingsStore,
         notesEngine: NotesEngine
     ) -> AppContainer {
@@ -200,8 +162,6 @@ final class AppContainer {
 
         let liveSessionController = LiveSessionController(
             settings: settings,
-            defaults: defaults,
-            notesDirectory: notesDirectory,
             repository: repository,
             templateStore: templateStore,
             transcriptStore: transcriptStore,
@@ -238,21 +198,10 @@ final class AppContainer {
         return AppContainer(
             mode: mode,
             defaults: defaults,
-            appSupportDirectory: appSupportDirectory,
-            notesDirectory: notesDirectory,
             settings: settings,
             templateStore: templateStore,
             repository: repository,
             navigationState: navigationState,
-            transcriptStore: transcriptStore,
-            knowledgeBase: knowledgeBase,
-            suggestionEngine: suggestionEngine,
-            transcriptionEngine: transcriptionEngine,
-            refinementEngine: refinementEngine,
-            audioRecorder: audioRecorder,
-            batchEngine: batchEngine,
-            cleanupEngine: cleanupEngine,
-            notesEngine: notesEngine,
             liveSessionController: liveSessionController,
             meetingDetectionController: meetingDetectionController,
             notesController: notesController

@@ -452,13 +452,3 @@ actor BatchTranscriptionEngine {
     }
 
 }
-
-// MARK: - JSONDecoder Extension
-
-extension JSONDecoder {
-    static let iso8601Decoder: JSONDecoder = {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
-    }()
-}

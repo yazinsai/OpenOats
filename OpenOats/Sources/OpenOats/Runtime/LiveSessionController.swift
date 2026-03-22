@@ -48,8 +48,6 @@ final class LiveSessionController {
     }
 
     let settings: SettingsStore
-    let defaults: UserDefaults
-    let notesDirectory: URL
     let repository: SessionRepository
     let templateStore: TemplateStore
     let transcriptStore: TranscriptStore
@@ -63,7 +61,7 @@ final class LiveSessionController {
     var onRepositoryChanged: (@MainActor () async -> Void)?
     var onUtteranceFinalized: (@MainActor (Utterance) -> Void)?
 
-    private let notificationService = NotificationService()
+    private var notificationService: NotificationService?
 
     private var didActivate = false
     private var projectionTask: Task<Void, Never>?
@@ -84,8 +82,6 @@ final class LiveSessionController {
 
     init(
         settings: SettingsStore,
-        defaults: UserDefaults,
-        notesDirectory: URL,
         repository: SessionRepository,
         templateStore: TemplateStore,
         transcriptStore: TranscriptStore,
@@ -97,8 +93,6 @@ final class LiveSessionController {
         batchEngine: BatchTranscriptionEngine
     ) {
         self.settings = settings
-        self.defaults = defaults
-        self.notesDirectory = notesDirectory
         self.repository = repository
         self.templateStore = templateStore
         self.transcriptStore = transcriptStore
@@ -407,7 +401,9 @@ final class LiveSessionController {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if !NSApp.isActive {
-                    await self.notificationService.postBatchCompleted(sessionID: sessionID)
+                    let notificationService = self.notificationService ?? NotificationService()
+                    self.notificationService = notificationService
+                    await notificationService.postBatchCompleted(sessionID: sessionID)
                 }
                 await self.exportMeetingMarkdown(sessionID: sessionID)
                 await self.onRepositoryChanged?()
