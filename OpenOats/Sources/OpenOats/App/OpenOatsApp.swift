@@ -69,6 +69,11 @@ public struct OpenOatsRootApp: App {
                     Divider()
                 }
 
+                Button("Toggle Meeting") {
+                    appDelegate.toggleMeeting()
+                }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+
                 Button("Past Meetings") {
                     openNotesWindow()
                 }
@@ -153,6 +158,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ProcessInfo.processInfo.environment["OPENOATS_UI_TEST"] != nil
     }
 
+    private var globalHotkeyMonitor: Any?
+    private var localHotkeyMonitor: Any?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         if !isUITest {
             NSApp.setActivationPolicy(.regular)
@@ -188,6 +196,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 }
             }
         }
+
+        registerGlobalHotkey()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -271,6 +281,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 trigger: nil
             )
             try? await center.add(request)
+        }
+    }
+
+    // MARK: - Global Hotkey (Cmd+Shift+L)
+
+    private func registerGlobalHotkey() {
+        let matchesHotkey: (NSEvent) -> Bool = { event in
+            event.modifierFlags.contains([.command, .shift])
+                && event.charactersIgnoringModifiers?.lowercased() == "l"
+        }
+
+        globalHotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard matchesHotkey(event) else { return }
+            Task { @MainActor in self?.toggleMeeting() }
+        }
+
+        localHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard matchesHotkey(event) else { return event }
+            Task { @MainActor in self?.toggleMeeting() }
+            return nil
+        }
+    }
+
+    func toggleMeeting() {
+        guard let coordinator, let settings else { return }
+        guard settings.hasAcknowledgedRecordingConsent else { return }
+
+        if coordinator.isRecording {
+            coordinator.handle(.userStopped, settings: settings)
+        } else {
+            coordinator.handle(.userStarted(.manual()), settings: settings)
         }
     }
 
