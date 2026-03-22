@@ -58,11 +58,19 @@ final class AudioRecorder: @unchecked Sendable {
 
             // Lazily create file as mono at the source sample rate
             if micFile == nil, let url = micTempURL {
-                let monoFormat = AVAudioFormat(
+                guard let monoFormat = AVAudioFormat(
                     standardFormatWithSampleRate: buffer.format.sampleRate, channels: 1
-                )!
-                micFile = try? AVAudioFile(forWriting: url, settings: monoFormat.settings)
-                diagLog("[RECORDER] mic file created: \(url.lastPathComponent) mono at \(buffer.format.sampleRate)Hz")
+                ) else {
+                    diagLog("[RECORDER] mic file SKIP: cannot create mono format at \(buffer.format.sampleRate)Hz")
+                    return
+                }
+                do {
+                    micFile = try AVAudioFile(forWriting: url, settings: monoFormat.settings)
+                    diagLog("[RECORDER] mic file created: \(url.lastPathComponent) mono at \(buffer.format.sampleRate)Hz")
+                } catch {
+                    diagLog("[RECORDER] mic file creation FAILED: \(error)")
+                    return
+                }
             }
 
             // Record timing anchor on first write
@@ -163,12 +171,17 @@ final class AudioRecorder: @unchecked Sendable {
         lock.withLock {
             guard buffer.frameLength > 0 else { return }
             if sysFile == nil, let url = sysTempURL {
-                sysFile = try? AVAudioFile(
-                    forWriting: url,
-                    settings: buffer.format.settings,
-                    commonFormat: buffer.format.commonFormat,
-                    interleaved: buffer.format.isInterleaved
-                )
+                do {
+                    sysFile = try AVAudioFile(
+                        forWriting: url,
+                        settings: buffer.format.settings,
+                        commonFormat: buffer.format.commonFormat,
+                        interleaved: buffer.format.isInterleaved
+                    )
+                } catch {
+                    diagLog("[RECORDER] sys file creation FAILED: \(error)")
+                    return
+                }
             }
 
             // Record timing anchor on first write
@@ -178,7 +191,11 @@ final class AudioRecorder: @unchecked Sendable {
                 sysAnchors.append((frame: sysFile?.length ?? 0, date: now))
             }
 
-            try? sysFile?.write(from: buffer)
+            do {
+                try sysFile?.write(from: buffer)
+            } catch {
+                diagLog("[RECORDER] sys write ERROR: \(error)")
+            }
         }
     }
 
