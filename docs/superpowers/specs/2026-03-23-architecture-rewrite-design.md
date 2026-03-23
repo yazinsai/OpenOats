@@ -72,7 +72,7 @@ Before introducing `AppContainer`, this split graph must be collapsed so all ser
 
 **What stays the same**: All behavior. Launch timing. Service lifetimes. The view still polls. Detection still works. Storage untouched.
 
-**Specific contract to preserve**: `KnowledgeBase` and `SuggestionEngine` are currently created lazily on first `ContentView.task` execution. After this phase, they're created during `ensureServicesInitialized()` which is called from the same `.task` — timing is identical.
+**Specific contract to preserve**: `KnowledgeBase` and `SuggestionEngine` are currently created lazily on first `ContentView.task` execution. `ensureServicesInitialized()` is called both from the app shell (`OpenOatsApp` line 151) and from `ContentView.task` (line 323). Moving KB/SE into `ensureServicesInitialized()` will create them on whichever call runs first — which may be the app shell call, earlier than the current view-task creation. To preserve current timing, KB/SE construction must remain gated behind the view's `.task` (e.g., a separate `ensureViewServicesInitialized()` called only from the view), OR the earlier creation must be verified safe (KB and SE have no side effects at construction — they only act when methods are called). Verify this during implementation.
 
 **Exit criteria**: No service construction in any View file. Phase 0 tests still pass.
 
@@ -146,6 +146,8 @@ enum DetectionEvent {
 
 **NotificationService access**: The controller owns `NotificationService` for detection-related notifications. However, `NotificationService` is also used for batch completion notifications (currently `coordinator.notificationService`). To avoid a cross-controller dependency, `NotificationService` remains accessible via the container as a shared service — the detection controller wires its callbacks, but `LiveSessionController` (Phase 5) can access it for batch completion posting.
 
+**Behavioral gate to preserve**: Today, batch completion notifications only fire if `coordinator.notificationService` exists — which only happens after `setupMeetingDetection()` runs (i.e., detection is enabled). Making `NotificationService` always available via the container would widen this behavior. The container must preserve the gate: `NotificationService` is only constructed when meeting detection is enabled. If detection is disabled, the container's `notificationService` property is nil, and batch completion notifications are silently skipped (matching current behavior).
+
 **Observable state** (for UI binding, separate from events):
 - `isEnabled: Bool`
 - `detectedApp: MeetingApp?`
@@ -203,7 +205,7 @@ struct LiveSessionState {
 
 **What `ContentView` becomes**: A projection of `LiveSessionController.state`. View-local state stays (scroll position, animation, overlay/minibar manager, onboarding). All service references, `handleNewUtterance()`, `synchronizeDerivedState()`, `refreshViewState()`, batch polling, and settings observation are removed.
 
-**What stays the same**: Storage layer (`SessionStore`, `TranscriptLogger`). `NotesView` unchanged (Phase 6). State machine logic (pure `transition()` function) unchanged — it's called by the controller instead of the coordinator.
+**What stays the same**: Storage layer (`SessionStore`, `TranscriptLogger`). `NotesView` unchanged (Phase 6). State machine logic (pure `transition()` function) unchanged — the coordinator still calls it. The controller triggers transitions by calling `coordinator.handle()`, never by calling `transition()` directly.
 
 **Exit criteria**: `ContentView` has zero business logic. No service construction, no side effects, no polling. Phase 0 live-session and settings-reaction tests pass. Recording flow works identically.
 
@@ -231,7 +233,7 @@ struct NotesState {
     var loadedNotes: EnhancedNotes?
     var notesGenerationStatus: GenerationStatus
     var cleanupStatus: CleanupStatus
-    var selectedTemplate: NoteTemplate?
+    var selectedTemplate: MeetingTemplate?
     var showingOriginal: Bool
 }
 
@@ -283,9 +285,12 @@ enum GenerationStatus {
 sessions/<id>/session.json            (metadata — replaces .meta.json sidecar)
 sessions/<id>/transcript.live.jsonl   (streaming transcript — replaces flat .jsonl)
 sessions/<id>/transcript.final.jsonl  (post-cleanup, replaces .pre-cleanup.bak flow)
-sessions/<id>/notes.md                (replaces notes stored in sidecar JSON)
+sessions/<id>/notes.md                (rendered notes markdown)
+sessions/<id>/notes.meta.json         (notes metadata: template snapshot, generatedAt)
 sessions/<id>/audio/*                 (batch recordings — replaces batch/ directory)
 ```
+
+**Notes metadata**: The current `EnhancedNotes` type stores `template: TemplateSnapshot`, `generatedAt: Date`, and `markdown: String` together in the sidecar JSON. In the new layout, the rendered markdown goes to `notes.md` (human-readable, exportable) and the structured metadata (`template`, `generatedAt`) goes to `notes.meta.json`. `SessionRepository.saveNotes()` writes both files atomically. `SessionRepository.loadSession()` recombines them into `EnhancedNotes` for the controller. Session-level metadata (start time, end time, meeting app, engine, title, utterance count) stays in `session.json`.
 
 **SessionRepository API**:
 ```swift
@@ -338,9 +343,11 @@ actor SessionRepository {
 - Settings-change reactions in controllers observe `SettingsStore` groups directly
 - No feature code touches `UserDefaults` after migration
 
+**Swift 6.2 observation workaround**: The current `AppSettings` uses `@ObservationIgnored nonisolated(unsafe)` backing storage to avoid MainActor executor crashes when SwiftUI reads properties during view body evaluation. `SettingsStore` must preserve this workaround — the grouped settings types need the same `nonisolated(unsafe)` backing pattern until Swift adds proper support for `@Observable` on `@MainActor` types read from view bodies. This is not just a type cleanup; the observation model must match the existing workaround or views will crash.
+
 **Migration**: Old keys remain readable. New writes go through `SettingsStore`. Both old and new keys kept in sync during transition (one release cycle), then old keys dropped.
 
-**Exit criteria**: No direct `UserDefaults` access outside `SettingsStore`. Settings view binds to typed groups. All tests pass.
+**Exit criteria**: No direct `UserDefaults` access outside `SettingsStore`. Settings view binds to typed groups. No MainActor executor crashes. All tests pass.
 
 ---
 
