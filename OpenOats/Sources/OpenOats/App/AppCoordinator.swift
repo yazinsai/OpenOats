@@ -1,7 +1,5 @@
-import AppKit
 import Foundation
 import Observation
-import os
 import SwiftUI
 
 enum ExternalCommand: Equatable {
@@ -19,8 +17,6 @@ struct ExternalCommandRequest: Identifiable, Equatable {
         self.command = command
     }
 }
-
-private let logger = Logger(subsystem: "com.openoats.app", category: "MeetingDetection")
 
 /// Shared state coordinator injected into all window scenes.
 /// Bridges the main window (transcription) and Notes window (history + generation).
@@ -123,32 +119,11 @@ final class AppCoordinator {
     /// Guard against finalization hanging forever.
     private var finalizationTimeoutTask: Task<Void, Never>?
 
-    // MARK: - Meeting Detection
+    /// Retained reference to the active settings for side effects.
+    var activeSettings: AppSettings?
 
-    /// Retained reference to the active settings for detection callbacks.
-    private(set) var activeSettings: AppSettings?
-
-    /// The meeting detector actor (mic listener + process scanner).
-    private(set) var meetingDetector: MeetingDetector?
-
-    /// Notification service for prompting the user.
-    private(set) var notificationService: NotificationService?
-
-    /// The long-running task that listens for detection events.
-    private var detectionTask: Task<Void, Never>?
-
-    /// Task monitoring silence timeout during detected sessions.
-    private var silenceCheckTask: Task<Void, Never>?
-
-    /// Observer token for system sleep notifications.
-    private var sleepObserver: Any?
-
-    /// Timestamp of the last utterance, used for silence timeout.
-    private var lastUtteranceAt: Date?
-
-    /// Sessions the user dismissed via "Not a Meeting" (by detected app bundle ID).
-    /// Cleared on app restart. Prevents re-prompting for the same app within a session.
-    private var dismissedEvents: Set<String> = []
+    /// Task consuming detection controller events.
+    private var detectionEventTask: Task<Void, Never>?
 
     init(
         sessionStore: SessionStore = SessionStore(),
@@ -262,12 +237,6 @@ final class AppCoordinator {
                 inputDeviceID: settings.inputDeviceID,
                 transcriptionModel: settings.transcriptionModel
             )
-        }
-
-        // Start silence monitoring for auto-detected sessions
-        if metadata.detectionContext?.signal != nil,
-           case .appLaunched = metadata.detectionContext?.signal {
-            startSilenceMonitoring()
         }
     }
 
@@ -411,12 +380,7 @@ final class AppCoordinator {
         sessionTemplateSnapshot = nil
         await loadHistory()
 
-        // 8. Stop silence monitoring
-        silenceCheckTask?.cancel()
-        silenceCheckTask = nil
-        lastUtteranceAt = nil
-
-        // 9. Kick off batch transcription if enabled
+        // 8. Kick off batch transcription if enabled
         if let settings, settings.enableBatchRefinement, let batchEngine {
             let batchSessionID = sessionID
             let batchModel = settings.batchTranscriptionModel
@@ -464,247 +428,49 @@ final class AppCoordinator {
         return requestedSessionSelectionID
     }
 
-    // MARK: - Meeting Detection Setup
+    // MARK: - Detection Event Loop
 
-    /// Initialize and start the meeting detection system.
-    func setupMeetingDetection(settings: AppSettings) {
-        guard meetingDetector == nil else { return }
-        activeSettings = settings
-
-        let detector = MeetingDetector(
-            customBundleIDs: settings.customMeetingAppBundleIDs
-        )
-        meetingDetector = detector
-
-        let service = NotificationService()
-        notificationService = service
-
-        // Wire notification callbacks
-        service.onAccept = { [weak self] in
-            guard let self else { return }
-            Task { @MainActor in
-                self.handleDetectionAccepted()
-            }
-        }
-
-        service.onNotAMeeting = { [weak self] in
-            guard let self else { return }
-            Task { @MainActor in
-                self.handleDetectionNotAMeeting()
-            }
-        }
-
-        service.onDismiss = { [weak self] in
-            guard let self else { return }
-            Task { @MainActor in
-                self.handleDetectionDismissed()
-            }
-        }
-
-        service.onTimeout = { [weak self] in
-            guard let self else { return }
-            Task { @MainActor in
-                self.handleDetectionTimeout()
-            }
-        }
-
-        // Start listening for detection events
-        detectionTask = Task { [weak self] in
-            await detector.start()
-
-            for await event in detector.events {
-                guard !Task.isCancelled else { break }
-                guard let self else { break }
-
+    /// Start consuming events from the detection controller's stream.
+    /// Maps detection events to state machine events.
+    func startDetectionEventLoop(_ controller: MeetingDetectionController) {
+        activeSettings = controller.activeSettings
+        detectionEventTask?.cancel()
+        detectionEventTask = Task { [weak self] in
+            for await event in controller.events {
+                guard let self, !Task.isCancelled else { break }
                 switch event {
-                case .detected(let app):
-                    await self.handleMeetingDetected(app: app)
-                case .ended:
-                    await self.handleMeetingEnded()
-                }
-            }
-        }
-
-        installSleepObserver()
-
-        if settings.detectionLogEnabled {
-            logger.info("Detection system started")
-        }
-    }
-
-    /// Tear down the meeting detection system.
-    func teardownMeetingDetection() {
-        detectionTask?.cancel()
-        detectionTask = nil
-
-        silenceCheckTask?.cancel()
-        silenceCheckTask = nil
-
-        Task {
-            await meetingDetector?.stop()
-        }
-        meetingDetector = nil
-
-        notificationService?.cancelPending()
-        notificationService = nil
-
-        if let observer = sleepObserver {
-            NotificationCenter.default.removeObserver(observer)
-            sleepObserver = nil
-        }
-
-        dismissedEvents.removeAll()
-        activeSettings = nil
-
-        logger.info("Detection system stopped")
-    }
-
-    // MARK: - Sleep Observer
-
-    private func installSleepObserver() {
-        sleepObserver = NotificationCenter.default.addObserver(
-            forName: NSWorkspace.willSleepNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if case .recording = self.state {
-                    if self.activeSettings?.detectionLogEnabled == true {
-                        logger.info("System sleep detected, stopping session")
+                case .accepted(let metadata):
+                    // Start silence monitoring for auto-detected sessions
+                    if case .appLaunched = metadata.detectionContext?.signal {
+                        controller.startSilenceMonitoring()
                     }
-                    self.handle(.userStopped)
-                }
-            }
-        }
-    }
-
-    // MARK: - Silence Monitoring
-
-    /// Start monitoring for silence timeout during an auto-detected session.
-    private func startSilenceMonitoring() {
-        lastUtteranceAt = Date()
-        silenceCheckTask?.cancel()
-
-        silenceCheckTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
-                guard !Task.isCancelled else { break }
-                guard let self else { break }
-
-                let timeoutMinutes = self.activeSettings?.silenceTimeoutMinutes ?? 15
-                if let lastUtterance = self.lastUtteranceAt {
-                    let elapsed = Date().timeIntervalSince(lastUtterance)
-                    if elapsed >= Double(timeoutMinutes) * 60.0 {
-                        if self.activeSettings?.detectionLogEnabled == true {
-                            logger.info("Silence timeout (\(timeoutMinutes)m), stopping")
-                        }
-                        if case .recording = self.state {
-                            self.handle(.userStopped)
-                        }
-                        break
+                    self.handle(.userStarted(metadata), settings: self.activeSettings)
+                case .meetingAppExited:
+                    if case .recording(let meta) = self.state,
+                       case .appLaunched = meta.detectionContext?.signal {
+                        controller.stopSilenceMonitoring()
+                        self.handle(.userStopped)
                     }
+                case .silenceTimeout:
+                    if case .recording = self.state {
+                        controller.stopSilenceMonitoring()
+                        self.handle(.userStopped)
+                    }
+                case .systemSleep:
+                    if case .recording = self.state {
+                        controller.stopSilenceMonitoring()
+                        self.handle(.userStopped)
+                    }
+                case .notAMeeting, .dismissed, .timeout:
+                    break
                 }
             }
         }
     }
 
-    /// Called when a new utterance arrives, resets the silence timer.
-    func noteUtterance() {
-        lastUtteranceAt = Date()
-    }
-
-    // MARK: - Detection Event Handlers
-
-    private func handleMeetingDetected(app: MeetingApp?) async {
-        // Don't prompt if already recording
-        guard case .idle = state else { return }
-
-        // Don't re-prompt for dismissed apps
-        if let bundleID = app?.bundleID, dismissedEvents.contains(bundleID) {
-            return
-        }
-
-        if activeSettings?.detectionLogEnabled == true {
-            logger.info("Detected: \(app?.name ?? "unknown", privacy: .public)")
-        }
-
-        let posted = await notificationService?.postMeetingDetected(appName: app?.name) ?? false
-        if !posted {
-            if activeSettings?.detectionLogEnabled == true {
-                logger.debug("Failed to post notification (permission denied?)")
-            }
-        }
-    }
-
-    private func handleMeetingEnded() async {
-        // If we're recording an auto-detected session, stop it
-        if case .recording(let metadata) = state {
-            if case .appLaunched = metadata.detectionContext?.signal {
-                if activeSettings?.detectionLogEnabled == true {
-                    logger.info("Meeting app exited, stopping session")
-                }
-                handle(.userStopped)
-            }
-        }
-    }
-
-    private func handleDetectionAccepted() {
-        guard case .idle = state else { return }
-
-        Task {
-            let app = await meetingDetector?.detectedApp
-            let context = DetectionContext(
-                signal: app.map { .appLaunched($0) } ?? .audioActivity,
-                detectedAt: Date(),
-                meetingApp: app,
-                calendarEvent: nil
-            )
-            let metadata = MeetingMetadata(
-                detectionContext: context,
-                calendarEvent: nil,
-                title: app?.name,
-                startedAt: Date(),
-                endedAt: nil
-            )
-            self.handle(.userStarted(metadata), settings: self.activeSettings)
-        }
-    }
-
-    private func handleDetectionNotAMeeting() {
-        Task {
-            if let app = await meetingDetector?.detectedApp {
-                dismissedEvents.insert(app.bundleID)
-            }
-        }
-
-        if activeSettings?.detectionLogEnabled == true {
-            logger.debug("User dismissed as not a meeting")
-        }
-    }
-
-    private func handleDetectionDismissed() {
-        if activeSettings?.detectionLogEnabled == true {
-            logger.debug("User dismissed notification")
-        }
-    }
-
-    private func handleDetectionTimeout() {
-        if activeSettings?.detectionLogEnabled == true {
-            logger.debug("Notification timed out")
-        }
-    }
-
-    // MARK: - Evaluate Immediate
-
-    /// Check current state immediately (e.g. on app launch) to see if a meeting is already active.
-    func evaluateImmediate() async {
-        guard case .idle = state else { return }
-        guard let detector = meetingDetector else { return }
-
-        let (micActive, app) = await detector.queryCurrentState()
-        if micActive, app != nil {
-            await handleMeetingDetected(app: app)
-        }
+    /// Stop consuming detection events.
+    func stopDetectionEventLoop() {
+        detectionEventTask?.cancel()
+        detectionEventTask = nil
     }
 }

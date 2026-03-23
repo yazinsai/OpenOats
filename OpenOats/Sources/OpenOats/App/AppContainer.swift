@@ -11,6 +11,14 @@ final class AppContainer {
     let appSupportDirectory: URL
     let notesDirectory: URL
 
+    /// Detection controller for the meeting auto-detect lifecycle.
+    /// Created when detection is enabled; nil otherwise.
+    private(set) var detectionController: MeetingDetectionController?
+
+    /// Shared notification service, accessible for batch completion notifications
+    /// even when detection is not enabled.
+    private(set) var notificationService: NotificationService?
+
     private var didSeedInitialData = false
     private var didInitializeServices = false
 
@@ -163,6 +171,31 @@ final class AppContainer {
             knowledgeBase: services.knowledgeBase,
             suggestionEngine: services.suggestionEngine
         )
+    }
+
+    /// Create and start the detection controller, wire the coordinator event loop.
+    func enableDetection(settings: AppSettings, coordinator: AppCoordinator) {
+        guard detectionController == nil else { return }
+        let controller = MeetingDetectionController()
+        controller.isSessionActive = { [weak coordinator] in
+            guard let coordinator else { return false }
+            return coordinator.isRecording
+        }
+        detectionController = controller
+        controller.setup(settings: settings)
+        // Expose the notification service for batch completion notifications
+        notificationService = controller.notificationService
+        coordinator.activeSettings = settings
+        coordinator.startDetectionEventLoop(controller)
+    }
+
+    /// Tear down the detection controller and stop the coordinator event loop.
+    func disableDetection(coordinator: AppCoordinator) {
+        coordinator.stopDetectionEventLoop()
+        coordinator.activeSettings = nil
+        detectionController?.teardown()
+        detectionController = nil
+        // NotificationService remains accessible if already set (for batch notifications)
     }
 
     func seedIfNeeded(coordinator: AppCoordinator) async {
