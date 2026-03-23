@@ -556,6 +556,7 @@ actor SessionStore {
                 title: idx.title,
                 utteranceCount: idx.utteranceCount,
                 hasNotes: true,
+                language: idx.language,
                 meetingApp: idx.meetingApp,
                 engine: idx.engine
             ),
@@ -594,6 +595,7 @@ actor SessionStore {
                 title: newTitle.isEmpty ? nil : newTitle,
                 utteranceCount: idx.utteranceCount,
                 hasNotes: idx.hasNotes,
+                language: idx.language,
                 meetingApp: idx.meetingApp,
                 engine: idx.engine
             ),
@@ -612,6 +614,7 @@ actor SessionStore {
         endedAt: Date? = nil,
         templateSnapshot: TemplateSnapshot? = nil,
         title: String? = nil,
+        language: String? = nil,
         notes: EnhancedNotes? = nil
     ) {
         let jsonl = jsonlURL(for: id)
@@ -623,7 +626,8 @@ actor SessionStore {
                 templateSnapshot: templateSnapshot,
                 title: title,
                 utteranceCount: records.count,
-                hasNotes: notes != nil
+                hasNotes: notes != nil,
+                language: language
             ),
             notes: notes
         )
