@@ -39,7 +39,7 @@ final class LiveSessionControllerTests: XCTestCase {
     ) -> (LiveSessionController, AppCoordinator) {
         let transcriptStore = TranscriptStore()
         let coordinator = AppCoordinator(
-            sessionStore: SessionStore(rootDirectory: root),
+            sessionRepository: SessionRepository(rootDirectory: root),
             templateStore: TemplateStore(rootDirectory: root),
             notesEngine: NotesEngine(mode: .scripted(markdown: "Test")),
             transcriptStore: transcriptStore
@@ -49,7 +49,6 @@ final class LiveSessionControllerTests: XCTestCase {
             settings: settings,
             mode: .scripted(scripted)
         )
-        coordinator.transcriptLogger = TranscriptLogger(directory: notesDirectory)
 
         let container = AppContainer(
             mode: .live,
@@ -136,12 +135,12 @@ final class LiveSessionControllerTests: XCTestCase {
         let settings = makeSettings(notesDirectory: dirs.notes)
         let transcriptStore = TranscriptStore()
         let coordinator = AppCoordinator(
-            sessionStore: SessionStore(rootDirectory: dirs.root),
+            sessionRepository: SessionRepository(rootDirectory: dirs.root),
             templateStore: TemplateStore(rootDirectory: dirs.root),
             notesEngine: NotesEngine(mode: .scripted(markdown: "Test")),
             transcriptStore: transcriptStore
         )
-        // No transcription engine, suggestion engine, or transcript logger
+        // No transcription engine or suggestion engine
         let container = AppContainer(
             mode: .live,
             defaults: .standard,
@@ -219,17 +218,12 @@ final class LiveSessionControllerTests: XCTestCase {
 
         controller.startSession(settings: settings)
 
-        // Wait for engine to start and polling to pick it up
-        // We can't run the full polling loop in a test, but we can verify
-        // the callback mechanism by checking the state struct
+        // Wait for engine to start
         for _ in 0..<20 {
             if coordinator.transcriptionEngine?.isRunning == true { break }
             try? await Task.sleep(for: .milliseconds(50))
         }
 
-        // The controller state.isRunning is updated via refreshState
-        // which runs inside the polling loop. Since we can't run it in a test,
-        // we verify the contract: isRunning should come from transcriptionEngine
         let engineRunning = coordinator.transcriptionEngine?.isRunning ?? false
         XCTAssertTrue(engineRunning, "Engine should be running after start")
     }

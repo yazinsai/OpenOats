@@ -15,7 +15,6 @@ struct AppServices {
     let knowledgeBase: KnowledgeBase
     let suggestionEngine: SuggestionEngine
     let transcriptionEngine: TranscriptionEngine
-    let transcriptLogger: TranscriptLogger
     let refinementEngine: TranscriptRefinementEngine
     let audioRecorder: AudioRecorder
     let batchEngine: BatchTranscriptionEngine

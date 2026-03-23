@@ -4,27 +4,27 @@ import XCTest
 @MainActor
 final class NotesContractTests: XCTestCase {
 
-    private func makeTestEnvironment() async -> (SessionStore, TemplateStore, AppCoordinator, URL) {
+    private func makeTestEnvironment() async -> (SessionRepository, TemplateStore, AppCoordinator, URL) {
         let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("OpenOatsNotesTests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 
-        let sessionStore = SessionStore(rootDirectory: root)
+        let sessionRepository = SessionRepository(rootDirectory: root)
         let templateStore = TemplateStore(rootDirectory: root)
         let coordinator = AppCoordinator(
-            sessionStore: sessionStore,
+            sessionRepository: sessionRepository,
             templateStore: templateStore,
             notesEngine: NotesEngine(mode: .scripted(markdown: "# Test Notes\n\nGenerated.")),
             transcriptStore: TranscriptStore()
         )
-        return (sessionStore, templateStore, coordinator, root)
+        return (sessionRepository, templateStore, coordinator, root)
     }
 
     func testLoadHistoryReturnsPersistedSessions() async {
-        let (sessionStore, _, coordinator, _) = await makeTestEnvironment()
+        let (sessionRepository, _, coordinator, _) = await makeTestEnvironment()
 
-        await sessionStore.seedSession(
+        await sessionRepository.seedSession(
             id: "test_session_1",
             records: [
                 SessionRecord(speaker: .you, text: "Hello", timestamp: Date())
@@ -40,9 +40,9 @@ final class NotesContractTests: XCTestCase {
     }
 
     func testSessionRenameUpdatesIndex() async {
-        let (sessionStore, _, coordinator, _) = await makeTestEnvironment()
+        let (sessionRepository, _, coordinator, _) = await makeTestEnvironment()
 
-        await sessionStore.seedSession(
+        await sessionRepository.seedSession(
             id: "rename_test",
             records: [SessionRecord(speaker: .you, text: "Hi", timestamp: Date())],
             startedAt: Date(),
@@ -51,7 +51,7 @@ final class NotesContractTests: XCTestCase {
             title: "Original"
         )
 
-        await sessionStore.renameSession(sessionID: "rename_test", newTitle: "Renamed")
+        await sessionRepository.renameSession(sessionID: "rename_test", title: "Renamed")
         await coordinator.loadHistory()
 
         let session = coordinator.sessionHistory.first(where: { $0.id == "rename_test" })
@@ -59,9 +59,9 @@ final class NotesContractTests: XCTestCase {
     }
 
     func testSessionDeleteRemovesFromIndex() async {
-        let (sessionStore, _, coordinator, _) = await makeTestEnvironment()
+        let (sessionRepository, _, coordinator, _) = await makeTestEnvironment()
 
-        await sessionStore.seedSession(
+        await sessionRepository.seedSession(
             id: "delete_test",
             records: [SessionRecord(speaker: .you, text: "Hi", timestamp: Date())],
             startedAt: Date(),
@@ -70,20 +70,20 @@ final class NotesContractTests: XCTestCase {
             title: "To Delete"
         )
 
-        await sessionStore.moveToRecentlyDeleted(sessionID: "delete_test")
+        await sessionRepository.moveToRecentlyDeleted(sessionID: "delete_test")
         await coordinator.loadHistory()
 
         XCTAssertFalse(coordinator.sessionHistory.contains(where: { $0.id == "delete_test" }))
     }
 
     func testLoadTranscriptReturnsRecords() async {
-        let (sessionStore, _, _, _) = await makeTestEnvironment()
+        let (sessionRepository, _, _, _) = await makeTestEnvironment()
 
         let records = [
             SessionRecord(speaker: .you, text: "First", timestamp: Date()),
             SessionRecord(speaker: .them, text: "Second", timestamp: Date()),
         ]
-        await sessionStore.seedSession(
+        await sessionRepository.seedSession(
             id: "transcript_test",
             records: records,
             startedAt: Date(),
@@ -92,7 +92,7 @@ final class NotesContractTests: XCTestCase {
             title: "Transcript Test"
         )
 
-        let loaded = await sessionStore.loadTranscript(sessionID: "transcript_test")
+        let loaded = await sessionRepository.loadTranscript(sessionID: "transcript_test")
         XCTAssertEqual(loaded.count, 2)
         XCTAssertEqual(loaded[0].text, "First")
         XCTAssertEqual(loaded[1].text, "Second")

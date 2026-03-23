@@ -96,7 +96,7 @@ final class AppContainer {
             let settings = AppSettings(storage: storage)
             let notesEngine = NotesEngine(mode: .scripted(markdown: scriptedNotesMarkdown))
             let coordinator = AppCoordinator(
-                sessionStore: SessionStore(rootDirectory: appSupportDirectory),
+                sessionRepository: SessionRepository(rootDirectory: appSupportDirectory),
                 templateStore: TemplateStore(rootDirectory: appSupportDirectory),
                 notesEngine: notesEngine,
                 transcriptStore: TranscriptStore()
@@ -147,7 +147,6 @@ final class AppContainer {
             knowledgeBase: knowledgeBase,
             suggestionEngine: suggestionEngine,
             transcriptionEngine: transcriptionEngine,
-            transcriptLogger: TranscriptLogger(directory: notesDirectory),
             refinementEngine: TranscriptRefinementEngine(
                 settings: settings,
                 transcriptStore: coordinator.transcriptStore
@@ -163,7 +162,6 @@ final class AppContainer {
 
         let services = makeServices(settings: settings, coordinator: coordinator)
         coordinator.transcriptionEngine = services.transcriptionEngine
-        coordinator.transcriptLogger = services.transcriptLogger
         coordinator.refinementEngine = services.refinementEngine
         coordinator.audioRecorder = services.audioRecorder
         coordinator.batchEngine = services.batchEngine
@@ -225,7 +223,7 @@ final class AppContainer {
             ),
         ]
 
-        await coordinator.sessionStore.seedSession(
+        await coordinator.sessionRepository.seedSession(
             id: Self.notesSmokeSessionID,
             records: transcript,
             startedAt: startedAt,

@@ -16,8 +16,8 @@ import Observation
 @Observable
 @MainActor
 final class AppCoordinator {
-    @ObservationIgnored private let _sessionStore: SessionStore
-    nonisolated var sessionStore: SessionStore { _sessionStore }
+    @ObservationIgnored private let _sessionRepository: SessionRepository
+    nonisolated var sessionRepository: SessionRepository { _sessionRepository }
 
     @ObservationIgnored private let _templateStore: TemplateStore
     nonisolated var templateStore: TemplateStore { _templateStore }
@@ -84,7 +84,6 @@ final class AppCoordinator {
         set { withMutation(keyPath: \.batchStatus) { _batchStatus = newValue } }
     }
 
-    var transcriptLogger: TranscriptLogger?
     var transcriptionEngine: TranscriptionEngine?
     var refinementEngine: TranscriptRefinementEngine?
     var audioRecorder: AudioRecorder?
@@ -121,16 +120,17 @@ final class AppCoordinator {
     private var detectionEventTask: Task<Void, Never>?
 
     init(
-        sessionStore: SessionStore = SessionStore(),
+        sessionRepository: SessionRepository = SessionRepository(),
         templateStore: TemplateStore = TemplateStore(),
         notesEngine: NotesEngine = NotesEngine(),
         transcriptStore: TranscriptStore = TranscriptStore()
     ) {
-        self._sessionStore = sessionStore
+        self._sessionRepository = sessionRepository
         self._templateStore = templateStore
         self._notesEngine = notesEngine
         self._transcriptStore = transcriptStore
     }
+
 
     // MARK: - State Machine
 
@@ -183,7 +183,7 @@ final class AppCoordinator {
 
     /// Load session history from sidecars (lightweight index only).
     func loadHistory() async {
-        sessionHistory = await sessionStore.loadSessionIndex()
+        sessionHistory = await sessionRepository.listSessions()
     }
 
     func queueExternalCommand(_ command: ExternalCommand) {

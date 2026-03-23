@@ -44,7 +44,7 @@ final class NotesControllerTests: XCTestCase {
             SessionRecord(speaker: .you, text: "Great, let's discuss the plan.", timestamp: startedAt.addingTimeInterval(20)),
         ]
 
-        await coordinator.sessionStore.seedSession(
+        await coordinator.sessionRepository.seedSession(
             id: sessionID,
             records: records,
             startedAt: startedAt,
@@ -59,7 +59,7 @@ final class NotesControllerTests: XCTestCase {
 
     private func makeController(root: URL) -> (NotesController, AppCoordinator) {
         let coordinator = AppCoordinator(
-            sessionStore: SessionStore(rootDirectory: root),
+            sessionRepository: SessionRepository(rootDirectory: root),
             templateStore: TemplateStore(rootDirectory: root),
             notesEngine: NotesEngine(mode: .scripted(markdown: "# Test Notes\n\n## Summary\nTest summary.")),
             transcriptStore: TranscriptStore()
@@ -106,7 +106,7 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertTrue(controller.state.loadedNotes?.markdown.contains("Test Notes") ?? false)
     }
 
-    func testGenerateNotesPatchesMarkdown() async {
+    func testGenerateNotesSavesNotes() async {
         let (root, notes) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)
         let settings = makeSettings(notesDirectory: notes)
@@ -116,11 +116,11 @@ final class NotesControllerTests: XCTestCase {
         controller.selectSession(sessionID)
         try? await Task.sleep(for: .milliseconds(200))
 
-        // After generation, notes should be saved to session store
+        // After generation, notes should be saved to session repository
         controller.generateNotes(sessionID: sessionID, settings: settings)
         try? await Task.sleep(for: .milliseconds(500))
 
-        let savedNotes = await coordinator.sessionStore.loadNotes(sessionID: sessionID)
+        let savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
         XCTAssertNotNil(savedNotes)
         XCTAssertTrue(savedNotes?.markdown.contains("Test Notes") ?? false)
     }

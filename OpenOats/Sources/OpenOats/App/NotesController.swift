@@ -102,8 +102,8 @@ final class NotesController {
         syncCleanupStatus()
 
         Task {
-            let notes = await coordinator.sessionStore.loadNotes(sessionID: sessionID)
-            let transcript = await coordinator.sessionStore.loadTranscript(sessionID: sessionID)
+            let notes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
+            let transcript = await coordinator.sessionRepository.loadTranscript(sessionID: sessionID)
 
             guard state.selectedSessionID == sessionID else { return }
 
@@ -142,20 +142,8 @@ final class NotesController {
                     generatedAt: Date(),
                     markdown: coordinator.notesEngine.generatedMarkdown
                 )
-                await coordinator.sessionStore.saveNotes(sessionID: sessionID, notes: notes)
+                await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: notes)
                 state.loadedNotes = notes
-
-                // Update the structured Markdown file with LLM-generated sections
-                let outputDir = URL(fileURLWithPath: settings.notesFolderPath)
-                if let mdFile = MarkdownMeetingWriter.findMarkdownFile(
-                    sessionID: sessionID,
-                    in: outputDir
-                ) {
-                    MarkdownMeetingWriter.insertLLMSections(
-                        fileURL: mdFile,
-                        llmMarkdown: coordinator.notesEngine.generatedMarkdown
-                    )
-                }
 
                 await loadHistory()
                 state.notesGenerationStatus = .completed
@@ -201,10 +189,10 @@ final class NotesController {
                     refinedText: record.refinedText
                 )
             }
-            await coordinator.sessionStore.backfillRefinedText(sessionID: sessionID, from: utterances)
+            await coordinator.sessionRepository.backfillRefinedText(sessionID: sessionID, from: utterances)
 
             guard state.selectedSessionID == sessionID else { return }
-            state.loadedTranscript = await coordinator.sessionStore.loadTranscript(sessionID: sessionID)
+            state.loadedTranscript = await coordinator.sessionRepository.loadTranscript(sessionID: sessionID)
             syncCleanupStatus()
         }
     }
@@ -222,14 +210,14 @@ final class NotesController {
 
     func renameSession(sessionID: String, newTitle: String) {
         Task {
-            await coordinator.sessionStore.renameSession(sessionID: sessionID, newTitle: newTitle)
+            await coordinator.sessionRepository.renameSession(sessionID: sessionID, title: newTitle)
             await loadHistory()
         }
     }
 
     func deleteSession(sessionID: String) {
         Task {
-            await coordinator.sessionStore.deleteSession(sessionID: sessionID)
+            await coordinator.sessionRepository.deleteSession(sessionID: sessionID)
             if state.selectedSessionID == sessionID {
                 state.selectedSessionID = nil
                 state.loadedNotes = nil
@@ -254,7 +242,7 @@ final class NotesController {
     // MARK: - Private
 
     func loadHistory() async {
-        state.sessionHistory = await coordinator.sessionStore.loadSessionIndex()
+        state.sessionHistory = await coordinator.sessionRepository.listSessions()
     }
 
     /// Maps engine observable state to our flat status enums.

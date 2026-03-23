@@ -56,7 +56,7 @@ final class LiveSessionController {
 
     /// One-time setup tasks called when the view first appears.
     func performInitialSetup() async {
-        await coordinator.sessionStore.purgeRecentlyDeleted()
+        await coordinator.sessionRepository.purgeRecentlyDeleted()
     }
 
     // MARK: - Polling Loop
@@ -132,8 +132,7 @@ final class LiveSessionController {
         switch request.command {
         case .startSession:
             guard coordinator.transcriptionEngine != nil,
-                  coordinator.suggestionEngine != nil,
-                  coordinator.transcriptLogger != nil else { return }
+                  coordinator.suggestionEngine != nil else { return }
             if !state.isRunning {
                 startSession(settings: settings)
             }
@@ -158,46 +157,44 @@ final class LiveSessionController {
     private func handleNewUtterance(_ last: Utterance, settings: AppSettings) {
         container.detectionController?.noteUtterance()
 
-        Task {
-            await coordinator.transcriptLogger?.append(
-                speaker: last.speaker.displayLabel,
-                text: last.text,
-                timestamp: last.timestamp
-            )
-        }
-
         if settings.enableTranscriptRefinement, let engine = coordinator.refinementEngine {
             Task {
                 await engine.refine(last)
             }
         }
 
+        let sessionID = currentSessionID
         if last.speaker.isRemote {
             coordinator.suggestionEngine?.onThemUtterance(last)
 
-            let baseRecord = SessionRecord(
-                speaker: last.speaker,
-                text: last.text,
-                timestamp: last.timestamp
-            )
             Task {
-                await coordinator.sessionStore.appendRecordDelayed(
-                    baseRecord: baseRecord,
-                    utteranceID: last.id,
-                    suggestionEngine: coordinator.suggestionEngine,
-                    transcriptStore: coordinator.transcriptStore
+                await coordinator.sessionRepository.appendLiveUtterance(
+                    sessionID: sessionID ?? "",
+                    utterance: last,
+                    metadata: LiveUtteranceMetadata(
+                        utteranceID: last.id,
+                        suggestionEngine: coordinator.suggestionEngine,
+                        transcriptStore: coordinator.transcriptStore,
+                        isDelayed: true
+                    )
                 )
             }
         } else {
             Task {
-                await coordinator.sessionStore.appendRecord(SessionRecord(
-                    speaker: last.speaker,
-                    text: last.text,
-                    timestamp: last.timestamp
-                ))
+                await coordinator.sessionRepository.appendLiveUtterance(
+                    sessionID: sessionID ?? "",
+                    utterance: last
+                )
             }
         }
     }
+
+    /// The current session ID from the repository.
+    private var currentSessionID: String? {
+        // This is captured at start time and held for the session lifetime.
+        _currentSessionID
+    }
+    private var _currentSessionID: String?
 
     private func handleNewUtterances(startingAt startIndex: Int, settings: AppSettings) {
         let utterances = coordinator.transcriptStore.utterances
@@ -219,7 +216,7 @@ final class LiveSessionController {
         coordinator.lastStorageError = nil
         coordinator.transcriptStore.clear()
 
-        await coordinator.sessionStore.setWriteErrorHandler { [weak coordinator] message in
+        await coordinator.sessionRepository.setWriteErrorHandler { [weak coordinator] message in
             Task { @MainActor [weak coordinator] in
                 coordinator?.lastStorageError = message
             }
@@ -234,9 +231,20 @@ final class LiveSessionController {
             coordinator.sessionTemplateSnapshot = nil
         }
 
+        // Configure notes folder for mirroring
+        if let settings {
+            let notesURL = URL(fileURLWithPath: settings.notesFolderPath)
+            await coordinator.sessionRepository.setNotesFolderPath(notesURL)
+        }
+
         let templateID = coordinator.selectedTemplate?.id
-        await coordinator.sessionStore.startSession(templateID: templateID)
-        await coordinator.transcriptLogger?.startSession()
+        let handle = await coordinator.sessionRepository.startSession(
+            config: SessionStartConfig(
+                templateID: templateID,
+                templateSnapshot: coordinator.sessionTemplateSnapshot
+            )
+        )
+        _currentSessionID = handle.sessionID
 
         if let settings {
             if settings.saveAudioRecording || settings.enableBatchRefinement {
@@ -264,15 +272,19 @@ final class LiveSessionController {
         }
 
         // 2. Drain delayed JSONL writes
-        await coordinator.sessionStore.awaitPendingWrites()
+        await coordinator.sessionRepository.awaitPendingWrites()
 
-        // 2b. Backfill refined text
+        // 3. Build finalization metadata
+        let sessionID: String
+        if let id = _currentSessionID {
+            sessionID = id
+        } else if let id = await coordinator.sessionRepository.getCurrentSessionID() {
+            sessionID = id
+        } else {
+            sessionID = "unknown"
+        }
         let utterancesSnapshot = coordinator.transcriptStore.utterances
-        await coordinator.sessionStore.backfillRefinedText(from: utterancesSnapshot)
-
-        // 3. Build sidecar
-        let sessionID = await coordinator.sessionStore.currentSessionID ?? "unknown"
-        let utteranceCount = coordinator.transcriptStore.utterances.count
+        let utteranceCount = utterancesSnapshot.count
         let title = coordinator.transcriptStore.conversationState.currentTopic.isEmpty
             ? nil : coordinator.transcriptStore.conversationState.currentTopic
 
@@ -285,9 +297,24 @@ final class LiveSessionController {
 
         let engineName = settings?.transcriptionModel.rawValue
 
+        // 4. Finalize: closes file handle, backfills refined text, writes session.json
+        await coordinator.sessionRepository.finalizeSession(
+            sessionID: sessionID,
+            metadata: SessionFinalizeMetadata(
+                endedAt: Date(),
+                utteranceCount: utteranceCount,
+                title: title,
+                meetingApp: meetingAppName,
+                engine: engineName,
+                templateSnapshot: coordinator.sessionTemplateSnapshot,
+                utterances: utterancesSnapshot
+            )
+        )
+
+        // 5. Build index for UI state
         let index = SessionIndex(
             id: sessionID,
-            startedAt: coordinator.transcriptStore.utterances.first?.timestamp ?? Date(),
+            startedAt: utterancesSnapshot.first?.timestamp ?? Date(),
             endedAt: Date(),
             templateSnapshot: coordinator.sessionTemplateSnapshot,
             title: title,
@@ -296,29 +323,8 @@ final class LiveSessionController {
             meetingApp: meetingAppName,
             engine: engineName
         )
-        let sidecar = SessionSidecar(index: index, notes: nil)
 
-        // 4. Write sidecar
-        await coordinator.sessionStore.writeSidecar(sidecar)
-
-        // 4b. Generate structured Markdown
-        let jsonlRecords = await coordinator.sessionStore.loadTranscript(sessionID: sessionID)
-        if !jsonlRecords.isEmpty, let settings {
-            let outputDir = URL(fileURLWithPath: settings.notesFolderPath)
-            MarkdownMeetingWriter.write(
-                metadata: .init(from: index),
-                records: jsonlRecords,
-                outputDirectory: outputDir
-            )
-        }
-
-        // 5. Close JSONL file
-        await coordinator.sessionStore.endSession()
-
-        // 6. Close plain-text archive
-        await coordinator.transcriptLogger?.endSession()
-
-        // 6b. Merge and encode audio recording
+        // 6. Handle audio recording
         if let settings, let recorder = coordinator.audioRecorder {
             let wantsBatch = settings.enableBatchRefinement
             let wantsExport = settings.saveAudioRecording
@@ -348,7 +354,7 @@ final class LiveSessionController {
                     copiedSys = nil
                 }
 
-                await coordinator.sessionStore.stashAudioForBatch(
+                await coordinator.sessionRepository.stashAudioForBatch(
                     sessionID: sessionID,
                     micURL: copiedMic,
                     sysURL: copiedSys,
@@ -363,7 +369,7 @@ final class LiveSessionController {
                 await recorder.finalizeRecording()
             } else if wantsBatch {
                 let sealed = recorder.sealForBatch()
-                await coordinator.sessionStore.stashAudioForBatch(
+                await coordinator.sessionRepository.stashAudioForBatch(
                     sessionID: sessionID,
                     micURL: sealed.mic,
                     sysURL: sealed.sys,
@@ -382,6 +388,7 @@ final class LiveSessionController {
         // 7. Update UI state + refresh history
         coordinator.lastEndedSession = index
         coordinator.sessionTemplateSnapshot = nil
+        _currentSessionID = nil
         await coordinator.loadHistory()
 
         // 8. Kick off batch transcription if enabled
@@ -390,7 +397,7 @@ final class LiveSessionController {
             let batchModel = settings.batchTranscriptionModel
             let batchLocale = settings.locale
             let notesDir = URL(fileURLWithPath: settings.notesFolderPath)
-            let store = coordinator.sessionStore
+            let repo = coordinator.sessionRepository
             let diarize = settings.enableDiarization
             let diarizeVariant = settings.diarizationVariant
             Task.detached { [batchEngine] in
@@ -398,7 +405,7 @@ final class LiveSessionController {
                     sessionID: batchSessionID,
                     model: batchModel,
                     locale: batchLocale,
-                    sessionStore: store,
+                    sessionRepository: repo,
                     notesDirectory: notesDir,
                     enableDiarization: diarize,
                     diarizationVariant: diarizeVariant
@@ -411,9 +418,9 @@ final class LiveSessionController {
         coordinator.transcriptionEngine?.stop()
         coordinator.audioRecorder?.discardRecording()
         coordinator.transcriptStore.clear()
+        _currentSessionID = nil
         Task {
-            await coordinator.transcriptLogger?.endSession()
-            await coordinator.sessionStore.endSession()
+            await coordinator.sessionRepository.endSession()
         }
     }
 
@@ -483,7 +490,7 @@ final class LiveSessionController {
             observedNotesFolderPath = settings.notesFolderPath
             let url = URL(fileURLWithPath: settings.notesFolderPath)
             Task {
-                await coordinator.transcriptLogger?.updateDirectory(url)
+                await coordinator.sessionRepository.setNotesFolderPath(url)
             }
             coordinator.audioRecorder?.updateDirectory(url)
         }

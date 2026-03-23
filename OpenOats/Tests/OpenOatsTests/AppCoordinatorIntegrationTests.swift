@@ -9,7 +9,7 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
         root: URL,
         notesDirectory: URL,
         scripted: [Utterance]
-    ) -> (AppCoordinator, LiveSessionController, AppSettings, SessionStore) {
+    ) -> (AppCoordinator, LiveSessionController, AppSettings, SessionRepository) {
         let suiteName = "com.openoats.tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName) ?? .standard
         defaults.removePersistentDomain(forName: suiteName)
@@ -24,9 +24,9 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
         )
         let settings = AppSettings(storage: storage)
         let transcriptStore = TranscriptStore()
-        let sessionStore = SessionStore(rootDirectory: root)
+        let sessionRepository = SessionRepository(rootDirectory: root)
         let coordinator = AppCoordinator(
-            sessionStore: sessionStore,
+            sessionRepository: sessionRepository,
             templateStore: TemplateStore(rootDirectory: root),
             notesEngine: NotesEngine(mode: .scripted(markdown: "Test")),
             transcriptStore: transcriptStore
@@ -36,7 +36,6 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
             settings: settings,
             mode: .scripted(scripted)
         )
-        coordinator.transcriptLogger = TranscriptLogger(directory: notesDirectory)
 
         let container = AppContainer(
             mode: .live,
@@ -47,7 +46,7 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
         let controller = LiveSessionController(coordinator: coordinator, container: container)
         coordinator.liveSessionController = controller
 
-        return (coordinator, controller, settings, sessionStore)
+        return (coordinator, controller, settings, sessionRepository)
     }
 
     private func makeTempDirs() -> (root: URL, notes: URL) {
@@ -62,7 +61,7 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
 
     func testUserStoppedFinalizesSessionAndRefreshesHistory() async {
         let dirs = makeTempDirs()
-        let (coordinator, _controller, settings, sessionStore) = makeTestHarness(
+        let (coordinator, _controller, settings, sessionRepository) = makeTestHarness(
             root: dirs.root,
             notesDirectory: dirs.notes,
             scripted: [
@@ -110,7 +109,7 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
         XCTAssertEqual(endedSession.utteranceCount, 2)
         XCTAssertTrue(coordinator.sessionHistory.contains(where: { $0.id == endedSession.id }))
 
-        let indices = await sessionStore.loadSessionIndex()
+        let indices = await sessionRepository.listSessions()
         let persisted = indices.first(where: { $0.id == endedSession.id })
         XCTAssertNotNil(persisted)
         XCTAssertEqual(persisted?.utteranceCount, 2)
@@ -122,7 +121,7 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
 
     func testFinalizationWritesSidecarWithCorrectMetadata() async {
         let dirs = makeTempDirs()
-        let (coordinator, _controller, settings, sessionStore) = makeTestHarness(
+        let (coordinator, _controller, settings, sessionRepository) = makeTestHarness(
             root: dirs.root,
             notesDirectory: dirs.notes,
             scripted: [
@@ -151,8 +150,8 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
         // Verify state returned to idle
         XCTAssertEqual(coordinator.state, .idle)
 
-        // Verify sidecar was written
-        let indices = await sessionStore.loadSessionIndex()
+        // Verify session metadata was written
+        let indices = await sessionRepository.listSessions()
         XCTAssertFalse(indices.isEmpty)
         let session = indices.first!
         XCTAssertFalse(session.hasNotes)
