@@ -23,15 +23,6 @@ APP_NAME="OpenOats"
 BUNDLE_ID="com.openoats.app"
 SKIP_SIGN="${SKIP_SIGN:-0}"
 SKIP_INSTALL="${SKIP_INSTALL:-0}"
-APP_VERSION="${APP_VERSION:-}"
-
-if [[ -z "$APP_VERSION" ]]; then
-  git -C "$ROOT_DIR" fetch --tags --quiet >/dev/null 2>&1 || true
-  APP_VERSION_TAG=$(git -C "$ROOT_DIR" tag --merged HEAD --sort=-v:refname 'v*' | head -1 || true)
-  if [[ -n "$APP_VERSION_TAG" ]]; then
-    APP_VERSION="${APP_VERSION_TAG#v}"
-  fi
-fi
 
 echo "=== Building $APP_NAME (Swift) ==="
 
@@ -67,14 +58,6 @@ fi
 
 # Copy Info.plist
 cp "$SWIFT_DIR/Sources/OpenOats/Info.plist" "$APP_DIR/Contents/Info.plist"
-
-if [[ -n "$APP_VERSION" ]]; then
-  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_VERSION" "$APP_DIR/Contents/Info.plist"
-  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$APP_DIR/Contents/Info.plist"
-  echo "Set app bundle version to $APP_VERSION"
-else
-  echo "Warning: Unable to determine app version. Using Info.plist defaults."
-fi
 
 # Copy app icon
 ICON_PATH="$SWIFT_DIR/Sources/OpenOats/Assets/AppIcon.icns"
