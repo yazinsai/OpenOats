@@ -188,13 +188,11 @@ struct SettingsView: View {
                 .font(.system(size: 12))
                 .accessibilityIdentifier("settings.transcriptionModelPicker")
 
-                if settings.transcriptionModel.supportsExplicitLanguageHint {
-                    TextField(
-                        "\(settings.transcriptionModel.localeFieldTitle) (e.g. en-US)",
-                        text: $settings.transcriptionLocale
-                    )
-                    .font(.system(size: 12, design: .monospaced))
-                }
+                TextField(
+                    "\(settings.transcriptionModel.localeFieldTitle) (e.g. en-US)",
+                    text: $settings.transcriptionLocale
+                )
+                .font(.system(size: 12, design: .monospaced))
 
                 Text(settings.transcriptionModel.localeHelpText)
                     .font(.system(size: 11))

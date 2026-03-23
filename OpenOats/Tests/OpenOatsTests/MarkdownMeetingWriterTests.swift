@@ -169,6 +169,7 @@ final class MarkdownMeetingWriterTests: XCTestCase {
                 endedAt: start.addingTimeInterval(1920), // 32 minutes
                 utteranceCount: 10,
                 hasNotes: false,
+                language: "de-DE",
                 engine: "parakeetV2"
             )
         )
@@ -191,6 +192,7 @@ final class MarkdownMeetingWriterTests: XCTestCase {
         XCTAssertTrue(frontmatter.contains("  - You"))
         XCTAssertTrue(frontmatter.contains("  - Them"))
         XCTAssertTrue(frontmatter.contains("engine: parakeetV2"))
+        XCTAssertTrue(frontmatter.contains("language: de-DE"))
     }
 
     func testFrontmatterIncludesMeetingApp() {

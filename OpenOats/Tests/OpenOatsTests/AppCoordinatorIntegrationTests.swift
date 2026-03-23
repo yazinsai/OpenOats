@@ -17,6 +17,7 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
         defaults.set(notesDirectory.path, forKey: "notesFolderPath")
         defaults.set(true, forKey: "hasAcknowledgedRecordingConsent")
+        defaults.set("es-ES", forKey: "transcriptionLocale")
 
         let storage = AppSettingsStorage(
             defaults: defaults,
@@ -87,5 +88,6 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
         XCTAssertNotNil(persisted)
         XCTAssertEqual(persisted?.utteranceCount, 2)
         XCTAssertFalse(persisted?.hasNotes ?? true)
+        XCTAssertEqual(persisted?.language, "es-ES")
     }
 }

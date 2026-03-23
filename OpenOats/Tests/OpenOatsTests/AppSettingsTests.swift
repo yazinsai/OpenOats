@@ -65,10 +65,11 @@ final class AppSettingsTests: XCTestCase {
 
     func testTranscriptionModelSupportsExplicitLanguageHint() {
         XCTAssertTrue(TranscriptionModel.qwen3ASR06B.supportsExplicitLanguageHint)
-        XCTAssertFalse(TranscriptionModel.parakeetV2.supportsExplicitLanguageHint)
-        XCTAssertFalse(TranscriptionModel.parakeetV3.supportsExplicitLanguageHint)
-        XCTAssertFalse(TranscriptionModel.whisperBase.supportsExplicitLanguageHint)
-        XCTAssertFalse(TranscriptionModel.whisperSmall.supportsExplicitLanguageHint)
+        XCTAssertTrue(TranscriptionModel.parakeetV2.supportsExplicitLanguageHint)
+        XCTAssertTrue(TranscriptionModel.parakeetV3.supportsExplicitLanguageHint)
+        XCTAssertTrue(TranscriptionModel.whisperBase.supportsExplicitLanguageHint)
+        XCTAssertTrue(TranscriptionModel.whisperSmall.supportsExplicitLanguageHint)
+        XCTAssertTrue(TranscriptionModel.whisperLargeV3Turbo.supportsExplicitLanguageHint)
     }
 
     func testTranscriptionModelWhisperVariant() {

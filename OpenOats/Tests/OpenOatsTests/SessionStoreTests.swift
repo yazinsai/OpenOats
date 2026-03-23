@@ -139,6 +139,30 @@ final class SessionStoreTests: XCTestCase {
         await store.deleteSession(sessionID: id)
     }
 
+    func testLoadSessionIndexPreservesLanguageFromSidecar() async {
+        await store.startSession()
+        let id = await store.currentSessionID!
+        await store.endSession()
+
+        let sidecar = SessionSidecar(
+            index: SessionIndex(
+                id: id,
+                startedAt: Date(timeIntervalSince1970: 1_000_000),
+                utteranceCount: 0,
+                hasNotes: false,
+                language: "fr-FR"
+            ),
+            notes: nil
+        )
+        await store.writeSidecar(sidecar)
+
+        let indices = await store.loadSessionIndex()
+        let found = indices.first(where: { $0.id == id })
+        XCTAssertEqual(found?.language, "fr-FR")
+
+        await store.deleteSession(sessionID: id)
+    }
+
     func testLoadSessionIndexSortedByDate() async {
         let indices = await store.loadSessionIndex()
         // Verify descending order (most recent first)

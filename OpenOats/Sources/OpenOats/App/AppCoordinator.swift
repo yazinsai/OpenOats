@@ -291,6 +291,7 @@ final class AppCoordinator {
 
         // Capture the ASR engine name from current settings
         let engineName = settings?.transcriptionModel.rawValue
+        let transcriptionLanguage = settings?.transcriptionLocale
 
         let index = SessionIndex(
             id: sessionID,
@@ -300,6 +301,7 @@ final class AppCoordinator {
             title: title,
             utteranceCount: utteranceCount,
             hasNotes: false,
+            language: transcriptionLanguage,
             meetingApp: meetingAppName,
             engine: engineName
         )
