@@ -74,34 +74,6 @@ enum MarkdownMeetingWriter {
         }
     }
 
-    @discardableResult
-    static func export(
-        session: SessionDetail,
-        outputDirectory: URL
-    ) -> URL? {
-        guard !session.transcript.isEmpty else { return nil }
-
-        let fm = FileManager.default
-        try? fm.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-
-        let content = buildMarkdown(session: session)
-        let fileURL = findMarkdownFile(sessionID: session.summary.id, in: outputDirectory)
-            ?? resolveFilename(
-                title: session.summary.title,
-                startedAt: session.summary.startedAt,
-                directory: outputDirectory
-            )
-
-        do {
-            try content.write(to: fileURL, atomically: true, encoding: .utf8)
-            try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
-            return fileURL
-        } catch {
-            writerLogger.error("Failed to export markdown: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-    }
-
     // MARK: - Markdown Assembly
 
     static func buildMarkdown(metadata: Metadata, records: [SessionRecord]) -> String {
@@ -109,33 +81,6 @@ enum MarkdownMeetingWriter {
         let frontmatter = buildFrontmatter(metadata: metadata, records: records, title: resolvedTitle)
         let body = buildBody(title: resolvedTitle, records: records, startedAt: metadata.startedAt)
         return frontmatter + "\n" + body
-    }
-
-    static func buildMarkdown(session: SessionDetail) -> String {
-        let metadata = Metadata(from: session.summary)
-        let transcript = session.transcript
-        let resolvedTitle = metadata.title?.isEmpty == false ? metadata.title! : "Meeting"
-        let frontmatter = buildFrontmatter(
-            metadata: metadata,
-            records: transcript,
-            title: resolvedTitle
-        )
-
-        var parts: [String] = [frontmatter, "", "# \(resolvedTitle)", ""]
-
-        if let notes = session.notes {
-            let llmSections = extractLLMSections(from: notes.markdown)
-            if !llmSections.isEmpty {
-                parts.append(llmSections)
-                parts.append("")
-            }
-        }
-
-        parts.append("## Transcript")
-        parts.append("")
-        parts.append(formatTranscriptLines(records: transcript, startedAt: metadata.startedAt))
-
-        return parts.joined(separator: "\n")
     }
 
     // MARK: - YAML Frontmatter

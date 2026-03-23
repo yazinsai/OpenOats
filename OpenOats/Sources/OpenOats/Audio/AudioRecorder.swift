@@ -376,25 +376,13 @@ final class AudioRecorder: @unchecked Sendable {
         let outFrames = AVAudioFrameCount(Double(frameCount) * ratio) + 1
         guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outFrames) else { return [] }
 
-        final class ConversionState: @unchecked Sendable {
-            let inputBuffer: AVAudioPCMBuffer
-            var consumed = false
-
-            init(inputBuffer: AVAudioPCMBuffer) {
-                self.inputBuffer = inputBuffer
-            }
-        }
-
-        let conversionState = ConversionState(inputBuffer: readBuf)
+        var consumed = false
         var convError: NSError?
         converter.convert(to: outBuf, error: &convError) { _, status in
-            if conversionState.consumed {
-                status.pointee = .endOfStream
-                return nil
-            }
-            conversionState.consumed = true
+            if consumed { status.pointee = .endOfStream; return nil }
+            consumed = true
             status.pointee = .haveData
-            return conversionState.inputBuffer
+            return readBuf
         }
 
         return extractSamples(from: outBuf)

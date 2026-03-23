@@ -140,7 +140,7 @@ private struct UtteranceBubble: View {
 
             Text(utterance.speaker.displayLabel)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(utterance.speaker.presentationColor)
+                .foregroundStyle(utterance.speaker.color)
                 .frame(minWidth: 36, alignment: .trailing)
 
             Text(utterance.displayText)
@@ -162,7 +162,7 @@ private struct VolatileIndicator: View {
 
             Text(speaker.displayLabel)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(speaker.presentationColor)
+                .foregroundStyle(speaker.color)
                 .frame(minWidth: 36, alignment: .trailing)
 
             HStack(spacing: 4) {
@@ -170,7 +170,7 @@ private struct VolatileIndicator: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                 Circle()
-                    .fill(speaker.presentationColor)
+                    .fill(speaker.color)
                     .frame(width: 4, height: 4)
                     .opacity(0.6)
             }

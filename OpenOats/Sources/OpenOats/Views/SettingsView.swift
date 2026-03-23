@@ -10,7 +10,7 @@ struct SettingsView: View {
 
     @Bindable var settings: AppSettings
     var updater: SPUUpdater
-    let templateStore: TemplateStore
+    @Environment(AppCoordinator.self) private var coordinator
     @State private var inputDevices: [(id: AudioDeviceID, name: String)] = []
     @State private var automaticallyChecksForUpdates = false
     @State private var templates: [MeetingTemplate] = []
@@ -506,7 +506,7 @@ struct SettingsView: View {
         inputDevices = MicCapture.availableInputDevices()
         Task { @MainActor in
             automaticallyChecksForUpdates = updater.automaticallyChecksForUpdates
-            templates = templateStore.templates
+            templates = coordinator.templateStore.templates
         }
     }
 
@@ -518,22 +518,22 @@ struct SettingsView: View {
 
     private func addTemplate(_ template: MeetingTemplate) {
         Task { @MainActor in
-            templateStore.add(template)
-            templates = templateStore.templates
+            coordinator.templateStore.add(template)
+            templates = coordinator.templateStore.templates
         }
     }
 
     private func resetTemplate(id: UUID) {
         Task { @MainActor in
-            templateStore.resetBuiltIn(id: id)
-            templates = templateStore.templates
+            coordinator.templateStore.resetBuiltIn(id: id)
+            templates = coordinator.templateStore.templates
         }
     }
 
     private func deleteTemplate(id: UUID) {
         Task { @MainActor in
-            templateStore.delete(id: id)
-            templates = templateStore.templates
+            coordinator.templateStore.delete(id: id)
+            templates = coordinator.templateStore.templates
         }
     }
 

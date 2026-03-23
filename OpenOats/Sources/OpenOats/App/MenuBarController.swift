@@ -6,19 +6,21 @@ import SwiftUI
 final class MenuBarController {
     private let statusItem: NSStatusItem
     private let popover: NSPopover
-    private let liveSessionController: LiveSessionController
+    private let coordinator: AppCoordinator
+    private let settings: AppSettings
     private var iconUpdateTask: Task<Void, Never>?
 
     var onShowMainWindow: (() -> Void)?
     var onQuitApp: (() -> Void)?
 
     init(
-        liveSessionController: LiveSessionController,
-        meetingDetectionController: MeetingDetectionController,
-        settings: SettingsStore,
+        coordinator: AppCoordinator,
+        settings: AppSettings,
         onCheckForUpdates: @escaping () -> Void
     ) {
-        self.liveSessionController = liveSessionController
+        self.coordinator = coordinator
+        self.settings = settings
+
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         self.popover = NSPopover()
         popover.contentSize = NSSize(width: 280, height: 160)
@@ -26,8 +28,7 @@ final class MenuBarController {
         popover.animates = true
 
         let popoverView = MenuBarPopoverView(
-            liveSessionController: liveSessionController,
-            meetingDetectionController: meetingDetectionController,
+            coordinator: coordinator,
             settings: settings,
             onShowMainWindow: { [weak self] in
                 self?.popover.performClose(nil)
@@ -67,13 +68,13 @@ final class MenuBarController {
     }
 
     private func startIconObservation() {
-        iconUpdateTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+        iconUpdateTask = Task { [weak self] in
             while !Task.isCancelled {
-                self.updateIcon()
+                guard let self else { break }
+                updateIcon()
                 await withCheckedContinuation { continuation in
                     withObservationTracking {
-                        _ = self.liveSessionController.state.isRunning
+                        _ = self.coordinator.isRecording
                     } onChange: {
                         continuation.resume()
                     }
@@ -83,9 +84,7 @@ final class MenuBarController {
     }
 
     private func updateIcon() {
-        let symbolName = liveSessionController.state.isRunning
-            ? "waveform.circle.fill"
-            : "waveform.circle"
+        let symbolName = coordinator.isRecording ? "waveform.circle.fill" : "waveform.circle"
         statusItem.button?.image = NSImage(
             systemSymbolName: symbolName,
             accessibilityDescription: "OpenOats"

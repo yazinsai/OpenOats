@@ -1,13 +1,7 @@
 import Foundation
 
-enum OpenOatsCommand: Equatable {
-    case startSession
-    case stopSession
-    case openNotes(sessionID: String?)
-}
-
 enum OpenOatsDeepLink {
-    static func parse(_ url: URL) -> OpenOatsCommand? {
+    static func parse(_ url: URL) -> ExternalCommand? {
         guard let scheme = url.scheme?.lowercased(), scheme == "openoats" else {
             return nil
         }
