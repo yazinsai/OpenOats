@@ -174,7 +174,7 @@ final class MeetingDetectionController {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if self.liveSessionController.state.isRunning {
+                if self.liveSessionController.state.hasActiveSession {
                     self.liveSessionController.stopSession()
                 }
             }
@@ -214,7 +214,7 @@ final class MeetingDetectionController {
     }
 
     private func handleMeetingDetected(_ app: MeetingApp?) async {
-        guard !liveSessionController.state.isRunning else { return }
+        guard !liveSessionController.state.hasActiveSession else { return }
         if let bundleID = app?.bundleID, dismissedEvents.contains(bundleID) {
             return
         }
@@ -239,7 +239,7 @@ final class MeetingDetectionController {
     }
 
     private func handleDetectionAccepted() {
-        guard !liveSessionController.state.isRunning else { return }
+        guard !liveSessionController.state.hasActiveSession else { return }
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -274,7 +274,7 @@ final class MeetingDetectionController {
     }
 
     private func evaluateImmediate() async {
-        guard let meetingDetector, !liveSessionController.state.isRunning else { return }
+        guard let meetingDetector, !liveSessionController.state.hasActiveSession else { return }
         let (micActive, app) = await meetingDetector.queryCurrentState()
         if micActive, app != nil {
             await handleMeetingDetected(app)

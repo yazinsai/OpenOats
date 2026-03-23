@@ -17,7 +17,6 @@ struct ContentView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var showOnboarding = false
     @State private var showConsentSheet = false
-    @State private var pendingControlBarAction: ControlBarAction?
 
     var body: some View {
         let state = liveSessionController.state
@@ -72,6 +71,7 @@ struct ContentView: View {
 
             ControlBar(
                 isRunning: state.isRunning,
+                isStarting: state.isStartingSession,
                 audioLevel: state.audioLevel,
                 modelDisplayName: state.modelDisplayName,
                 transcriptionPrompt: state.transcriptionPrompt,
@@ -79,10 +79,10 @@ struct ContentView: View {
                 errorMessage: state.currentError,
                 needsDownload: state.needsDownload,
                 onToggle: {
-                    pendingControlBarAction = .toggle
+                    handleControlBarAction(.toggle)
                 },
                 onConfirmDownload: {
-                    pendingControlBarAction = .confirmDownload
+                    handleControlBarAction(.confirmDownload)
                 }
             )
         }
@@ -113,7 +113,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: showConsentSheet) { _, isShowing in
-            if !isShowing && settings.hasAcknowledgedRecordingConsent && !liveSessionController.state.isRunning {
+            if !isShowing && settings.hasAcknowledgedRecordingConsent && !liveSessionController.state.hasActiveSession {
                 liveSessionController.startManualSession()
             }
         }
@@ -128,11 +128,6 @@ struct ContentView: View {
         }
         .onChange(of: liveSessionController.state.isGeneratingSuggestions) { _, _ in
             synchronizeMiniBar()
-        }
-        .onChange(of: pendingControlBarAction) { _, action in
-            guard let action else { return }
-            pendingControlBarAction = nil
-            handleControlBarAction(action)
         }
     }
 
@@ -322,7 +317,9 @@ struct ContentView: View {
     private func handleControlBarAction(_ action: ControlBarAction) {
         switch action {
         case .toggle:
-            if liveSessionController.state.isRunning {
+            if liveSessionController.state.isStartingSession {
+                return
+            } else if liveSessionController.state.isRunning {
                 liveSessionController.stopSession()
             } else if settings.hasAcknowledgedRecordingConsent {
                 liveSessionController.startManualSession()

@@ -81,7 +81,12 @@ struct MenuBarPopoverView: View {
         detectionState: MeetingDetectionController.State
     ) -> some View {
         HStack(spacing: 6) {
-            if liveState.isRunning {
+            if liveState.isStartingSession {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Starting…")
+                    .font(.system(size: 13, weight: .medium))
+            } else if liveState.isRunning {
                 Circle()
                     .fill(.red)
                     .frame(width: 8, height: 8)
@@ -108,6 +113,20 @@ struct MenuBarPopoverView: View {
 
     @ViewBuilder
     private func primaryAction(liveState: LiveSessionController.State) -> some View {
+        if liveState.isStartingSession {
+            Button(action: {}) {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Starting…")
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .disabled(true)
+        } else
         if liveState.isRunning {
             Button(action: {
                 liveSessionController.stopSession()

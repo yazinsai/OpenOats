@@ -40,6 +40,7 @@ final class TranscriptStore {
     func append(_ utterance: Utterance) -> Bool {
         guard !shouldSuppressAcousticEcho(utterance) else { return false }
         utterances.append(utterance)
+        diagLog("[TRANSCRIPT] appended \(utterance.speaker.storageKey) chars=\(utterance.text.count) total=\(utterances.count)")
         if utterance.speaker.isRemote {
             remoteUtterancesSinceStateUpdate += 1
         }

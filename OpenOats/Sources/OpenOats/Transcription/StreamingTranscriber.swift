@@ -153,6 +153,7 @@ final class StreamingTranscriber: @unchecked Sendable {
             let text = try await backend.transcribe(samples, locale: locale, previousContext: previousContext)
             guard !text.isEmpty else { return }
             log.info("[\(self.speaker.storageKey)] transcribed: \(text.prefix(80))")
+            diagLog("[\(speaker.storageKey)] transcribed chars=\(text.count)")
             // Store trailing words for cross-segment context
             let words = text.split(separator: " ")
             previousContext = words.suffix(Self.contextWordCount).joined(separator: " ")

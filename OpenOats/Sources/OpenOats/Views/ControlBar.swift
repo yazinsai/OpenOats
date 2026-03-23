@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ControlBar: View {
     let isRunning: Bool
+    let isStarting: Bool
     let audioLevel: Float
     let modelDisplayName: String
     let transcriptionPrompt: String
@@ -24,7 +25,7 @@ struct ControlBar: View {
             }
 
             // Download prompt
-            if needsDownload && !isRunning {
+            if needsDownload && !isRunning && !isStarting {
                 VStack(spacing: 6) {
                     Text(transcriptionPrompt)
                         .font(.system(size: 11))
@@ -71,6 +72,14 @@ struct ControlBar: View {
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.primary)
                                 .accessibilityIdentifier("app.controlBar.toggle")
+                        } else if isStarting {
+                            ProgressView()
+                                .controlSize(.small)
+
+                            Text("Starting...")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .accessibilityIdentifier("app.controlBar.toggle")
                         } else {
                             Image(systemName: "mic.fill")
                                 .font(.system(size: 11))
@@ -87,10 +96,17 @@ struct ControlBar: View {
                     // Avoid hover-driven local state here. On macOS 26 / Swift 6.2,
                     // switching this button from Start to Live while the pointer is
                     // over it can trip a SwiftUI executor crash in onHover handling.
-                    .background(isRunning ? Color.green.opacity(0.1) : Color.accentColor)
+                    .background(
+                        isRunning
+                            ? Color.green.opacity(0.1)
+                            : isStarting
+                                ? Color.primary.opacity(0.08)
+                                : Color.accentColor
+                    )
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(isStarting)
 
                 // Audio level bars when running
                 if isRunning {
