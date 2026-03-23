@@ -31,19 +31,22 @@ PR #137 collapsed all 8 phases into a single 6,000-line commit. Three specific t
 
 **What to test** (scoped to what is currently testable through `AppCoordinator`):
 - State machine transitions: manual start/stop, auto-detected start/stop, discard, finalization timeout
-- Detection flow: accept → session starts, dismiss → no session, timeout → no session, not-a-meeting → bundle ID remembered
 - Deep link / external command: openNotes routes to correct session
 - Finalization pipeline: drain audio → wait pending writes → cleanup → backfill → sidecar → markdown → close files
 - Notes generation: generate → save to store → patch markdown file in place
 - Session management: rename, delete, cleanup, load transcript
+
+**Deferred to Phase 4** (currently untestable — detection callbacks are private and services are constructed internally):
+- Detection flow: accept → session starts, dismiss → no session, timeout → no session, not-a-meeting → bundle ID remembered. `MeetingDetector` and `NotificationService` are constructed inside `setupMeetingDetection()` with no injection point, and all four detection callbacks (`handleDetectionAccepted/NotAMeeting/Dismissed/Timeout`) are private. Phase 4's extraction creates the testing seam — detection contract tests are written there, immediately before moving the code. The "test before move" rule still applies.
 
 **Deferred to Phase 5** (currently untestable — these side effects live in `ContentView`, not in business logic):
 - Settings-change reactions (KB folder, notes folder, device ID, API key, transcription model)
 - Utterance ingestion pipeline (silence timer + transcript logger + refinement + suggestion + delayed write)
 - Batch status polling and auto-dismiss
 - MiniBar show/hide on recording state change
+- Deep-link start/stop gating: start command rejected when not ready or already running, stop command rejected when not running, notes command always accepted. These guards currently live in `ContentView.handlePendingExternalCommandIfPossible()` and are not testable through the coordinator.
 
-These tests are written as part of Phase 5, immediately before moving the code. The "test before move" rule still applies — it just happens within the same PR for behaviors that are only testable after extraction.
+These tests are written as part of their respective phases, immediately before moving the code. The "test before move" rule still applies — it just happens within the same PR for behaviors that are only testable after extraction.
 
 **Approach**: Integration tests that construct a real `AppCoordinator` with mock/stub services (mock `TranscriptionEngine`, in-memory `SessionStore`, etc.). Tests call `handle()` and assert state + side effects.
 
@@ -142,7 +145,7 @@ enum DetectionEvent {
 
 `AppCoordinator` consumes the stream in a long-lived Task and calls `handle()` for events that should trigger state transitions. This preserves the one-shot callback semantics — events are consumed exactly once, never replayed.
 
-**Stream topology**: `MeetingDetector` already exposes its own `AsyncStream` for detector events. The `MeetingDetectionController` unifies detector events and `NotificationService` callback events into a single `AsyncStream<DetectionEvent>`. The controller uses `AsyncStream.makeStream()` with a continuation, and yields events from both the detector stream and notification callbacks. Buffering policy: `.bufferingOldest(16)` — detection events are infrequent and must never be dropped.
+**Stream topology**: `MeetingDetector` already exposes its own `AsyncStream` for detector events. The `MeetingDetectionController` unifies detector events and `NotificationService` callback events into a single `AsyncStream<DetectionEvent>`. The controller uses `AsyncStream.makeStream()` with a continuation, and yields events from both the detector stream and notification callbacks. Buffering policy: `.unbounded` — detection events are infrequent (seconds apart at most) so memory cost is negligible, and no event should ever be silently dropped. (`.bufferingOldest(N)` drops the oldest event when the buffer is full, which contradicts the requirement.)
 
 **NotificationService access**: The controller owns `NotificationService` for detection-related notifications. However, `NotificationService` is also used for batch completion notifications (currently `coordinator.notificationService`). To avoid a cross-controller dependency, `NotificationService` remains accessible via the container as a shared service — the detection controller wires its callbacks, but `LiveSessionController` (Phase 5) can access it for batch completion posting.
 
@@ -155,7 +158,9 @@ enum DetectionEvent {
 
 **What stays the same**: State machine stays in `AppCoordinator`. Views unchanged. Storage unchanged. The coordinator still calls `handle(.userStarted(...))` — it just gets the trigger from the event stream instead of from inline notification callbacks.
 
-**Exit criteria**: `AppCoordinator` has no direct reference to `MeetingDetector` or `NotificationService`. Detection flow works identically. Phase 0 detection tests pass.
+**Detection contract tests**: Written at the start of this phase, immediately before moving the code. These were deferred from Phase 0 because the current coordinator has no testing seam for detection (private callbacks, internally constructed services). The extraction itself creates the seam — the controller's `AsyncStream<DetectionEvent>` is the testable surface. Tests cover: accept → session starts, dismiss → no session, timeout → no session, not-a-meeting → bundle ID remembered, meetingAppExited → session stops.
+
+**Exit criteria**: `AppCoordinator` has no direct reference to `MeetingDetector` or `NotificationService`. Detection flow works identically. Detection contract tests pass.
 
 ---
 
@@ -171,15 +176,16 @@ enum DetectionEvent {
 - Batch status polling and completion handling (currently ContentView's 100ms loop)
 - Settings-change reactions: KB folder, notes folder, Voyage API key, transcription model, input device ID (currently `ContentView.synchronizeDerivedState()`)
 - Finalization pipeline (currently `AppCoordinator.finalizeCurrentSession()`)
-- External command processing for start/stop (openNotes routes through `NotesController` in Phase 6)
+- External command processing for start/stop with readiness and consent gating (openNotes routes through `NotesController` in Phase 6). The current gating in `ContentView.handlePendingExternalCommandIfPossible()` requires engine/logger readiness and `!isRunning` for start, requires `isRunning` for stop, and always accepts notes. These guards must be preserved exactly.
 
-**ContentView side-effect contract tests**: Written at the start of this phase, immediately before moving the code. These test the behaviors that were untestable in Phase 0 (see Phase 0 "Deferred" list). The controller is designed first, tests are written against it, then the side-effect code is moved from `ContentView` into the controller. Tests verify identical behavior.
+**ContentView side-effect contract tests**: Written at the start of this phase, immediately before moving the code. These test the behaviors that were untestable in Phase 0 (see Phase 0 "Deferred" list), including deep-link start/stop gating. The controller is designed first, tests are written against it, then the side-effect code is moved from `ContentView` into the controller. Tests verify identical behavior.
 
 **State struct** (for view binding):
 ```swift
 struct LiveSessionState {
     var isRunning: Bool          // mirrors transcriptionEngine.isRunning
     var sessionPhase: MeetingState
+    var audioLevel: Float        // mirrors transcriptionEngine.audioLevel — drives ControlBar pulse + AudioLevelView and MiniBarContent waveform
     var liveTranscript: [Utterance]
     var volatileYouText: String
     var volatileThemText: String
@@ -197,7 +203,7 @@ struct LiveSessionState {
 }
 ```
 
-**Polling**: The 100ms loop moves from `ContentView` into the controller. The controller runs its own `Task` that polls `transcriptionEngine.isRunning`, batch engine status, settings changes, and publishes updated `LiveSessionState`. `ContentView` observes the controller's state — no more `refreshViewState()` or `synchronizeDerivedState()` in the view.
+**Polling**: The 100ms loop moves from `ContentView` into the controller. The controller runs its own `Task` that polls `transcriptionEngine.isRunning`, `transcriptionEngine.audioLevel`, batch engine status, settings changes, and publishes updated `LiveSessionState`. `ContentView` observes the controller's state — no more `refreshViewState()` or `synchronizeDerivedState()` in the view.
 
 **Critical contract — synchronous transitions**: `startSession()` sets `sessionPhase = .recording` synchronously via the existing `transition()` function, then dispatches async side effects. No `await` before the phase change. No new "error state" — if engine start fails, `transcriptionEngine.isRunning` stays false (which is what the UI reads), and the error surfaces via `errorMessage`. This matches current behavior exactly.
 
@@ -314,7 +320,14 @@ actor SessionRepository {
 
 **TranscriptLogger absorbed**: Plain-text transcript becomes a derived export (`exportPlainText()`), not a parallel write stream. The repository writes JSONL only during recording.
 
-**MarkdownMeetingWriter**: Becomes a pure exporter. Finalization calls `MarkdownMeetingWriter.write(from: SessionDetail)`. Notes generation calls `MarkdownMeetingWriter.write(from: SessionDetail)` again with notes included — full regeneration, not in-place patching. This is safe now because the markdown file is a derived artifact from repository state, not a primary store.
+**notesFolderPath contract**: Today, the user-configured `notesFolderPath` (set in SettingsView, described as "Where meeting transcripts are saved") is where `TranscriptLogger` writes `.txt` files, `MarkdownMeetingWriter` writes `.md` files, and `AudioRecorder` writes `.m4a` files (when `saveAudioRecording` is enabled). The new canonical layout stores everything under `sessions/<id>/` in Application Support. To preserve the existing user-facing contract, the repository must **mirror user-visible artifacts to `notesFolderPath`** at these points:
+- **On finalization**: copy `notes.md` and export `plain-text.txt` to the configured folder. If `saveAudioRecording` is enabled, copy/move the `.m4a` file as well.
+- **On batch transcription completion**: re-export `notes.md` with the updated transcript section. Today `BatchTranscriptionEngine.patchMarkdownTranscript()` patches the `## Transcript` heading in the existing markdown file after batch processing completes. The repository must regenerate and re-mirror the markdown when `saveFinalTranscript()` is called.
+- **On notes generation**: re-export `notes.md` with LLM sections included.
+
+Without this mirroring, the setting becomes meaningless and users lose their expected file-based workflow. This is a behavioral contract, not a feature change — the spec's "no feature changes" rule requires it.
+
+**MarkdownMeetingWriter**: Becomes a pure exporter. Finalization calls `MarkdownMeetingWriter.write(from: SessionDetail)`. Notes generation calls `MarkdownMeetingWriter.write(from: SessionDetail)` again with notes included — full regeneration, not in-place patching. Batch transcript completion calls it a third time with the refined transcript. This is safe now because the markdown file is a derived artifact from repository state, not a primary store. The mirrored copy in `notesFolderPath` is updated on every regeneration.
 
 **Controller updates**: `LiveSessionController` and `NotesController` updated to use `SessionRepository` instead of `SessionStore`. Method signatures change but behavior is identical.
 
@@ -367,15 +380,15 @@ actor SessionRepository {
 
 | Phase | Required Tests |
 |-------|---------------|
-| 0 | Contract tests for coordinator-testable behaviors: state machine, detection, finalization, notes, session management |
+| 0 | Contract tests for coordinator-testable behaviors: state machine, finalization, notes, session management (detection deferred to Phase 4 — no testing seam exists) |
 | 1 | Phase 0 tests pass. No service construction in views. No duplicate KB/SE instances |
 | 2 | Same tests pass. `AppRuntime` deleted |
 | 3 | Same tests pass. No framework imports in `Domain/` |
-| 4 | Detection integration tests via event stream. One-shot semantics verified. Buffering verified (no dropped events) |
-| 5 | Side-effect contract tests written first. Live session integration tests. Manual + auto start/stop. Rapid toggle race test. Settings reactions. Utterance ingestion pipeline |
+| 4 | Detection contract tests written first (deferred from Phase 0). Detection integration tests via event stream. One-shot semantics verified. Unbounded buffering verified (no dropped events) |
+| 5 | Side-effect contract tests written first (including deep-link start/stop gating). Live session integration tests. Manual + auto start/stop. Rapid toggle race test. Settings reactions. Utterance ingestion pipeline. audioLevel propagation |
 | 6 | Notes integration tests. Generate → save → markdown patch. Cleanup progress mapping. Rename/delete |
 | 7 | Coordinator gone or minimal. All tests pass |
-| 8 | Repository CRUD. Legacy read. Lazy migration. FileHandle lifetime. Fire-and-forget writes. Full recording flow |
+| 8 | Repository CRUD. Legacy read. Lazy migration. FileHandle lifetime. Fire-and-forget writes. notesFolderPath mirroring on finalize and notes generation. Full recording flow |
 | 9 | Settings migration round-trip. Typed access. No raw UserDefaults |
 | 10 | Clean build. Clean layers. Manual acceptance |
 
