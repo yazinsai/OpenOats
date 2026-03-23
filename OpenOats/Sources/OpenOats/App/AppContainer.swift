@@ -1,43 +1,23 @@
 import Foundation
 import Observation
 
-enum UITestScenario: String {
-    case launchSmoke
-    case sessionSmoke
-    case notesSmoke
-}
-
-enum AppRuntimeMode {
-    case live
-    case uiTest(UITestScenario)
-}
-
-struct AppServices {
-    let knowledgeBase: KnowledgeBase
-    let suggestionEngine: SuggestionEngine
-    let transcriptionEngine: TranscriptionEngine
-    let transcriptLogger: TranscriptLogger
-    let refinementEngine: TranscriptRefinementEngine
-    let audioRecorder: AudioRecorder
-    let batchEngine: BatchTranscriptionEngine
-}
-
-struct AppLaunchContext {
-    let runtime: AppRuntime
-    let settings: AppSettings
-    let coordinator: AppCoordinator
-    let updaterController: AppUpdaterController
-}
-
 @MainActor
 @Observable
-final class AppRuntime {
+final class AppContainer {
     static let notesSmokeSessionID = "session_ui_test_notes"
 
     let mode: AppRuntimeMode
     let defaults: UserDefaults
     let appSupportDirectory: URL
     let notesDirectory: URL
+
+    /// Detection controller for the meeting auto-detect lifecycle.
+    /// Created when detection is enabled; nil otherwise.
+    private(set) var detectionController: MeetingDetectionController?
+
+    /// Shared notification service, accessible for batch completion notifications
+    /// even when detection is not enabled.
+    private(set) var notificationService: NotificationService?
 
     private var didSeedInitialData = false
     private var didInitializeServices = false
@@ -60,7 +40,7 @@ final class AppRuntime {
 
         switch mode {
         case .live:
-            let runtime = AppRuntime(
+            let container = AppContainer(
                 mode: .live,
                 defaults: .standard,
                 appSupportDirectory: FileManager.default.urls(
@@ -74,7 +54,10 @@ final class AppRuntime {
             let coordinator = AppCoordinator()
             let updaterController = AppUpdaterController()
             return AppLaunchContext(
-                runtime: runtime,
+                isFirstLaunch: false,
+                uiTestScenario: nil,
+                runtimeMode: .live,
+                container: container,
                 settings: settings,
                 coordinator: coordinator,
                 updaterController: updaterController
@@ -113,12 +96,12 @@ final class AppRuntime {
             let settings = AppSettings(storage: storage)
             let notesEngine = NotesEngine(mode: .scripted(markdown: scriptedNotesMarkdown))
             let coordinator = AppCoordinator(
-                sessionStore: SessionStore(rootDirectory: appSupportDirectory),
+                sessionRepository: SessionRepository(rootDirectory: appSupportDirectory),
                 templateStore: TemplateStore(rootDirectory: appSupportDirectory),
                 notesEngine: notesEngine,
                 transcriptStore: TranscriptStore()
             )
-            let runtime = AppRuntime(
+            let container = AppContainer(
                 mode: .uiTest(scenario),
                 defaults: defaults,
                 appSupportDirectory: appSupportDirectory,
@@ -126,7 +109,10 @@ final class AppRuntime {
             )
             let updaterController = AppUpdaterController(startUpdater: false)
             return AppLaunchContext(
-                runtime: runtime,
+                isFirstLaunch: false,
+                uiTestScenario: scenario,
+                runtimeMode: .uiTest(scenario),
+                container: container,
                 settings: settings,
                 coordinator: coordinator,
                 updaterController: updaterController
@@ -161,7 +147,6 @@ final class AppRuntime {
             knowledgeBase: knowledgeBase,
             suggestionEngine: suggestionEngine,
             transcriptionEngine: transcriptionEngine,
-            transcriptLogger: TranscriptLogger(directory: notesDirectory),
             refinementEngine: TranscriptRefinementEngine(
                 settings: settings,
                 transcriptStore: coordinator.transcriptStore
@@ -177,10 +162,38 @@ final class AppRuntime {
 
         let services = makeServices(settings: settings, coordinator: coordinator)
         coordinator.transcriptionEngine = services.transcriptionEngine
-        coordinator.transcriptLogger = services.transcriptLogger
         coordinator.refinementEngine = services.refinementEngine
         coordinator.audioRecorder = services.audioRecorder
         coordinator.batchEngine = services.batchEngine
+        coordinator.setViewServices(
+            knowledgeBase: services.knowledgeBase,
+            suggestionEngine: services.suggestionEngine
+        )
+    }
+
+    /// Create and start the detection controller, wire the coordinator event loop.
+    func enableDetection(settings: AppSettings, coordinator: AppCoordinator) {
+        guard detectionController == nil else { return }
+        let controller = MeetingDetectionController()
+        controller.isSessionActive = { [weak coordinator] in
+            guard let coordinator else { return false }
+            return coordinator.isRecording
+        }
+        detectionController = controller
+        controller.setup(settings: settings)
+        // Expose the notification service for batch completion notifications
+        notificationService = controller.notificationService
+        coordinator.activeSettings = settings
+        coordinator.startDetectionEventLoop(controller)
+    }
+
+    /// Tear down the detection controller and stop the coordinator event loop.
+    func disableDetection(coordinator: AppCoordinator) {
+        coordinator.stopDetectionEventLoop()
+        coordinator.activeSettings = nil
+        detectionController?.teardown()
+        detectionController = nil
+        // NotificationService remains accessible if already set (for batch notifications)
     }
 
     func seedIfNeeded(coordinator: AppCoordinator) async {
@@ -210,7 +223,7 @@ final class AppRuntime {
             ),
         ]
 
-        await coordinator.sessionStore.seedSession(
+        await coordinator.sessionRepository.seedSession(
             id: Self.notesSmokeSessionID,
             records: transcript,
             startedAt: startedAt,

@@ -3,10 +3,7 @@ import SwiftUI
 struct NotesView: View {
     @Bindable var settings: AppSettings
     @Environment(AppCoordinator.self) private var coordinator
-    @State private var selectedSessionID: String?
-    @State private var loadedNotes: EnhancedNotes?
-    @State private var loadedTranscript: [SessionRecord] = []
-    @State private var selectedTemplateForGeneration: MeetingTemplate?
+    @State private var notesController: NotesController?
     @State private var renamingSessionID: String?
     @State private var renameText: String = ""
     @State private var sessionToDelete: String?
@@ -18,37 +15,47 @@ struct NotesView: View {
     }
 
     @State private var detailViewMode: DetailViewMode = .transcript
-    @State private var showingOriginal = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-                .frame(width: 250)
-            Divider()
-            detailContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Group {
+            if let controller = notesController {
+                mainContent(controller: controller)
+            } else {
+                ProgressView()
+            }
         }
         .task {
-            await coordinator.loadHistory()
+            let controller = NotesController(coordinator: coordinator)
+            notesController = controller
+            await controller.loadHistory()
+
+            // Handle pending navigation — inline rather than via controller
+            // to ensure @State detailViewMode update happens in the same
+            // transaction as session selection (matches pre-Phase 6 behavior).
             if let requested = coordinator.consumeRequestedSessionSelection() {
-                selectedSessionID = requested
+                controller.selectSession(requested)
                 detailViewMode = .notes
             } else if let last = coordinator.lastEndedSession {
-                selectedSessionID = last.id
+                controller.selectSession(last.id)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func mainContent(controller: NotesController) -> some View {
+        let state = controller.state
+        HStack(spacing: 0) {
+            sidebar(controller: controller, state: state)
+                .frame(width: 250)
+            Divider()
+            detailContent(controller: controller, state: state)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onChange(of: coordinator.lastEndedSession?.id) {
-            if let last = coordinator.lastEndedSession {
-                Task {
-                    await coordinator.loadHistory()
-                    selectedSessionID = last.id
-                }
-            }
+            Task { await controller.handleLastEndedSessionChanged() }
         }
         .onChange(of: coordinator.requestedSessionSelectionID) {
-            if let requested = coordinator.consumeRequestedSessionSelection() {
-                selectedSessionID = requested
-                // Deep links target notes, so default to the Notes tab
+            if controller.handleRequestedSessionSelection() {
                 detailViewMode = .notes
             }
         }
@@ -56,8 +63,13 @@ struct NotesView: View {
 
     // MARK: - Sidebar
 
-    private var sidebar: some View {
-        List(coordinator.sessionHistory, selection: $selectedSessionID) { session in
+    @ViewBuilder
+    private func sidebar(controller: NotesController, state: NotesState) -> some View {
+        let selectedBinding = Binding<String?>(
+            get: { state.selectedSessionID },
+            set: { controller.selectSession($0) }
+        )
+        List(state.sessionHistory, selection: selectedBinding) { session in
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     if let snap = session.templateSnapshot {
@@ -67,7 +79,8 @@ struct NotesView: View {
                     }
                     if renamingSessionID == session.id {
                         TextField("Title", text: $renameText, onCommit: {
-                            commitRename(sessionID: session.id)
+                            controller.renameSession(sessionID: session.id, newTitle: renameText)
+                            renamingSessionID = nil
                         })
                         .font(.system(size: 13, weight: .medium))
                         .textFieldStyle(.plain)
@@ -112,13 +125,10 @@ struct NotesView: View {
         }
         .listStyle(.sidebar)
         .frame(maxHeight: .infinity)
-        .onChange(of: selectedSessionID) {
-            loadSelectedSession()
-        }
         .alert("Delete Meeting?", isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) {
                 if let id = sessionToDelete {
-                    deleteSession(sessionID: id)
+                    controller.deleteSession(sessionID: id)
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -130,12 +140,12 @@ struct NotesView: View {
     // MARK: - Detail
 
     @ViewBuilder
-    private var detailContent: some View {
-        if let sessionID = selectedSessionID {
+    private func detailContent(controller: NotesController, state: NotesState) -> some View {
+        if let sessionID = state.selectedSessionID {
             VStack(spacing: 0) {
-                detailToolbar
+                detailToolbar(controller: controller, state: state)
                 Divider()
-                detailBody(sessionID: sessionID)
+                detailBody(controller: controller, state: state, sessionID: sessionID)
             }
             .background {
                 Group {
@@ -160,17 +170,17 @@ struct NotesView: View {
         case cleaned
     }
 
-    private var cleanupState: CleanupState {
-        if coordinator.cleanupEngine.isCleaningUp { return .inProgress }
-        guard !loadedTranscript.isEmpty else { return .notCleaned }
-        let hasAnyRefined = loadedTranscript.contains(where: { $0.refinedText != nil })
+    private func cleanupState(from status: CleanupStatus, transcript: [SessionRecord]) -> CleanupState {
+        if case .inProgress = status { return .inProgress }
+        guard !transcript.isEmpty else { return .notCleaned }
+        let hasAnyRefined = transcript.contains(where: { $0.refinedText != nil })
         if !hasAnyRefined { return .notCleaned }
-        let allRefined = !loadedTranscript.contains(where: { $0.refinedText == nil })
+        let allRefined = !transcript.contains(where: { $0.refinedText == nil })
         return allRefined ? .cleaned : .partiallyCleaned
     }
 
     @ViewBuilder
-    private var detailToolbar: some View {
+    private func detailToolbar(controller: NotesController, state: NotesState) -> some View {
         HStack(spacing: 8) {
             Picker("View", selection: $detailViewMode) {
                 ForEach(DetailViewMode.allCases, id: \.self) { mode in
@@ -184,20 +194,20 @@ struct NotesView: View {
             Spacer(minLength: 4)
 
             if detailViewMode == .transcript {
-                transcriptToolbarActions
+                transcriptToolbarActions(controller: controller, state: state)
             } else if detailViewMode == .notes {
-                notesToolbarActions
+                notesToolbarActions(controller: controller, state: state)
             }
 
             Button {
-                copyCurrentContent()
+                copyCurrentContent(state: state)
             } label: {
                 Label("Copy", systemImage: "doc.on.doc")
                     .font(.system(size: 12))
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.bordered)
-            .disabled(copyContentIsEmpty)
+            .disabled(copyContentIsEmpty(state: state))
             .help("Copy to clipboard")
         }
         .padding(.horizontal, 16)
@@ -205,35 +215,38 @@ struct NotesView: View {
     }
 
     @ViewBuilder
-    private var transcriptToolbarActions: some View {
-        switch cleanupState {
+    private func transcriptToolbarActions(controller: NotesController, state: NotesState) -> some View {
+        let cleanup = cleanupState(from: state.cleanupStatus, transcript: state.loadedTranscript)
+        switch cleanup {
         case .notCleaned:
             Button {
-                cleanUpTranscript()
+                controller.cleanUpTranscript(settings: settings)
             } label: {
                 Label("Clean Up", systemImage: "sparkles")
                     .font(.system(size: 12))
             }
             .buttonStyle(.borderedProminent)
-            .disabled(loadedTranscript.isEmpty)
+            .disabled(state.loadedTranscript.isEmpty)
             .help("Remove filler words and fix punctuation")
 
         case .inProgress:
-            HStack(spacing: 6) {
-                Text("\(coordinator.cleanupEngine.chunksCompleted)/\(coordinator.cleanupEngine.totalChunks) cleaning...")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                Button("Cancel") {
-                    coordinator.cleanupEngine.cancel()
+            if case .inProgress(let completed, let total) = state.cleanupStatus {
+                HStack(spacing: 6) {
+                    Text("\(completed)/\(total) cleaning...")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Button("Cancel") {
+                        controller.cancelCleanup()
+                    }
+                    .buttonStyle(.bordered)
+                    .font(.system(size: 11))
+                    .controlSize(.small)
                 }
-                .buttonStyle(.bordered)
-                .font(.system(size: 11))
-                .controlSize(.small)
             }
 
         case .partiallyCleaned:
             Button {
-                cleanUpTranscript()
+                controller.cleanUpTranscript(settings: settings)
             } label: {
                 Label("Clean Up", systemImage: "sparkles")
                     .font(.system(size: 12))
@@ -241,36 +254,33 @@ struct NotesView: View {
             .buttonStyle(.borderedProminent)
             .help("Clean up remaining utterances")
 
-            Button {
-                showingOriginal.toggle()
-            } label: {
-                Label("Show Original", systemImage: showingOriginal ? "text.badge.checkmark" : "text.badge.minus")
-                    .font(.system(size: 12))
-            }
-            .buttonStyle(.bordered)
-            .tint(showingOriginal ? .accentColor : nil)
-            .help(showingOriginal ? "Showing original transcript" : "Show original transcript")
+            showOriginalButton(controller: controller, state: state)
 
         case .cleaned:
-            Button {
-                showingOriginal.toggle()
-            } label: {
-                Label("Show Original", systemImage: showingOriginal ? "text.badge.checkmark" : "text.badge.minus")
-                    .font(.system(size: 12))
-            }
-            .buttonStyle(.bordered)
-            .tint(showingOriginal ? .accentColor : nil)
-            .help(showingOriginal ? "Showing original transcript" : "Show original transcript")
+            showOriginalButton(controller: controller, state: state)
         }
     }
 
     @ViewBuilder
-    private var notesToolbarActions: some View {
-        if let notes = loadedNotes {
+    private func showOriginalButton(controller: NotesController, state: NotesState) -> some View {
+        Button {
+            controller.toggleShowingOriginal()
+        } label: {
+            Label("Show Original", systemImage: state.showingOriginal ? "text.badge.checkmark" : "text.badge.minus")
+                .font(.system(size: 12))
+        }
+        .buttonStyle(.bordered)
+        .tint(state.showingOriginal ? .accentColor : nil)
+        .help(state.showingOriginal ? "Showing original transcript" : "Show original transcript")
+    }
+
+    @ViewBuilder
+    private func notesToolbarActions(controller: NotesController, state: NotesState) -> some View {
+        if let notes = state.loadedNotes {
             Menu {
-                ForEach(coordinator.templateStore.templates) { template in
+                ForEach(controller.availableTemplates) { template in
                     Button {
-                        regenerateNotes(with: template)
+                        controller.regenerateNotes(with: template, settings: settings)
                     } label: {
                         Label(template.name, systemImage: template.icon)
                     }
@@ -280,7 +290,7 @@ struct NotesView: View {
                 Label(notes.template.name, systemImage: notes.template.icon)
                     .font(.system(size: 12))
             } primaryAction: {
-                regenerateNotes()
+                controller.regenerateNotes(settings: settings)
             }
             .menuStyle(.button)
             .buttonStyle(.bordered)
@@ -290,30 +300,33 @@ struct NotesView: View {
     }
 
     @ViewBuilder
-    private func detailBody(sessionID: String) -> some View {
+    private func detailBody(controller: NotesController, state: NotesState, sessionID: String) -> some View {
         Group {
             switch detailViewMode {
             case .transcript:
-                transcriptView
+                transcriptView(controller: controller, state: state)
             case .notes:
-                notesTab(sessionID: sessionID)
+                notesTab(controller: controller, state: state, sessionID: sessionID)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
-    private func notesTab(sessionID: String) -> some View {
-        if coordinator.notesEngine.isGenerating {
-            generatingView
-        } else if let notes = loadedNotes {
-            notesContentView(notes)
-        } else {
-            notesEmptyState(sessionID: sessionID)
+    private func notesTab(controller: NotesController, state: NotesState, sessionID: String) -> some View {
+        switch state.notesGenerationStatus {
+        case .generating:
+            generatingView(controller: controller, state: state)
+        case .idle, .completed, .error:
+            if let notes = state.loadedNotes {
+                notesContentView(notes)
+            } else {
+                notesEmptyState(controller: controller, state: state, sessionID: sessionID)
+            }
         }
     }
 
-    private var generatingView: some View {
+    private func generatingView(controller: NotesController, state: NotesState) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
@@ -325,13 +338,13 @@ struct NotesView: View {
                         .accessibilityIdentifier("notes.generating")
                     Spacer()
                     Button("Cancel") {
-                        coordinator.notesEngine.cancel()
+                        controller.cancelGeneration()
                     }
                     .buttonStyle(.bordered)
                     .font(.system(size: 11))
                 }
 
-                markdownContent(coordinator.notesEngine.generatedMarkdown)
+                markdownContent(state.streamingMarkdown)
             }
             .padding(16)
         }
@@ -345,25 +358,25 @@ struct NotesView: View {
         }
     }
 
-    private func notesEmptyState(sessionID: String) -> some View {
+    private func notesEmptyState(controller: NotesController, state: NotesState, sessionID: String) -> some View {
         ContentUnavailableView {
             Label("Generate Notes", systemImage: "sparkles")
         } description: {
             Text("Summarize this transcript into structured meeting notes.")
         } actions: {
-            if let error = coordinator.notesEngine.error {
+            if case .error(let error) = state.notesGenerationStatus {
                 Text(error)
                     .foregroundStyle(.red)
                     .font(.system(size: 12))
             }
 
             Button {
-                generateNotes(sessionID: sessionID)
+                controller.generateNotes(sessionID: sessionID, settings: settings)
             } label: {
                 Label("Generate Notes", systemImage: "sparkles")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(loadedTranscript.isEmpty)
+            .disabled(state.loadedTranscript.isEmpty)
             .accessibilityIdentifier("notes.generateButton")
         }
     }
@@ -371,15 +384,15 @@ struct NotesView: View {
     // MARK: - Transcript Views
 
     @ViewBuilder
-    private var transcriptView: some View {
-        if loadedTranscript.isEmpty {
+    private func transcriptView(controller: NotesController, state: NotesState) -> some View {
+        if state.loadedTranscript.isEmpty {
             ContentUnavailableView("No Transcript", systemImage: "waveform", description: Text("This session has no recorded utterances."))
         } else {
             ScrollView {
-                if coordinator.cleanupEngine.isCleaningUp {
-                    cleanupProgressBanner
+                if case .inProgress(let completed, let total) = state.cleanupStatus {
+                    cleanupProgressBanner(controller: controller, completed: completed, total: total)
                 }
-                if let cleanupError = coordinator.cleanupEngine.error {
+                if case .error(let cleanupError) = state.cleanupStatus {
                     Text(cleanupError)
                         .font(.system(size: 12))
                         .foregroundStyle(.red)
@@ -388,9 +401,12 @@ struct NotesView: View {
                         .padding(.vertical, 4)
                 }
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    let isCleaning = coordinator.cleanupEngine.isCleaningUp
-                    ForEach(Array(loadedTranscript.enumerated()), id: \.offset) { _, record in
-                        transcriptRow(record: record, isCleaning: isCleaning)
+                    let isCleaning: Bool = {
+                        if case .inProgress = state.cleanupStatus { return true }
+                        return false
+                    }()
+                    ForEach(Array(state.loadedTranscript.enumerated()), id: \.offset) { _, record in
+                        transcriptRow(record: record, isCleaning: isCleaning, showingOriginal: state.showingOriginal)
                     }
                 }
                 .padding(16)
@@ -398,17 +414,17 @@ struct NotesView: View {
         }
     }
 
-    private var cleanupProgressBanner: some View {
+    private func cleanupProgressBanner(controller: NotesController, completed: Int, total: Int) -> some View {
         HStack(spacing: 8) {
             ProgressView()
                 .controlSize(.small)
-            Text("Cleaning up transcript... \(coordinator.cleanupEngine.chunksCompleted)/\(coordinator.cleanupEngine.totalChunks) sections")
+            Text("Cleaning up transcript... \(completed)/\(total) sections")
                 .font(.system(size: 12))
                 .lineLimit(1)
                 .foregroundStyle(.secondary)
             Spacer()
             Button("Cancel") {
-                coordinator.cleanupEngine.cancel()
+                controller.cancelCleanup()
             }
             .buttonStyle(.bordered)
             .font(.system(size: 11))
@@ -419,7 +435,7 @@ struct NotesView: View {
     }
 
     @ViewBuilder
-    private func transcriptRow(record: SessionRecord, isCleaning: Bool) -> some View {
+    private func transcriptRow(record: SessionRecord, isCleaning: Bool, showingOriginal: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(record.speaker.displayLabel)
                 .font(.system(size: 11, weight: .semibold))
@@ -436,12 +452,12 @@ struct NotesView: View {
         }
     }
 
-    private var copyContentIsEmpty: Bool {
+    private func copyContentIsEmpty(state: NotesState) -> Bool {
         switch detailViewMode {
         case .transcript:
-            return loadedTranscript.isEmpty
+            return state.loadedTranscript.isEmpty
         case .notes:
-            return loadedNotes == nil
+            return state.loadedNotes == nil
         }
     }
 
@@ -523,118 +539,21 @@ struct NotesView: View {
 
     // MARK: - Actions
 
-    private func copyCurrentContent() {
+    private func copyCurrentContent(state: NotesState) {
         let text: String
         switch detailViewMode {
         case .transcript:
-            text = loadedTranscript.map { record in
+            text = state.loadedTranscript.map { record in
                 let label = record.speaker.displayLabel
-                let content = showingOriginal ? record.text : (record.refinedText ?? record.text)
+                let content = state.showingOriginal ? record.text : (record.refinedText ?? record.text)
                 return "[\(Self.transcriptTimeFormatter.string(from: record.timestamp))] \(label): \(content)"
             }.joined(separator: "\n")
         case .notes:
-            text = loadedNotes?.markdown ?? ""
+            text = state.loadedNotes?.markdown ?? ""
         }
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-    }
-
-    private func loadSelectedSession() {
-        guard let sessionID = selectedSessionID else {
-            loadedNotes = nil
-            loadedTranscript = []
-            return
-        }
-
-        loadedNotes = nil
-        loadedTranscript = []
-        showingOriginal = false
-        coordinator.cleanupEngine.cancel()
-
-        Task {
-            let notes = await coordinator.sessionStore.loadNotes(sessionID: sessionID)
-            let transcript = await coordinator.sessionStore.loadTranscript(sessionID: sessionID)
-
-            guard selectedSessionID == sessionID else { return }
-
-            loadedNotes = notes
-            loadedTranscript = transcript
-
-            let session = coordinator.sessionHistory.first { $0.id == sessionID }
-            if let snapID = session?.templateSnapshot?.id {
-                selectedTemplateForGeneration = coordinator.templateStore.template(for: snapID)
-            } else {
-                selectedTemplateForGeneration = coordinator.templateStore.template(for: TemplateStore.genericID)
-            }
-        }
-    }
-
-    private func generateNotes(sessionID: String) {
-        let template = selectedTemplateForGeneration
-            ?? coordinator.templateStore.template(for: TemplateStore.genericID)
-            ?? TemplateStore.builtInTemplates.first!
-
-        Task {
-            await coordinator.notesEngine.generate(
-                transcript: loadedTranscript,
-                template: template,
-                settings: settings
-            )
-
-            if !coordinator.notesEngine.generatedMarkdown.isEmpty {
-                let notes = EnhancedNotes(
-                    template: coordinator.templateStore.snapshot(of: template),
-                    generatedAt: Date(),
-                    markdown: coordinator.notesEngine.generatedMarkdown
-                )
-                await coordinator.sessionStore.saveNotes(sessionID: sessionID, notes: notes)
-                loadedNotes = notes
-
-                // Update the structured Markdown file with LLM-generated sections
-                let outputDir = URL(fileURLWithPath: settings.notesFolderPath)
-                if let mdFile = MarkdownMeetingWriter.findMarkdownFile(
-                    sessionID: sessionID,
-                    in: outputDir
-                ) {
-                    MarkdownMeetingWriter.insertLLMSections(
-                        fileURL: mdFile,
-                        llmMarkdown: coordinator.notesEngine.generatedMarkdown
-                    )
-                }
-
-                await coordinator.loadHistory()
-            }
-        }
-    }
-
-    private func commitRename(sessionID: String) {
-        renamingSessionID = nil
-        Task {
-            await coordinator.sessionStore.renameSession(sessionID: sessionID, newTitle: renameText)
-            await coordinator.loadHistory()
-        }
-    }
-
-    private func deleteSession(sessionID: String) {
-        Task {
-            await coordinator.sessionStore.deleteSession(sessionID: sessionID)
-            if selectedSessionID == sessionID {
-                selectedSessionID = nil
-                loadedNotes = nil
-                loadedTranscript = []
-            }
-            await coordinator.loadHistory()
-        }
-    }
-
-    private func regenerateNotes(with template: MeetingTemplate? = nil) {
-        guard let sessionID = selectedSessionID else { return }
-        if let template {
-            selectedTemplateForGeneration = template
-        }
-        loadedNotes = nil
-        generateNotes(sessionID: sessionID)
     }
 
     private static let transcriptTimeFormatter: DateFormatter = {
@@ -642,28 +561,4 @@ struct NotesView: View {
         f.dateFormat = "HH:mm:ss"
         return f
     }()
-
-    private func cleanUpTranscript() {
-        guard let sessionID = selectedSessionID, !loadedTranscript.isEmpty else { return }
-
-        Task {
-            let updated = await coordinator.cleanupEngine.cleanup(
-                records: loadedTranscript,
-                settings: settings
-            )
-
-            let utterances = updated.map { record in
-                Utterance(
-                    text: record.text,
-                    speaker: record.speaker,
-                    timestamp: record.timestamp,
-                    refinedText: record.refinedText
-                )
-            }
-            await coordinator.sessionStore.backfillRefinedText(sessionID: sessionID, from: utterances)
-
-            guard selectedSessionID == sessionID else { return }
-            loadedTranscript = await coordinator.sessionStore.loadTranscript(sessionID: sessionID)
-        }
-    }
 }

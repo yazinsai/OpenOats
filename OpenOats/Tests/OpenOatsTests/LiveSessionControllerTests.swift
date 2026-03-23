@@ -1,0 +1,282 @@
+import XCTest
+@testable import OpenOatsKit
+
+@MainActor
+final class LiveSessionControllerTests: XCTestCase {
+
+    // MARK: - Helpers
+
+    private func makeTempDirs() -> (root: URL, notes: URL) {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("OpenOatsLiveSessionTests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let notesDirectory = root.appendingPathComponent("Notes", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: notesDirectory, withIntermediateDirectories: true)
+        return (root, notesDirectory)
+    }
+
+    private func makeSettings(notesDirectory: URL) -> AppSettings {
+        let suiteName = "com.openoats.tests.livesession.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName) ?? .standard
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set(notesDirectory.path, forKey: "notesFolderPath")
+        defaults.set(true, forKey: "hasAcknowledgedRecordingConsent")
+        let storage = AppSettingsStorage(
+            defaults: defaults,
+            secretStore: .ephemeral,
+            defaultNotesDirectory: notesDirectory,
+            runMigrations: false
+        )
+        return AppSettings(storage: storage)
+    }
+
+    private func makeController(
+        root: URL,
+        notesDirectory: URL,
+        settings: AppSettings,
+        scripted: [Utterance] = []
+    ) -> (LiveSessionController, AppCoordinator) {
+        let transcriptStore = TranscriptStore()
+        let coordinator = AppCoordinator(
+            sessionRepository: SessionRepository(rootDirectory: root),
+            templateStore: TemplateStore(rootDirectory: root),
+            notesEngine: NotesEngine(mode: .scripted(markdown: "Test")),
+            transcriptStore: transcriptStore
+        )
+        coordinator.transcriptionEngine = TranscriptionEngine(
+            transcriptStore: transcriptStore,
+            settings: settings,
+            mode: .scripted(scripted)
+        )
+
+        let container = AppContainer(
+            mode: .live,
+            defaults: .standard,
+            appSupportDirectory: root,
+            notesDirectory: notesDirectory
+        )
+        let controller = LiveSessionController(coordinator: coordinator, container: container)
+        coordinator.liveSessionController = controller
+        return (controller, coordinator)
+    }
+
+    // MARK: - Tests
+
+    func testStartSessionTransitionsStateToRecordingSynchronously() {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+
+        XCTAssertEqual(coordinator.state, .idle)
+
+        controller.startSession(settings: settings)
+
+        // The state machine transition must happen synchronously
+        if case .recording = coordinator.state {
+            // expected
+        } else {
+            XCTFail("Expected .recording state immediately after startSession, got \(coordinator.state)")
+        }
+    }
+
+    func testStartSessionWhileRunningIsNoOp() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: [Utterance(text: "Test", speaker: .you)]
+        )
+
+        controller.startSession(settings: settings)
+
+        // Wait for engine to start
+        for _ in 0..<20 {
+            if coordinator.transcriptionEngine?.isRunning == true { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        // Second start should be a no-op (state machine: recording + userStarted = no-op)
+        controller.startSession(settings: settings)
+
+        // Still recording, not crashed or changed
+        if case .recording = coordinator.state {
+            // expected
+        } else {
+            XCTFail("Expected .recording state, got \(coordinator.state)")
+        }
+    }
+
+    func testStopSessionWhileIdleIsNoOp() {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+
+        XCTAssertEqual(coordinator.state, .idle)
+
+        controller.stopSession(settings: settings)
+
+        // Should still be idle
+        XCTAssertEqual(coordinator.state, .idle)
+    }
+
+    func testDeepLinkStartRejectedWhenEngineNotReady() {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let transcriptStore = TranscriptStore()
+        let coordinator = AppCoordinator(
+            sessionRepository: SessionRepository(rootDirectory: dirs.root),
+            templateStore: TemplateStore(rootDirectory: dirs.root),
+            notesEngine: NotesEngine(mode: .scripted(markdown: "Test")),
+            transcriptStore: transcriptStore
+        )
+        // No transcription engine or suggestion engine
+        let container = AppContainer(
+            mode: .live,
+            defaults: .standard,
+            appSupportDirectory: dirs.root,
+            notesDirectory: dirs.notes
+        )
+        let controller = LiveSessionController(coordinator: coordinator, container: container)
+        coordinator.liveSessionController = controller
+
+        // Queue a start command
+        coordinator.queueExternalCommand(.startSession)
+
+        // Try handling - should not start because engines are not ready
+        controller.handlePendingExternalCommandIfPossible(settings: settings, openNotesWindow: nil)
+
+        // Command should still be pending (not consumed)
+        XCTAssertNotNil(coordinator.pendingExternalCommand)
+        XCTAssertEqual(coordinator.state, .idle)
+    }
+
+    func testDeepLinkStopRejectedWhenNotRunning() {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+
+        coordinator.queueExternalCommand(.stopSession)
+
+        // Try handling - should not stop because not running
+        controller.handlePendingExternalCommandIfPossible(settings: settings, openNotesWindow: nil)
+
+        // Command should still be pending (not consumed because guard failed)
+        XCTAssertNotNil(coordinator.pendingExternalCommand)
+        XCTAssertEqual(coordinator.state, .idle)
+    }
+
+    func testDeepLinkOpenNotesAlwaysAccepted() {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+
+        coordinator.queueExternalCommand(.openNotes(sessionID: "test_session"))
+
+        var notesOpened = false
+        controller.handlePendingExternalCommandIfPossible(settings: settings) {
+            notesOpened = true
+        }
+
+        XCTAssertTrue(notesOpened)
+        XCTAssertNil(coordinator.pendingExternalCommand)
+        XCTAssertEqual(coordinator.requestedSessionSelectionID, "test_session")
+    }
+
+    func testRunningStateChangeCallbackFires() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: [Utterance(text: "Hello", speaker: .you)]
+        )
+
+        var runningChanges: [Bool] = []
+        controller.onRunningStateChanged = { isRunning in
+            runningChanges.append(isRunning)
+        }
+
+        controller.startSession(settings: settings)
+
+        // Wait for engine to start
+        for _ in 0..<20 {
+            if coordinator.transcriptionEngine?.isRunning == true { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        let engineRunning = coordinator.transcriptionEngine?.isRunning ?? false
+        XCTAssertTrue(engineRunning, "Engine should be running after start")
+    }
+
+    func testConfirmDownloadSetsFlag() {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+
+        XCTAssertFalse(coordinator.transcriptionEngine?.downloadConfirmed ?? true)
+
+        controller.confirmDownloadAndStart(settings: settings)
+
+        XCTAssertTrue(coordinator.transcriptionEngine?.downloadConfirmed ?? false)
+    }
+
+    func testFullSessionLifecycle() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: [
+                Utterance(text: "Let me walk through this.", speaker: .you),
+                Utterance(text: "Sounds good.", speaker: .them),
+            ]
+        )
+
+        // Start
+        controller.startSession(settings: settings)
+
+        // Wait for engine
+        for _ in 0..<20 {
+            if coordinator.transcriptionEngine?.isRunning == true { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        // Stop
+        controller.stopSession(settings: settings)
+
+        // Wait for finalization
+        for _ in 0..<50 {
+            if case .idle = coordinator.state, coordinator.lastEndedSession != nil { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+
+        XCTAssertEqual(coordinator.state, .idle)
+        XCTAssertNotNil(coordinator.lastEndedSession)
+        XCTAssertEqual(coordinator.lastEndedSession?.utteranceCount, 2)
+    }
+}

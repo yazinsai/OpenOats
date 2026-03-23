@@ -315,213 +315,14 @@ enum MarkdownMeetingWriter {
         return candidate
     }
 
-    // MARK: - Stage 3: Insert LLM Sections
-
-    /// Insert LLM-generated sections (Summary, Action Items, Decisions) into an existing
-    /// Stage 1+2 Markdown file. Updates frontmatter title and tags if provided.
-    ///
-    /// - Parameters:
-    ///   - fileURL: The existing `.md` file to update.
-    ///   - llmMarkdown: The raw LLM-generated markdown (may contain ## Summary, ## Action Items, ## Decisions).
-    ///   - newTitle: An optional new title from the LLM.
-    ///   - tags: Optional tags array from the LLM.
-    /// - Returns: The (possibly renamed) URL of the updated file, or `nil` on failure.
-    @discardableResult
-    static func insertLLMSections(
-        fileURL: URL,
-        llmMarkdown: String,
-        newTitle: String? = nil,
-        tags: [String]? = nil
-    ) -> URL? {
-        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
-            writerLogger.error("Failed to read file for LLM insertion: \(fileURL.lastPathComponent, privacy: .public)")
-            return nil
-        }
-
-        // Parse frontmatter and body
-        let parts = content.components(separatedBy: "---")
-        guard parts.count >= 3 else {
-            writerLogger.error("No valid frontmatter in file: \(fileURL.lastPathComponent, privacy: .public)")
-            return nil
-        }
-
-        let bodyContent = parts.dropFirst(2).joined(separator: "---")
-        let originalFrontmatterLines = parts[1].components(separatedBy: "\n")
-            .filter { !$0.isEmpty }
-
-        let resolvedTitle = newTitle ?? extractTitle(from: originalFrontmatterLines)
-        var updatedFrontmatter = rebuildFrontmatterWithUpdates(
-            originalLines: originalFrontmatterLines,
-            newTitle: newTitle,
-            tags: tags
-        )
-
-        // Parse body to find ## Transcript
-        let bodyLines = bodyContent.components(separatedBy: "\n")
-        var transcriptStartIndex: Int?
-        for (i, line) in bodyLines.enumerated() {
-            if line.trimmingCharacters(in: .whitespaces) == "## Transcript" {
-                transcriptStartIndex = i
-                break
-            }
-        }
-
-        // Build new body: # Title + LLM sections + ## Transcript
-        var newBody: [String] = []
-        newBody.append("# \(resolvedTitle ?? "Meeting")")
-        newBody.append("")
-
-        // Insert LLM-generated sections
-        let llmSections = extractLLMSections(from: llmMarkdown)
-        if !llmSections.isEmpty {
-            newBody.append(llmSections)
-            newBody.append("")
-        }
-
-        // Append transcript section (everything from ## Transcript onwards)
-        if let transcriptStart = transcriptStartIndex {
-            let transcriptContent = bodyLines[transcriptStart...].joined(separator: "\n")
-            newBody.append(transcriptContent)
-        }
-
-        let finalContent = "---\n\(updatedFrontmatter)\n---\n\n\(newBody.joined(separator: "\n"))"
-
-        // Write updated content
-        do {
-            try finalContent.write(to: fileURL, atomically: true, encoding: .utf8)
-        } catch {
-            writerLogger.error("Failed to write LLM sections: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-
-        // Rename file if title changed
-        if let newTitle, !newTitle.isEmpty {
-            let directory = fileURL.deletingLastPathComponent()
-            // Extract date from existing filename
-            let existingName = fileURL.deletingPathExtension().lastPathComponent
-            let datePrefix: String
-            if existingName.count >= 15 {
-                datePrefix = String(existingName.prefix(15)) // YYYY-MM-DD-HHMM
-            } else {
-                return fileURL
-            }
-
-            let newSlug = toKebabCase(newTitle)
-            let newBaseName = "\(datePrefix)-\(newSlug)"
-            var newURL = directory.appendingPathComponent("\(newBaseName).md")
-
-            // Don't rename to self
-            if newURL.lastPathComponent == fileURL.lastPathComponent {
-                return fileURL
-            }
-
-            // Handle collision
-            var counter = 2
-            while FileManager.default.fileExists(atPath: newURL.path) {
-                newURL = directory.appendingPathComponent("\(newBaseName)-\(counter).md")
-                counter += 1
-            }
-
-            do {
-                try FileManager.default.moveItem(at: fileURL, to: newURL)
-                writerLogger.info("Renamed meeting file to: \(newURL.lastPathComponent, privacy: .public)")
-                return newURL
-            } catch {
-                writerLogger.warning("Failed to rename file: \(error.localizedDescription, privacy: .public)")
-                return fileURL
-            }
-        }
-
-        return fileURL
-    }
-
-    // MARK: - Stage 3 Helpers
-
-    /// Extract the title from frontmatter lines.
-    private static func extractTitle(from lines: [String]) -> String? {
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("title:") {
-                var value = String(trimmed.dropFirst("title:".count)).trimmingCharacters(in: .whitespaces)
-                // Remove quotes
-                if value.hasPrefix("\"") && value.hasSuffix("\"") {
-                    value = String(value.dropFirst().dropLast())
-                    value = value.replacingOccurrences(of: "\\\\", with: "\u{0000}")
-                    value = value.replacingOccurrences(of: "\\\"", with: "\"")
-                    value = value.replacingOccurrences(of: "\u{0000}", with: "\\")
-                }
-                return value
-            }
-        }
-        return nil
-    }
-
-    /// Rebuild frontmatter with optional title and tags updates.
-    private static func rebuildFrontmatterWithUpdates(
-        originalLines: [String],
-        newTitle: String?,
-        tags: [String]?
-    ) -> String {
-        var result: [String] = []
-        var insideParticipants = false
-        var insideTags = false
-        // Tags are re-inserted at the end after stripping originals
-
-        for line in originalLines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-            // Track multi-line YAML arrays
-            if trimmed.hasPrefix("participants:") { insideParticipants = true; insideTags = false }
-            else if trimmed.hasPrefix("tags:") { insideTags = true; insideParticipants = false }
-            else if !trimmed.hasPrefix("- ") && !trimmed.isEmpty {
-                insideParticipants = false
-                insideTags = false
-            }
-
-            // Skip existing tags (we'll re-add them)
-            if tags != nil && (trimmed.hasPrefix("tags:") || (insideTags && trimmed.hasPrefix("- "))) {
-                continue
-            }
-
-            // Update title
-            if let newTitle, trimmed.hasPrefix("title:") {
-                result.append("title: \(yamlQuote(newTitle))")
-                continue
-            }
-
-            result.append(line)
-        }
-
-        // Insert tags before the end
-        if let tags, !tags.isEmpty {
-            // Find a good insertion point (after recorder or engine, before closing ---)
-            var insertIndex = result.count
-            for (i, line) in result.enumerated().reversed() {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if !trimmed.isEmpty {
-                    insertIndex = i + 1
-                    break
-                }
-            }
-            var tagLines = ["tags:"]
-            for tag in tags {
-                tagLines.append("  - \(tag)")
-            }
-            result.insert(contentsOf: tagLines, at: insertIndex)
-        }
-
-        return result.joined(separator: "\n")
-    }
+    // MARK: - LLM Section Extraction (used by full regeneration)
 
     /// Extract ## Summary, ## Action Items, ## Decisions sections from LLM markdown.
     /// Returns the sections as a single string block ready for insertion.
     static func extractLLMSections(from markdown: String) -> String {
-        // The LLM output might contain these sections mixed with other content.
-        // We extract them in order: Summary, Action Items, Decisions.
         let lines = markdown.components(separatedBy: "\n")
         var sections: [String] = []
         var currentSection: [String]?
-        var currentHeader: String?
 
         let knownHeaders = ["## Summary", "## Action Items", "## Decisions"]
 
@@ -529,7 +330,6 @@ enum MarkdownMeetingWriter {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
             if knownHeaders.contains(where: { trimmed.hasPrefix($0) }) {
-                // Save previous section
                 if let section = currentSection {
                     let content = section.joined(separator: "\n")
                         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -538,9 +338,7 @@ enum MarkdownMeetingWriter {
                     }
                 }
                 currentSection = [line]
-                currentHeader = trimmed
             } else if trimmed.hasPrefix("## ") || trimmed.hasPrefix("# ") {
-                // End of a known section, hit an unknown heading
                 if let section = currentSection {
                     let content = section.joined(separator: "\n")
                         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -549,13 +347,11 @@ enum MarkdownMeetingWriter {
                     }
                 }
                 currentSection = nil
-                currentHeader = nil
             } else if currentSection != nil {
                 currentSection?.append(line)
             }
         }
 
-        // Flush last section
         if let section = currentSection {
             let content = section.joined(separator: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -565,68 +361,6 @@ enum MarkdownMeetingWriter {
         }
 
         return sections.joined(separator: "\n\n")
-    }
-
-    // MARK: - Patch Transcript Section
-
-    /// Replace only the transcript section of an existing Markdown file,
-    /// preserving frontmatter, title, and any LLM-generated sections.
-    @discardableResult
-    static func patchTranscriptSection(
-        fileURL: URL,
-        records: [SessionRecord]
-    ) -> Bool {
-        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
-            writerLogger.error("Failed to read file for transcript patch: \(fileURL.lastPathComponent, privacy: .public)")
-            return false
-        }
-
-        let lines = content.components(separatedBy: "\n")
-
-        // Find the "## Transcript" line
-        guard let transcriptStart = lines.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces) == "## Transcript"
-        }) else {
-            writerLogger.warning("No ## Transcript section found in \(fileURL.lastPathComponent, privacy: .public)")
-            return false
-        }
-
-        // Find the next ## heading after Transcript (if any)
-        let afterTranscript = transcriptStart + 1
-        let nextHeadingIndex = lines[afterTranscript...].firstIndex(where: {
-            let trimmed = $0.trimmingCharacters(in: .whitespaces)
-            return trimmed.hasPrefix("## ") && trimmed != "## Transcript"
-        })
-
-        // Extract the start date from frontmatter or first record
-        let startedAt = records.first?.timestamp ?? Date()
-
-        // Build new transcript lines
-        let newTranscript = formatTranscriptLines(records: records, startedAt: startedAt)
-
-        // Reconstruct: everything before ## Transcript + new transcript + everything after
-        var result: [String] = Array(lines[..<transcriptStart])
-        result.append("## Transcript")
-        result.append("")
-        result.append(newTranscript)
-
-        if let nextIdx = nextHeadingIndex {
-            result.append(contentsOf: lines[nextIdx...])
-        }
-
-        let finalContent = result.joined(separator: "\n")
-        do {
-            // Back up original before patching (batch transcript quality not yet validated at scale)
-            let backupURL = fileURL.deletingPathExtension().appendingPathExtension("pre-batch.md")
-            try? FileManager.default.copyItem(at: fileURL, to: backupURL)
-
-            try finalContent.write(to: fileURL, atomically: true, encoding: .utf8)
-            writerLogger.info("Patched transcript in \(fileURL.lastPathComponent, privacy: .public)")
-            return true
-        } catch {
-            writerLogger.error("Failed to patch transcript: \(error.localizedDescription, privacy: .public)")
-            return false
-        }
     }
 
     // MARK: - Find Markdown File for Session
