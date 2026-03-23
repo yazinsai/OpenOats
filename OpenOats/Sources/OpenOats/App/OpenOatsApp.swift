@@ -8,31 +8,31 @@ public struct OpenOatsRootApp: App {
     @Environment(\.openWindow) private var openWindow
     @State private var settings: AppSettings
     @State private var coordinator: AppCoordinator
-    @State private var runtime: AppRuntime
+    @State private var container: AppContainer
     private let updaterController: AppUpdaterController
     private let defaults: UserDefaults
 
     public init() {
-        let context = AppRuntime.bootstrap()
+        let context = AppContainer.bootstrap()
         self._settings = State(initialValue: context.settings)
         self._coordinator = State(initialValue: context.coordinator)
-        self._runtime = State(initialValue: context.runtime)
+        self._container = State(initialValue: context.container)
         self.updaterController = context.updaterController
-        self.defaults = context.runtime.defaults
+        self.defaults = context.container.defaults
     }
 
     public var body: some Scene {
         Window("OpenOats", id: "main") {
             ContentView(settings: settings)
-                .environment(runtime)
+                .environment(container)
                 .environment(coordinator)
                 .defaultAppStorage(defaults)
                 .onAppear {
                     appDelegate.coordinator = coordinator
                     appDelegate.settings = settings
                     appDelegate.defaults = defaults
-                    appDelegate.runtime = runtime
-                    if case .live = runtime.mode {
+                    appDelegate.container = container
+                    if case .live = container.mode {
                         appDelegate.setupMenuBarIfNeeded(
                             coordinator: coordinator,
                             settings: settings,
@@ -63,7 +63,7 @@ public struct OpenOatsRootApp: App {
         .defaultSize(width: 320, height: 560)
         .commands {
             CommandGroup(after: .appInfo) {
-                if case .live = runtime.mode {
+                if case .live = container.mode {
                     CheckForUpdatesView(updater: updaterController.updater)
 
                     Divider()
@@ -89,7 +89,7 @@ public struct OpenOatsRootApp: App {
 
         Window("Notes", id: "notes") {
             NotesView(settings: settings)
-                .environment(runtime)
+                .environment(container)
                 .environment(coordinator)
                 .defaultAppStorage(defaults)
         }
@@ -97,7 +97,7 @@ public struct OpenOatsRootApp: App {
 
         Window("Transcript", id: "transcript") {
             TranscriptWindowView()
-                .environment(runtime)
+                .environment(container)
                 .environment(coordinator)
                 .defaultAppStorage(defaults)
         }
@@ -105,7 +105,7 @@ public struct OpenOatsRootApp: App {
 
         Settings {
             SettingsView(settings: settings, updater: updaterController.updater)
-                .environment(runtime)
+                .environment(container)
                 .environment(coordinator)
                 .defaultAppStorage(defaults)
         }
@@ -137,7 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var isTerminating = false
     var coordinator: AppCoordinator?
     var settings: AppSettings?
-    var runtime: AppRuntime?
+    var container: AppContainer?
     var defaults: UserDefaults = .standard
 
     func setupMenuBarIfNeeded(
@@ -148,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     ) {
         guard menuBarController == nil else { return }
 
-        runtime?.ensureServicesInitialized(settings: settings, coordinator: coordinator)
+        container?.ensureServicesInitialized(settings: settings, coordinator: coordinator)
 
         let controller = MenuBarController(
             coordinator: coordinator,

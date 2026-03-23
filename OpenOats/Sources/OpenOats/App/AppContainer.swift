@@ -1,37 +1,9 @@
 import Foundation
 import Observation
 
-enum UITestScenario: String {
-    case launchSmoke
-    case sessionSmoke
-    case notesSmoke
-}
-
-enum AppRuntimeMode {
-    case live
-    case uiTest(UITestScenario)
-}
-
-struct AppServices {
-    let knowledgeBase: KnowledgeBase
-    let suggestionEngine: SuggestionEngine
-    let transcriptionEngine: TranscriptionEngine
-    let transcriptLogger: TranscriptLogger
-    let refinementEngine: TranscriptRefinementEngine
-    let audioRecorder: AudioRecorder
-    let batchEngine: BatchTranscriptionEngine
-}
-
-struct AppLaunchContext {
-    let runtime: AppRuntime
-    let settings: AppSettings
-    let coordinator: AppCoordinator
-    let updaterController: AppUpdaterController
-}
-
 @MainActor
 @Observable
-final class AppRuntime {
+final class AppContainer {
     static let notesSmokeSessionID = "session_ui_test_notes"
 
     let mode: AppRuntimeMode
@@ -60,7 +32,7 @@ final class AppRuntime {
 
         switch mode {
         case .live:
-            let runtime = AppRuntime(
+            let container = AppContainer(
                 mode: .live,
                 defaults: .standard,
                 appSupportDirectory: FileManager.default.urls(
@@ -74,7 +46,10 @@ final class AppRuntime {
             let coordinator = AppCoordinator()
             let updaterController = AppUpdaterController()
             return AppLaunchContext(
-                runtime: runtime,
+                isFirstLaunch: false,
+                uiTestScenario: nil,
+                runtimeMode: .live,
+                container: container,
                 settings: settings,
                 coordinator: coordinator,
                 updaterController: updaterController
@@ -118,7 +93,7 @@ final class AppRuntime {
                 notesEngine: notesEngine,
                 transcriptStore: TranscriptStore()
             )
-            let runtime = AppRuntime(
+            let container = AppContainer(
                 mode: .uiTest(scenario),
                 defaults: defaults,
                 appSupportDirectory: appSupportDirectory,
@@ -126,7 +101,10 @@ final class AppRuntime {
             )
             let updaterController = AppUpdaterController(startUpdater: false)
             return AppLaunchContext(
-                runtime: runtime,
+                isFirstLaunch: false,
+                uiTestScenario: scenario,
+                runtimeMode: .uiTest(scenario),
+                container: container,
                 settings: settings,
                 coordinator: coordinator,
                 updaterController: updaterController

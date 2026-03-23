@@ -32,7 +32,7 @@ struct ContentView: View {
     }
 
     @Bindable var settings: AppSettings
-    @Environment(AppRuntime.self) private var runtime
+    @Environment(AppContainer.self) private var container
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.openWindow) private var openWindow
     private var knowledgeBase: KnowledgeBase? { coordinator.knowledgeBase }
@@ -320,11 +320,11 @@ struct ContentView: View {
                 showOnboarding = true
             }
             if coordinator.knowledgeBase == nil {
-                runtime.ensureServicesInitialized(settings: settings, coordinator: coordinator)
+                container.ensureServicesInitialized(settings: settings, coordinator: coordinator)
             }
-            overlayManager.defaults = runtime.defaults
-            miniBarManager.defaults = runtime.defaults
-            await runtime.seedIfNeeded(coordinator: coordinator)
+            overlayManager.defaults = container.defaults
+            miniBarManager.defaults = container.defaults
+            await container.seedIfNeeded(coordinator: coordinator)
             refreshViewState()
             indexKBIfNeeded()
             handlePendingExternalCommandIfPossible()
