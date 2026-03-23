@@ -1,5 +1,4 @@
 import SwiftUI
-import CoreAudio
 
 struct ContentView: View {
     private enum ControlBarAction {
