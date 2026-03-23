@@ -334,18 +334,18 @@ struct ContentView: View {
 
             // Setup meeting detection if enabled
             if settings.meetingAutoDetectEnabled {
-                coordinator.setupMeetingDetection(settings: settings)
-                await coordinator.evaluateImmediate()
+                container.enableDetection(settings: settings, coordinator: coordinator)
+                await container.detectionController?.evaluateImmediate()
             }
         }
         .onChange(of: settings.meetingAutoDetectEnabled) {
             if settings.meetingAutoDetectEnabled {
-                coordinator.setupMeetingDetection(settings: settings)
+                container.enableDetection(settings: settings, coordinator: coordinator)
                 Task {
-                    await coordinator.evaluateImmediate()
+                    await container.detectionController?.evaluateImmediate()
                 }
             } else {
-                coordinator.teardownMeetingDetection()
+                container.disableDetection(coordinator: coordinator)
             }
         }
     }
@@ -373,7 +373,7 @@ struct ContentView: View {
 
                         // Send notification on completion if app is not focused
                         if case .completed(let sid) = status, prev != status {
-                            if !NSApp.isActive, let notifService = coordinator.notificationService {
+                            if !NSApp.isActive, let notifService = container.notificationService {
                                 await notifService.postBatchCompleted(sessionID: sid)
                             }
                             // Refresh history so the updated transcript is visible
@@ -503,7 +503,7 @@ struct ContentView: View {
 
     private func handleNewUtterance(_ last: Utterance) {
         // Reset silence timer for auto-detected sessions
-        coordinator.noteUtterance()
+        container.detectionController?.noteUtterance()
 
         // Persist to transcript log
         Task {
