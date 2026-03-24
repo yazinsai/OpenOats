@@ -74,28 +74,53 @@ final class WhisperKitManager: @unchecked Sendable {
 
     /// Check whether the model files already exist locally.
     static func modelExists(variant: Variant) -> Bool {
+        modelFolderURL(variant: variant) != nil
+    }
+
+    static func clearModelCache(variant: Variant) {
         let fm = FileManager.default
-        // WhisperKit downloads models into ~/Library/Caches/huggingface/models/argmaxinc/whisperkit-coreml/
-        // and then into a subfolder matching the variant. We check if any compiled model
-        // folder exists. A simpler heuristic: check the default download location.
-        let cachesDir = fm.urls(for: .cachesDirectory, in: .userDomainMask).first
-        guard let cachesDir else { return false }
-
-        // WhisperKit stores models under:
-        // ~/Library/Caches/huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-{variant}
-        let hfCacheDir = cachesDir
-            .appendingPathComponent("huggingface")
-            .appendingPathComponent("models")
-            .appendingPathComponent("argmaxinc")
-            .appendingPathComponent("whisperkit-coreml")
-
-        guard fm.fileExists(atPath: hfCacheDir.path) else { return false }
-
-        // Look for a directory containing the variant name
-        guard let contents = try? fm.contentsOfDirectory(atPath: hfCacheDir.path) else {
-            return false
+        for baseDir in hubSearchRoots() {
+            let repoDir = repositoryRoot(in: baseDir)
+            guard let contents = try? fm.contentsOfDirectory(atPath: repoDir.path) else { continue }
+            for entry in contents where entry.contains("whisper-\(variant.rawValue)") {
+                try? fm.removeItem(at: repoDir.appendingPathComponent(entry))
+            }
         }
-        return contents.contains { $0.contains("whisper-\(variant.rawValue)") }
+    }
+
+    private static func modelFolderURL(variant: Variant) -> URL? {
+        let fm = FileManager.default
+        for baseDir in hubSearchRoots() {
+            let repoDir = repositoryRoot(in: baseDir)
+            guard fm.fileExists(atPath: repoDir.path) else { continue }
+            guard let contents = try? fm.contentsOfDirectory(atPath: repoDir.path) else {
+                continue
+            }
+            guard let folderName = contents.first(where: { $0.contains("whisper-\(variant.rawValue)") }) else {
+                continue
+            }
+            return repoDir.appendingPathComponent(folderName, isDirectory: true)
+        }
+        return nil
+    }
+
+    private static func hubSearchRoots() -> [URL] {
+        let fm = FileManager.default
+        var roots: [URL] = []
+        if let documentsDir = fm.urls(for: .documentDirectory, in: .userDomainMask).first {
+            roots.append(documentsDir.appendingPathComponent("huggingface", isDirectory: true))
+        }
+        if let cachesDir = fm.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            roots.append(cachesDir.appendingPathComponent("huggingface", isDirectory: true))
+        }
+        return roots
+    }
+
+    private static func repositoryRoot(in hubBase: URL) -> URL {
+        hubBase
+            .appendingPathComponent("models", isDirectory: true)
+            .appendingPathComponent("argmaxinc", isDirectory: true)
+            .appendingPathComponent("whisperkit-coreml", isDirectory: true)
     }
 
     enum WhisperKitManagerError: LocalizedError {
