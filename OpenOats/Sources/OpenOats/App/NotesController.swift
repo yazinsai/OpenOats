@@ -233,6 +233,20 @@ final class NotesController {
         }
     }
 
+    func deleteSessions(sessionIDs: Set<String>) {
+        Task {
+            for id in sessionIDs {
+                await coordinator.sessionRepository.deleteSession(sessionID: id)
+            }
+            if let selected = state.selectedSessionID, sessionIDs.contains(selected) {
+                state.selectedSessionID = nil
+                state.loadedNotes = nil
+                state.loadedTranscript = []
+            }
+            await loadHistory()
+        }
+    }
+
     // MARK: - Tags
 
     /// Sessions filtered by active tag filter.

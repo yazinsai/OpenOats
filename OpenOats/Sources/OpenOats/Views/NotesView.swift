@@ -8,6 +8,9 @@ struct NotesView: View {
     @State private var renameText: String = ""
     @State private var sessionToDelete: String?
     @State private var showDeleteConfirmation = false
+    @State private var bulkDeleteMode = false
+    @State private var bulkDeleteSelection: Set<String> = []
+    @State private var showBulkDeleteConfirmation = false
     @State private var editingTagsSessionID: String?
     @State private var editingTags: [String] = []
     @State private var newTagText: String = ""
@@ -69,95 +72,85 @@ struct NotesView: View {
 
     @ViewBuilder
     private func sidebar(controller: NotesController, state: NotesState) -> some View {
-        let selectedBinding = Binding<String?>(
-            get: { state.selectedSessionID },
-            set: { controller.selectSession($0) }
-        )
         VStack(spacing: 0) {
             tagFilterBar(controller: controller, state: state)
-            List(controller.filteredSessions, selection: selectedBinding) { session in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        if let snap = session.templateSnapshot {
-                            Image(systemName: snap.icon)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-                        if renamingSessionID == session.id {
-                            TextField("Title", text: $renameText, onCommit: {
-                                controller.renameSession(sessionID: session.id, newTitle: renameText)
-                                renamingSessionID = nil
-                            })
-                            .font(.system(size: 13, weight: .medium))
-                            .textFieldStyle(.plain)
-                            .onExitCommand {
-                                renamingSessionID = nil
-                            }
-                        } else {
-                            Text(session.title ?? "Untitled")
-                                .font(.system(size: 13, weight: .medium))
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        if session.hasNotes {
-                            Image(systemName: "doc.text.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
 
-                    HStack(spacing: 6) {
-                        Text(session.startedAt, style: .date)
-                        Text(session.startedAt, style: .time)
-                        Spacer()
-                        Text("\(session.utteranceCount) utterances")
+            // Bulk delete toolbar
+            if bulkDeleteMode {
+                HStack(spacing: 8) {
+                    Button("Select All") {
+                        bulkDeleteSelection = Set(controller.filteredSessions.map(\.id))
                     }
                     .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    Spacer()
+                    if !bulkDeleteSelection.isEmpty {
+                        Button("Delete \(bulkDeleteSelection.count)") {
+                            showBulkDeleteConfirmation = true
+                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.red)
+                    }
+                    Button("Done") {
+                        bulkDeleteMode = false
+                        bulkDeleteSelection = []
+                    }
+                    .font(.system(size: 11))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                Divider()
+            }
 
-                    if let tags = session.tags, !tags.isEmpty {
-                        HStack(spacing: 4) {
-                            ForEach(tags, id: \.self) { tag in
-                                Text(tag)
-                                    .font(.system(size: 10))
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 1)
-                                    .background(.quaternary)
-                                    .clipShape(Capsule())
+            if bulkDeleteMode {
+                List(controller.filteredSessions, selection: $bulkDeleteSelection) { session in
+                    sessionRow(controller: controller, session: session)
+                }
+                .listStyle(.sidebar)
+            } else {
+                let selectedBinding = Binding<String?>(
+                    get: { state.selectedSessionID },
+                    set: { controller.selectSession($0) }
+                )
+                List(controller.filteredSessions, selection: selectedBinding) { session in
+                    sessionRow(controller: controller, session: session)
+                        .contextMenu {
+                            Button("Rename...") {
+                                renameText = session.title ?? ""
+                                renamingSessionID = session.id
+                            }
+                            Button("Edit Tags...") {
+                                editingTags = session.tags ?? []
+                                newTagText = ""
+                                editingTagsSessionID = session.id
+                                Task {
+                                    availableTags = await controller.allTags()
+                                }
+                            }
+                            Divider()
+                            Button("Select Multiple...") {
+                                bulkDeleteMode = true
+                                bulkDeleteSelection = [session.id]
+                            }
+                            Divider()
+                            Button("Delete", role: .destructive) {
+                                sessionToDelete = session.id
+                                showDeleteConfirmation = true
                             }
                         }
-                        .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 2)
-                .accessibilityIdentifier("notes.session.\(session.id)")
-                .contextMenu {
-                    Button("Rename...") {
-                        renameText = session.title ?? ""
-                        renamingSessionID = session.id
-                    }
-                    Button("Edit Tags...") {
-                        editingTags = session.tags ?? []
-                        newTagText = ""
-                        editingTagsSessionID = session.id
-                        Task {
-                            availableTags = await controller.allTags()
+                        .popover(isPresented: Binding(
+                            get: { editingTagsSessionID == session.id },
+                            set: { if !$0 { editingTagsSessionID = nil } }
+                        )) {
+                            tagEditorPopover(controller: controller, sessionID: session.id)
                         }
-                    }
-                    Divider()
-                    Button("Delete", role: .destructive) {
-                        sessionToDelete = session.id
-                        showDeleteConfirmation = true
-                    }
                 }
-                .popover(isPresented: Binding(
-                    get: { editingTagsSessionID == session.id },
-                    set: { if !$0 { editingTagsSessionID = nil } }
-                )) {
-                    tagEditorPopover(controller: controller, sessionID: session.id)
-                }
+                .listStyle(.sidebar)
             }
-            .listStyle(.sidebar)
         }
         .frame(maxHeight: .infinity)
         .alert("Delete Meeting?", isPresented: $showDeleteConfirmation) {
@@ -170,6 +163,75 @@ struct NotesView: View {
         } message: {
             Text("This will permanently delete the transcript and any generated notes.")
         }
+        .alert("Delete \(bulkDeleteSelection.count) Meetings?", isPresented: $showBulkDeleteConfirmation) {
+            Button("Delete \(bulkDeleteSelection.count)", role: .destructive) {
+                controller.deleteSessions(sessionIDs: bulkDeleteSelection)
+                bulkDeleteMode = false
+                bulkDeleteSelection = []
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will permanently delete the selected transcripts and any generated notes.")
+        }
+    }
+
+    @ViewBuilder
+    private func sessionRow(controller: NotesController, session: SessionIndex) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                if let snap = session.templateSnapshot {
+                    Image(systemName: snap.icon)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                if renamingSessionID == session.id {
+                    TextField("Title", text: $renameText, onCommit: {
+                        controller.renameSession(sessionID: session.id, newTitle: renameText)
+                        renamingSessionID = nil
+                    })
+                    .font(.system(size: 13, weight: .medium))
+                    .textFieldStyle(.plain)
+                    .onExitCommand {
+                        renamingSessionID = nil
+                    }
+                } else {
+                    Text(session.title ?? "Untitled")
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                }
+                Spacer()
+                if session.hasNotes {
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack(spacing: 6) {
+                Text(session.startedAt, style: .date)
+                Text(session.startedAt, style: .time)
+                Spacer()
+                Text("\(session.utteranceCount) utterances")
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(.tertiary)
+
+            if let tags = session.tags, !tags.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(tags, id: \.self) { tag in
+                        Text(tag)
+                            .font(.system(size: 10))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(.quaternary)
+                            .clipShape(Capsule())
+                    }
+                }
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityIdentifier("notes.session.\(session.id)")
     }
 
     // MARK: - Tag Filter Bar
