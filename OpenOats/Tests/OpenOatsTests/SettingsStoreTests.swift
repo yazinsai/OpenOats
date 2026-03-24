@@ -128,8 +128,8 @@ final class SettingsStoreTests: XCTestCase {
 
     func testDefaultEnableBatchRefinement() {
         let store = makeStore()
-        // Defaults to true when key never set
-        XCTAssertTrue(store.enableBatchRefinement)
+        // Defaults to false when key never set
+        XCTAssertFalse(store.enableBatchRefinement)
     }
 
     func testDefaultBatchTranscriptionModel() {

@@ -40,6 +40,9 @@ final class LiveSessionController {
     // Tracked-change sentinels
     private var observedUtteranceCount = 0
     private var observedIsRunning = false
+    private var observedAudioLevel: Float = 0
+    private var observedSuggestions: [Suggestion] = []
+    private var observedIsGenerating = false
     private var observedKBFolderPath = ""
     private var observedNotesFolderPath = ""
     private var observedVoyageApiKey = ""
@@ -64,13 +67,13 @@ final class LiveSessionController {
 
     // MARK: - Polling Loop
 
-    /// Call from a `.task` modifier to start the 100ms polling loop.
+    /// Call from a `.task` modifier to start the 250ms polling loop.
     func runPollingLoop(settings: AppSettings) async {
         refreshState(settings: settings)
         synchronizeDerivedState(settings: settings)
 
         while !Task.isCancelled {
-            try? await Task.sleep(for: .milliseconds(100))
+            try? await Task.sleep(for: .milliseconds(250))
 
             // Poll batch engine status (actor-isolated)
             if let engine = coordinator.batchEngine {
@@ -476,7 +479,7 @@ final class LiveSessionController {
 
     /// Callback for MiniBar show/hide — set by the view.
     var onRunningStateChanged: ((_ isRunning: Bool) -> Void)?
-    /// Called every 100ms when recording and minibar is visible, to refresh minibar content.
+    /// Called when minibar-visible state changes during recording.
     var onMiniBarContentUpdate: (() -> Void)?
 
     /// Callback for opening the notes window — set by the view.
@@ -534,9 +537,18 @@ final class LiveSessionController {
             onRunningStateChanged?(currentState.isRunning)
         }
 
-        // Refresh minibar content every polling cycle while recording
+        // Refresh minibar content only when visible state changed
         if currentState.isRunning {
-            onMiniBarContentUpdate?()
+            let levelChanged = abs(currentState.audioLevel - observedAudioLevel) > 0.01
+            let suggestionsChanged = currentState.suggestions.map(\.id) != observedSuggestions.map(\.id)
+            let generatingChanged = currentState.isGeneratingSuggestions != observedIsGenerating
+
+            if levelChanged || suggestionsChanged || generatingChanged {
+                observedAudioLevel = currentState.audioLevel
+                observedSuggestions = currentState.suggestions
+                observedIsGenerating = currentState.isGeneratingSuggestions
+                onMiniBarContentUpdate?()
+            }
         }
 
         let pendingExternalCommandID = coordinator.pendingExternalCommand?.id

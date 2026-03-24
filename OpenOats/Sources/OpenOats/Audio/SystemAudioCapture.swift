@@ -17,14 +17,10 @@ final class SystemAudioCapture: @unchecked Sendable {
     private let _sysContinuation = OSAllocatedUnfairLock<AsyncStream<AVAudioPCMBuffer>.Continuation?>(
         uncheckedState: nil
     )
-    private let _audioLevel = AudioLevel()
-    private let _sampleCount = OSAllocatedUnfairLock<Int>(uncheckedState: 0)
     private let callbackQueue = DispatchQueue(
         label: "com.openoats.system-audio",
         qos: .userInteractive
     )
-
-    var audioLevel: Float { _audioLevel.value }
 
     struct CaptureStreams {
         let systemAudio: AsyncStream<AVAudioPCMBuffer>
@@ -132,7 +128,6 @@ final class SystemAudioCapture: @unchecked Sendable {
         _tapID.withLock { $0 = activeTapID }
         _aggregateDeviceID.withLock { $0 = activeAggregateDeviceID }
         _ioProcID.withLock { $0 = activeIOProcID }
-        _sampleCount.withLock { $0 = 0 }
 
         return CaptureStreams(systemAudio: sysStream)
     }
@@ -173,9 +168,6 @@ final class SystemAudioCapture: @unchecked Sendable {
         if tapID != AudioObjectID(kAudioObjectUnknown) {
             _ = AudioHardwareDestroyProcessTap(tapID)
         }
-
-        _audioLevel.value = 0
-        _sampleCount.withLock { $0 = 0 }
     }
 
     private func handleInputData(
@@ -218,19 +210,6 @@ final class SystemAudioCapture: @unchecked Sendable {
 
             memcpy(destinationData, sourceData, copySize)
             destinationBuffers[index].mDataByteSize = UInt32(copySize)
-        }
-
-        let rms = Self.normalizedRMS(from: pcmBuffer)
-        _audioLevel.value = min(rms * 25, 1.0)
-
-        let count = _sampleCount.withLock { state -> Int in
-            state += 1
-            return state
-        }
-        if count <= 5 || count % 200 == 0 {
-            diagLog(
-                "[SYS-RAW] #\(count) frames=\(frameCount) sr=\(streamDescription.pointee.mSampleRate) ch=\(streamDescription.pointee.mChannelsPerFrame) rms=\(rms)"
-            )
         }
 
         _ = _sysContinuation.withLock { $0?.yield(pcmBuffer) }
@@ -329,70 +308,6 @@ final class SystemAudioCapture: @unchecked Sendable {
             throw CaptureError.tapFormatUnavailable(status)
         }
         return streamDescription
-    }
-
-    private static func normalizedRMS(from buffer: AVAudioPCMBuffer) -> Float {
-        let frameLength = Int(buffer.frameLength)
-        let channelCount = Int(max(buffer.format.channelCount, 1))
-        guard frameLength > 0 else { return 0 }
-
-        if let channelData = buffer.floatChannelData {
-            return rms(
-                frameLength: frameLength,
-                channelCount: channelCount
-            ) { frame, channel in
-                if buffer.format.isInterleaved {
-                    return channelData[0][(frame * channelCount) + channel]
-                }
-                return channelData[channel][frame]
-            }
-        }
-
-        if let channelData = buffer.int16ChannelData {
-            let scale: Float = 1 / Float(Int16.max)
-            return rms(
-                frameLength: frameLength,
-                channelCount: channelCount
-            ) { frame, channel in
-                if buffer.format.isInterleaved {
-                    return Float(channelData[0][(frame * channelCount) + channel]) * scale
-                }
-                return Float(channelData[channel][frame]) * scale
-            }
-        }
-
-        if let channelData = buffer.int32ChannelData {
-            let scale: Float = 1 / Float(Int32.max)
-            return rms(
-                frameLength: frameLength,
-                channelCount: channelCount
-            ) { frame, channel in
-                if buffer.format.isInterleaved {
-                    return Float(channelData[0][(frame * channelCount) + channel]) * scale
-                }
-                return Float(channelData[channel][frame]) * scale
-            }
-        }
-
-        return 0
-    }
-
-    private static func rms(
-        frameLength: Int,
-        channelCount: Int,
-        sampleAt: (_ frame: Int, _ channel: Int) -> Float
-    ) -> Float {
-        var sum: Float = 0
-
-        for frame in 0..<frameLength {
-            for channel in 0..<channelCount {
-                let sample = sampleAt(frame, channel)
-                sum += sample * sample
-            }
-        }
-
-        let sampleCount = Float(frameLength * channelCount)
-        return sampleCount > 0 ? sqrt(sum / sampleCount) : 0
     }
 
     enum CaptureError: LocalizedError {

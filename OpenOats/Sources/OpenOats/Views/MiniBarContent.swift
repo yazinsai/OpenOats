@@ -2,30 +2,29 @@ import SwiftUI
 
 /// Compact vertical bar displayed during active meetings.
 /// Shows a waveform visualization and suggestion bubbles that float out.
+/// Reads display state from `MiniBarState` so the view hierarchy is never
+/// recreated — only the observable properties are mutated.
 struct MiniBarContent: View {
-    let audioLevel: Float
-    let suggestions: [Suggestion]
-    let isGenerating: Bool
-    let onTap: () -> Void
+    let state: MiniBarState
 
     var body: some View {
         // Tiny pill: mini waveform + status dot
         HStack(spacing: 3) {
-            MiniWaveformView(level: audioLevel)
+            MiniWaveformView(level: state.audioLevel)
                 .frame(width: 22, height: 10)
 
             Circle()
-                .fill(isGenerating ? Color.orange : Color.green)
+                .fill(state.isGenerating ? Color.orange : Color.green)
                 .frame(width: 5, height: 5)
-                .scaleEffect(1.0 + CGFloat(audioLevel) * 0.3)
-                .animation(.easeOut(duration: 0.1), value: audioLevel)
+                .scaleEffect(1.0 + CGFloat(state.audioLevel) * 0.3)
+                .animation(.easeOut(duration: 0.1), value: state.audioLevel)
         }
         .frame(width: 40, height: 18)
         .background(.ultraThinMaterial)
         .clipShape(Capsule())
         .contentShape(Capsule())
         .onTapGesture {
-            onTap()
+            state.onTap()
         }
     }
 }

@@ -678,19 +678,33 @@ final class TranscriptionEngine {
         let sysAudioTime = SyncDouble()
 
         // Tee system audio to diarization manager if enabled
-        let dm = diarizationManager
-        if dm != nil {
-            sysStream = Self.tappedStream(sysStream) { buffer in
-                guard let channelData = buffer.floatChannelData else { return }
-                let frameCount = Int(buffer.frameLength)
-                let sampleRate = buffer.format.sampleRate
-                sysAudioTime.add(Double(frameCount) / sampleRate)
-                let samples = Array(UnsafeBufferPointer(
-                    start: channelData[0],
-                    count: frameCount
-                ))
-                Task { try? await dm?.feedAudio(samples) }
+        if let dm = diarizationManager {
+            let diarFlushSize = 16000
+            let originalSysStream = sysStream
+            let (diarTapped, diarContinuation) = AsyncStream<AVAudioPCMBuffer>.makeStream()
+            Task {
+                nonisolated(unsafe) let safeDm = dm
+                var diarBuf: [Float] = []
+                for await buffer in originalSysStream {
+                    nonisolated(unsafe) let b = buffer
+                    diarContinuation.yield(b)
+                    guard let channelData = buffer.floatChannelData else { continue }
+                    let frameCount = Int(buffer.frameLength)
+                    sysAudioTime.add(Double(frameCount) / buffer.format.sampleRate)
+                    diarBuf.append(contentsOf: UnsafeBufferPointer(start: channelData[0], count: frameCount))
+                    if diarBuf.count >= diarFlushSize {
+                        let batch = diarBuf
+                        diarBuf.removeAll(keepingCapacity: true)
+                        try? await safeDm.feedAudio(batch)
+                    }
+                }
+                // Flush tail
+                if !diarBuf.isEmpty {
+                    try? await safeDm.feedAudio(diarBuf)
+                }
+                diarContinuation.finish()
             }
+            sysStream = diarTapped
         }
 
         let store = transcriptStore

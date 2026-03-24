@@ -53,6 +53,7 @@ final class StreamingTranscriber: @unchecked Sendable {
         var vadState = await vadManager.makeStreamState()
         var speechSamples: [Float] = []
         var vadBuffer: [Float] = []
+        var vadReadIndex = 0
         var recentChunks: [[Float]] = []
         var isSpeaking = false
         var bufferCount = 0
@@ -73,9 +74,15 @@ final class StreamingTranscriber: @unchecked Sendable {
 
             vadBuffer.append(contentsOf: samples)
 
-            while vadBuffer.count >= Self.vadChunkSize {
-                let chunk = Array(vadBuffer.prefix(Self.vadChunkSize))
-                vadBuffer.removeFirst(Self.vadChunkSize)
+            while vadBuffer.count - vadReadIndex >= Self.vadChunkSize {
+                let chunk = Array(vadBuffer[vadReadIndex..<(vadReadIndex + Self.vadChunkSize)])
+                vadReadIndex += Self.vadChunkSize
+
+                // Compact when we've consumed more than half to bound memory growth
+                if vadReadIndex > vadBuffer.count / 2 {
+                    vadBuffer.removeFirst(vadReadIndex)
+                    vadReadIndex = 0
+                }
                 let wasSpeaking = isSpeaking
 
                 var startedSpeech = false
