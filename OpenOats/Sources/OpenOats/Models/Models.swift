@@ -180,6 +180,8 @@ struct SessionIndex: Identifiable, Codable, Sendable {
     var title: String?
     var utteranceCount: Int
     var hasNotes: Bool
+    /// BCP 47 language/locale used for transcription (e.g. "en-US", "fr-FR").
+    var language: String?
     /// The detected meeting application name (e.g. "Zoom", "Microsoft Teams").
     var meetingApp: String?
     /// The ASR engine used for transcription (e.g. "parakeetV2").

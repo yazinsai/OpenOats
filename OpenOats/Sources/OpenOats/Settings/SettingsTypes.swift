@@ -118,12 +118,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
     }
 
     var supportsExplicitLanguageHint: Bool {
-        switch self {
-        case .qwen3ASR06B:
-            true
-        case .parakeetV2, .parakeetV3, .whisperBase, .whisperSmall, .whisperLargeV3Turbo:
-            false
-        }
+        true
     }
 
     var localeFieldTitle: String {
@@ -138,15 +133,15 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
     var localeHelpText: String {
         switch self {
         case .parakeetV2:
-            "Parakeet TDT v2 is English-only. Locale changes do not affect this model."
+            "Parakeet TDT v2 is English-only. Use en-US. This language value is still saved with the session and markdown export."
         case .parakeetV3:
-            "Parakeet TDT v3 auto-detects among its supported languages. Locale changes do not affect this model."
+            "Parakeet TDT v3 auto-detects speech language. Use this field to set your expected meeting language for metadata and export."
         case .qwen3ASR06B:
-            "Optional. Used as a language hint for Qwen3 ASR. Enter a locale such as en-US, fr-FR, or ja-JP. Applies when a new session starts."
+            "Used as a language hint for Qwen3 ASR and saved with the session. Enter a locale such as en-US, fr-FR, or ja-JP."
         case .whisperBase, .whisperSmall:
-            "Whisper auto-detects the spoken language. Locale changes do not affect this model."
+            "Whisper auto-detects speech language. This setting is still saved with the session and markdown export."
         case .whisperLargeV3Turbo:
-            "Whisper Large v3 Turbo auto-detects the spoken language. Best multilingual batch model."
+            "Whisper Large v3 Turbo auto-detects speech language. This setting is saved with session metadata and markdown export."
         }
     }
 

@@ -18,6 +18,7 @@ enum MarkdownMeetingWriter {
         let title: String?
         let startedAt: Date
         let endedAt: Date?
+        let language: String?
         let meetingApp: String?
         let engine: String?
 
@@ -26,6 +27,7 @@ enum MarkdownMeetingWriter {
             self.title = index.title
             self.startedAt = index.startedAt
             self.endedAt = index.endedAt
+            self.language = index.language
             self.meetingApp = index.meetingApp
             self.engine = index.engine
         }
@@ -120,6 +122,11 @@ enum MarkdownMeetingWriter {
         // Engine
         if let engine = metadata.engine, !engine.isEmpty {
             lines.append("engine: \(engine)")
+        }
+
+        // Language (BCP 47)
+        if let language = metadata.language, !language.isEmpty {
+            lines.append("language: \(language)")
         }
 
         // Meeting app (lowercase per spec)

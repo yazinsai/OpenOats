@@ -307,6 +307,10 @@ final class LiveSessionController {
         }
 
         let engineName = settings?.transcriptionModel.rawValue
+        let transcriptionLanguage: String? = {
+            guard let locale = settings?.transcriptionLocale, !locale.isEmpty else { return nil }
+            return locale
+        }()
 
         // 4. Finalize: closes file handle, backfills refined text, writes session.json
         await coordinator.sessionRepository.finalizeSession(
@@ -315,6 +319,7 @@ final class LiveSessionController {
                 endedAt: Date(),
                 utteranceCount: utteranceCount,
                 title: title,
+                language: transcriptionLanguage,
                 meetingApp: meetingAppName,
                 engine: engineName,
                 templateSnapshot: coordinator.sessionTemplateSnapshot,
@@ -331,6 +336,7 @@ final class LiveSessionController {
             title: title,
             utteranceCount: utteranceCount,
             hasNotes: false,
+            language: transcriptionLanguage,
             meetingApp: meetingAppName,
             engine: engineName
         )

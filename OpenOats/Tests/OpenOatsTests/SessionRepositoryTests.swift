@@ -107,6 +107,7 @@ final class SessionRepositoryTests: XCTestCase {
                 endedAt: Date(),
                 utteranceCount: 1,
                 title: "Test Meeting",
+                language: "fr-FR",
                 meetingApp: "Zoom",
                 engine: "parakeetV2",
                 templateSnapshot: nil,
@@ -118,6 +119,7 @@ final class SessionRepositoryTests: XCTestCase {
         let found = sessions.first(where: { $0.id == sessionID })
         XCTAssertNotNil(found)
         XCTAssertEqual(found?.title, "Test Meeting")
+        XCTAssertEqual(found?.language, "fr-FR")
         XCTAssertEqual(found?.meetingApp, "Zoom")
         XCTAssertEqual(found?.engine, "parakeetV2")
         XCTAssertEqual(found?.utteranceCount, 1)

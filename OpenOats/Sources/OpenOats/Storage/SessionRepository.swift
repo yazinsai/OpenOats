@@ -51,6 +51,7 @@ struct SessionFinalizeMetadata: Sendable {
     let endedAt: Date
     let utteranceCount: Int
     let title: String?
+    let language: String?
     let meetingApp: String?
     let engine: String?
     let templateSnapshot: TemplateSnapshot?
@@ -83,6 +84,7 @@ struct SessionMetadata: Codable, Sendable {
     var title: String?
     var utteranceCount: Int
     var hasNotes: Bool
+    var language: String?
     var meetingApp: String?
     var engine: String?
     var tags: [String]?
@@ -324,6 +326,7 @@ actor SessionRepository {
             title: metadata.title,
             utteranceCount: metadata.utteranceCount,
             hasNotes: false,
+            language: metadata.language,
             meetingApp: metadata.meetingApp,
             engine: metadata.engine
         )
@@ -449,6 +452,7 @@ actor SessionRepository {
                         title: meta.title,
                         utteranceCount: meta.utteranceCount,
                         hasNotes: meta.hasNotes,
+                        language: meta.language,
                         meetingApp: meta.meetingApp,
                         engine: meta.engine,
                         tags: meta.tags
@@ -484,6 +488,7 @@ actor SessionRepository {
                 title: meta.title,
                 utteranceCount: meta.utteranceCount,
                 hasNotes: meta.hasNotes,
+                language: meta.language,
                 meetingApp: meta.meetingApp,
                 engine: meta.engine,
                 tags: meta.tags
@@ -580,6 +585,7 @@ actor SessionRepository {
             title: index.title,
             utteranceCount: index.utteranceCount,
             hasNotes: index.hasNotes,
+            language: index.language,
             meetingApp: index.meetingApp,
             engine: index.engine,
             tags: normalized.isEmpty ? nil : normalized
@@ -983,6 +989,7 @@ actor SessionRepository {
             title: meta?.title,
             utteranceCount: meta?.utteranceCount ?? records.count,
             hasNotes: meta?.hasNotes ?? false,
+            language: meta?.language,
             meetingApp: meta?.meetingApp,
             engine: meta?.engine,
             tags: meta?.tags
