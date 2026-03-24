@@ -32,13 +32,27 @@ final class MiniBarPanel: NSPanel {
     }
 }
 
+/// Observable state model for the mini bar. Mutations drive SwiftUI updates
+/// without recreating the view hierarchy.
+@Observable
+@MainActor
+final class MiniBarState {
+    var audioLevel: Float = 0
+    var suggestions: [Suggestion] = []
+    var isGenerating: Bool = false
+    /// Not observed — assigning a new closure should not trigger SwiftUI invalidation.
+    @ObservationIgnored var onTap: () -> Void = {}
+}
+
 /// Manages the mini bar panel lifecycle.
+/// The NSHostingView is created once; subsequent updates mutate `state`.
 @MainActor
 final class MiniBarManager: ObservableObject {
     private var panel: MiniBarPanel?
+    let state = MiniBarState()
     var defaults: UserDefaults = .standard
 
-    func show<Content: View>(content: Content) {
+    func show() {
         if panel == nil {
             // Position near bottom-center of main screen
             let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -48,13 +62,21 @@ final class MiniBarManager: ObservableObject {
             let y = screenFrame.minY + 40
             let rect = NSRect(x: x, y: y, width: barWidth, height: barHeight)
             panel = MiniBarPanel(contentRect: rect, defaults: defaults)
-        }
 
-        let hostingView = NSHostingView(rootView: content)
-        hostingView.layer?.cornerRadius = 9
-        hostingView.layer?.masksToBounds = true
-        panel?.contentView = hostingView
-        panel?.orderFront(nil)
+            let hostingView = NSHostingView(rootView: MiniBarContent(state: state))
+            hostingView.layer?.cornerRadius = 9
+            hostingView.layer?.masksToBounds = true
+            panel?.contentView = hostingView
+        }
+        if panel?.isVisible != true {
+            panel?.orderFront(nil)
+        }
+    }
+
+    func update(audioLevel: Float, suggestions: [Suggestion], isGenerating: Bool) {
+        state.audioLevel = audioLevel
+        state.suggestions = suggestions
+        state.isGenerating = isGenerating
     }
 
     func hide() {

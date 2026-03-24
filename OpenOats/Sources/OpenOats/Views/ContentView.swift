@@ -290,6 +290,12 @@ struct ContentView: View {
             let controller = LiveSessionController(coordinator: coordinator, container: container)
             controller.onRunningStateChanged = { [weak miniBarManager] isRunning in
                 if isRunning {
+                    miniBarManager?.state.onTap = {
+                        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == OpenOatsRootApp.mainWindowID }) {
+                            window.makeKeyAndOrderFront(nil)
+                            NSApp.activate(ignoringOtherApps: true)
+                        }
+                    }
                     showMiniBar(controller: controller, miniBarManager: miniBarManager)
                 } else {
                     miniBarManager?.hide()
@@ -366,18 +372,12 @@ struct ContentView: View {
 
     private func showMiniBar(controller: LiveSessionController?, miniBarManager: MiniBarManager?) {
         guard let controller, let miniBarManager else { return }
-        let content = MiniBarContent(
+        miniBarManager.update(
             audioLevel: controller.state.audioLevel,
             suggestions: controller.state.suggestions,
-            isGenerating: controller.state.isGeneratingSuggestions,
-            onTap: {
-                if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == OpenOatsRootApp.mainWindowID }) {
-                    window.makeKeyAndOrderFront(nil)
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-            }
+            isGenerating: controller.state.isGeneratingSuggestions
         )
-        miniBarManager.show(content: content)
+        miniBarManager.show()
     }
 
     private func toggleOverlay() {
