@@ -161,7 +161,8 @@ enum LegacySessionReader {
                 utteranceCount: idx.utteranceCount,
                 hasNotes: idx.hasNotes,
                 meetingApp: idx.meetingApp,
-                engine: idx.engine
+                engine: idx.engine,
+                tags: idx.tags
             ),
             notes: sidecar.notes
         )

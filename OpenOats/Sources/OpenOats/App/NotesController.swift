@@ -14,6 +14,8 @@ struct NotesState {
     var showingOriginal: Bool = false
     /// Partial markdown streamed during generation.
     var streamingMarkdown: String = ""
+    /// Active tag filter for sidebar (nil = show all).
+    var tagFilter: String?
 }
 
 enum CleanupStatus: Equatable {
@@ -229,6 +231,31 @@ final class NotesController {
             }
             await loadHistory()
         }
+    }
+
+    // MARK: - Tags
+
+    /// Sessions filtered by active tag filter.
+    var filteredSessions: [SessionIndex] {
+        guard let filter = state.tagFilter else { return state.sessionHistory }
+        return state.sessionHistory.filter { session in
+            session.tags?.contains(where: { $0.localizedCaseInsensitiveCompare(filter) == .orderedSame }) ?? false
+        }
+    }
+
+    func updateSessionTags(sessionID: String, tags: [String]) {
+        Task {
+            await coordinator.sessionRepository.updateSessionTags(sessionID: sessionID, tags: tags)
+            await loadHistory()
+        }
+    }
+
+    func setTagFilter(_ tag: String?) {
+        state.tagFilter = tag
+    }
+
+    func allTags() async -> [String] {
+        await coordinator.sessionRepository.allTags()
     }
 
     // MARK: - Accessors

@@ -8,6 +8,10 @@ struct NotesView: View {
     @State private var renameText: String = ""
     @State private var sessionToDelete: String?
     @State private var showDeleteConfirmation = false
+    @State private var editingTagsSessionID: String?
+    @State private var editingTags: [String] = []
+    @State private var newTagText: String = ""
+    @State private var availableTags: [String] = []
 
     enum DetailViewMode: String, CaseIterable {
         case transcript = "Transcript"
@@ -69,61 +73,92 @@ struct NotesView: View {
             get: { state.selectedSessionID },
             set: { controller.selectSession($0) }
         )
-        List(state.sessionHistory, selection: selectedBinding) { session in
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    if let snap = session.templateSnapshot {
-                        Image(systemName: snap.icon)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    if renamingSessionID == session.id {
-                        TextField("Title", text: $renameText, onCommit: {
-                            controller.renameSession(sessionID: session.id, newTitle: renameText)
-                            renamingSessionID = nil
-                        })
-                        .font(.system(size: 13, weight: .medium))
-                        .textFieldStyle(.plain)
-                        .onExitCommand {
-                            renamingSessionID = nil
+        VStack(spacing: 0) {
+            tagFilterBar(controller: controller, state: state)
+            List(controller.filteredSessions, selection: selectedBinding) { session in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        if let snap = session.templateSnapshot {
+                            Image(systemName: snap.icon)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
                         }
-                    } else {
-                        Text(session.title ?? "Untitled")
+                        if renamingSessionID == session.id {
+                            TextField("Title", text: $renameText, onCommit: {
+                                controller.renameSession(sessionID: session.id, newTitle: renameText)
+                                renamingSessionID = nil
+                            })
                             .font(.system(size: 13, weight: .medium))
-                            .lineLimit(1)
+                            .textFieldStyle(.plain)
+                            .onExitCommand {
+                                renamingSessionID = nil
+                            }
+                        } else {
+                            Text(session.title ?? "Untitled")
+                                .font(.system(size: 13, weight: .medium))
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        if session.hasNotes {
+                            Image(systemName: "doc.text.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    Spacer()
-                    if session.hasNotes {
-                        Image(systemName: "doc.text.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                    }
-                }
 
-                HStack(spacing: 6) {
-                    Text(session.startedAt, style: .date)
-                    Text(session.startedAt, style: .time)
-                    Spacer()
-                    Text("\(session.utteranceCount) utterances")
+                    HStack(spacing: 6) {
+                        Text(session.startedAt, style: .date)
+                        Text(session.startedAt, style: .time)
+                        Spacer()
+                        Text("\(session.utteranceCount) utterances")
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+
+                    if let tags = session.tags, !tags.isEmpty {
+                        HStack(spacing: 4) {
+                            ForEach(tags, id: \.self) { tag in
+                                Text(tag)
+                                    .font(.system(size: 10))
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(.quaternary)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        .foregroundStyle(.secondary)
+                    }
                 }
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+                .padding(.vertical, 2)
+                .accessibilityIdentifier("notes.session.\(session.id)")
+                .contextMenu {
+                    Button("Rename...") {
+                        renameText = session.title ?? ""
+                        renamingSessionID = session.id
+                    }
+                    Button("Edit Tags...") {
+                        editingTags = session.tags ?? []
+                        newTagText = ""
+                        editingTagsSessionID = session.id
+                        Task {
+                            availableTags = await controller.allTags()
+                        }
+                    }
+                    Divider()
+                    Button("Delete", role: .destructive) {
+                        sessionToDelete = session.id
+                        showDeleteConfirmation = true
+                    }
+                }
+                .popover(isPresented: Binding(
+                    get: { editingTagsSessionID == session.id },
+                    set: { if !$0 { editingTagsSessionID = nil } }
+                )) {
+                    tagEditorPopover(controller: controller, sessionID: session.id)
+                }
             }
-            .padding(.vertical, 2)
-            .accessibilityIdentifier("notes.session.\(session.id)")
-            .contextMenu {
-                Button("Rename...") {
-                    renameText = session.title ?? ""
-                    renamingSessionID = session.id
-                }
-                Divider()
-                Button("Delete", role: .destructive) {
-                    sessionToDelete = session.id
-                    showDeleteConfirmation = true
-                }
-            }
+            .listStyle(.sidebar)
         }
-        .listStyle(.sidebar)
         .frame(maxHeight: .infinity)
         .alert("Delete Meeting?", isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) {
@@ -135,6 +170,154 @@ struct NotesView: View {
         } message: {
             Text("This will permanently delete the transcript and any generated notes.")
         }
+    }
+
+    // MARK: - Tag Filter Bar
+
+    @ViewBuilder
+    private func tagFilterBar(controller: NotesController, state: NotesState) -> some View {
+        let allTags = uniqueTags(from: state.sessionHistory)
+        if !allTags.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(allTags, id: \.self) { tag in
+                        let isActive = state.tagFilter?.localizedCaseInsensitiveCompare(tag) == .orderedSame
+                        Button {
+                            controller.setTagFilter(isActive ? nil : tag)
+                        } label: {
+                            Text(tag)
+                                .font(.system(size: 11))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(isActive ? Color.accentColor.opacity(0.2) : Color.clear)
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(.quaternary, lineWidth: 1)
+                                )
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+            Divider()
+        }
+    }
+
+    private func uniqueTags(from sessions: [SessionIndex]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for session in sessions {
+            for tag in session.tags ?? [] {
+                let key = tag.lowercased()
+                if !seen.contains(key) {
+                    seen.insert(key)
+                    result.append(tag)
+                }
+            }
+        }
+        return result.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    // MARK: - Tag Editor Popover
+
+    @ViewBuilder
+    private func tagEditorPopover(controller: NotesController, sessionID: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Tags")
+                .font(.headline)
+
+            // Current tags as removable chips
+            if !editingTags.isEmpty {
+                FlowLayout(spacing: 6) {
+                    ForEach(editingTags, id: \.self) { tag in
+                        HStack(spacing: 3) {
+                            Text(tag)
+                                .font(.system(size: 12))
+                            Button {
+                                editingTags.removeAll { $0.localizedCaseInsensitiveCompare(tag) == .orderedSame }
+                                controller.updateSessionTags(sessionID: sessionID, tags: editingTags)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.quaternary)
+                        .clipShape(Capsule())
+                    }
+                }
+            }
+
+            if editingTags.count < 5 {
+                HStack(spacing: 6) {
+                    TextField("Add tag...", text: $newTagText)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+                        .onSubmit {
+                            commitNewTag(controller: controller, sessionID: sessionID)
+                        }
+                    Button("Add") {
+                        commitNewTag(controller: controller, sessionID: sessionID)
+                    }
+                    .disabled(newTagText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                // Autocomplete suggestions
+                let trimmed = newTagText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let suggestions = availableTags.filter { suggestion in
+                    guard !trimmed.isEmpty else { return false }
+                    let lower = suggestion.lowercased()
+                    return lower.contains(trimmed) && !editingTags.contains(where: { $0.localizedCaseInsensitiveCompare(suggestion) == .orderedSame })
+                }
+                if !suggestions.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(suggestions.prefix(5), id: \.self) { suggestion in
+                            Button {
+                                editingTags.append(suggestion)
+                                newTagText = ""
+                                controller.updateSessionTags(sessionID: sessionID, tags: editingTags)
+                            } label: {
+                                Text(suggestion)
+                                    .font(.system(size: 12))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 2)
+                                    .padding(.horizontal, 4)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(4)
+                    .background(.background.secondary)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+            } else {
+                Text("Maximum 5 tags per session")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .frame(width: 260)
+    }
+
+    private func commitNewTag(controller: NotesController, sessionID: String) {
+        let trimmed = newTagText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard !editingTags.contains(where: { $0.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) else {
+            newTagText = ""
+            return
+        }
+        guard editingTags.count < 5 else { return }
+        editingTags.append(trimmed)
+        newTagText = ""
+        controller.updateSessionTags(sessionID: sessionID, tags: editingTags)
     }
 
     // MARK: - Detail
@@ -561,4 +744,49 @@ struct NotesView: View {
         f.dateFormat = "HH:mm:ss"
         return f
     }()
+}
+
+// MARK: - FlowLayout
+
+/// A simple wrapping horizontal layout for tag chips.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+
+        return CGSize(width: maxWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x: CGFloat = bounds.minX
+        var y: CGFloat = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX, x > bounds.minX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
 }

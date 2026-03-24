@@ -184,6 +184,8 @@ struct SessionIndex: Identifiable, Codable, Sendable {
     var meetingApp: String?
     /// The ASR engine used for transcription (e.g. "parakeetV2").
     var engine: String?
+    /// User-assigned tags for session organization.
+    var tags: [String]?
 }
 
 struct SessionSidecar: Codable, Sendable {

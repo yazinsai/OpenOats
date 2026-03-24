@@ -85,6 +85,7 @@ struct SessionMetadata: Codable, Sendable {
     var hasNotes: Bool
     var meetingApp: String?
     var engine: String?
+    var tags: [String]?
 }
 
 // MARK: - SessionRepository
@@ -449,7 +450,8 @@ actor SessionRepository {
                         utteranceCount: meta.utteranceCount,
                         hasNotes: meta.hasNotes,
                         meetingApp: meta.meetingApp,
-                        engine: meta.engine
+                        engine: meta.engine,
+                        tags: meta.tags
                     ))
                     continue
                 }
@@ -483,7 +485,8 @@ actor SessionRepository {
                 utteranceCount: meta.utteranceCount,
                 hasNotes: meta.hasNotes,
                 meetingApp: meta.meetingApp,
-                engine: meta.engine
+                engine: meta.engine,
+                tags: meta.tags
             )
 
             let transcript = loadTranscript(sessionID: id)
@@ -555,6 +558,68 @@ actor SessionRepository {
             newTitle: title,
             sessionsDirectory: sessionsDirectory
         )
+    }
+
+    func updateSessionTags(sessionID: String, tags: [String]) {
+        let normalized = Self.normalizeTags(tags)
+
+        // Try canonical first
+        if var meta = loadSessionMetadataFile(sessionID: sessionID) {
+            meta.tags = normalized.isEmpty ? nil : normalized
+            writeSessionMetadata(meta, sessionID: sessionID)
+            return
+        }
+
+        // For legacy sessions: migrate to canonical format on first tag write
+        let index = LegacySessionReader.loadIndex(sessionID: sessionID, sessionsDirectory: sessionsDirectory)
+        let meta = SessionMetadata(
+            id: index.id,
+            startedAt: index.startedAt,
+            endedAt: index.endedAt,
+            templateSnapshot: index.templateSnapshot,
+            title: index.title,
+            utteranceCount: index.utteranceCount,
+            hasNotes: index.hasNotes,
+            meetingApp: index.meetingApp,
+            engine: index.engine,
+            tags: normalized.isEmpty ? nil : normalized
+        )
+        let dir = sessionDirectory(for: sessionID)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        writeSessionMetadata(meta, sessionID: sessionID)
+    }
+
+    /// Collect all unique tags across all sessions for autocomplete.
+    func allTags() -> [String] {
+        let sessions = listSessions()
+        var seen = Set<String>()
+        var result: [String] = []
+        for session in sessions {
+            for tag in session.tags ?? [] {
+                let lower = tag.lowercased()
+                if !seen.contains(lower) {
+                    seen.insert(lower)
+                    result.append(tag)
+                }
+            }
+        }
+        return result.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private static func normalizeTags(_ tags: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for tag in tags {
+            let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let key = trimmed.lowercased()
+            if !seen.contains(key) {
+                seen.insert(key)
+                result.append(trimmed)
+            }
+            if result.count >= 5 { break }
+        }
+        return result
     }
 
     func deleteSession(sessionID: String) {
@@ -919,7 +984,8 @@ actor SessionRepository {
             utteranceCount: meta?.utteranceCount ?? records.count,
             hasNotes: meta?.hasNotes ?? false,
             meetingApp: meta?.meetingApp,
-            engine: meta?.engine
+            engine: meta?.engine,
+            tags: meta?.tags
         )
 
         // Write/update Markdown meeting notes
