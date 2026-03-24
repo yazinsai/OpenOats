@@ -503,7 +503,7 @@ final class SettingsStore {
         }
 
         if defaults.object(forKey: "enableBatchRefinement") == nil {
-            self._enableBatchRefinement = true
+            self._enableBatchRefinement = false
         } else {
             self._enableBatchRefinement = defaults.bool(forKey: "enableBatchRefinement")
         }
