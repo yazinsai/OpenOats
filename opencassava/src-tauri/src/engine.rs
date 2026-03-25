@@ -650,6 +650,77 @@ fn push_recent_utterance(
     entries.retain(|entry| entry.timestamp >= cutoff);
 }
 
+/// Normalize text for echo comparison: lowercase, split on non-alphanumeric, rejoin with spaces.
+fn normalize_for_echo(text: &str) -> String {
+    let lower = text.to_lowercase();
+    lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
+/// Jaccard similarity over word sets of two normalized strings.
+fn jaccard_word_similarity(a: &str, b: &str) -> f64 {
+    use std::collections::HashSet;
+    let set_a: HashSet<&str> = a.split_whitespace().collect();
+    let set_b: HashSet<&str> = b.split_whitespace().collect();
+    if set_a.is_empty() && set_b.is_empty() {
+        return 1.0;
+    }
+    let intersection = set_a.intersection(&set_b).count();
+    let union_size = set_a.union(&set_b).count();
+    intersection as f64 / union_size as f64
+}
+
+/// Returns true if `mic_text` is likely an acoustic echo of a recent Them utterance.
+/// Uses text-level Jaccard similarity and substring containment, mirroring the approach
+/// from yazinsai/OpenOats AcousticEchoFilter.
+fn is_text_echo(
+    mic_text: &str,
+    recent: &Arc<Mutex<Vec<opencassava_core::models::Utterance>>>,
+    window_secs: i64,
+) -> bool {
+    const SIMILARITY_THRESHOLD: f64 = 0.78;
+    const MIN_WORD_COUNT: usize = 4;
+    const MIN_CHAR_COUNT: usize = 20;
+
+    let normalized_mic = normalize_for_echo(mic_text);
+    let word_count = normalized_mic.split_whitespace().count();
+    if word_count < MIN_WORD_COUNT && normalized_mic.len() < MIN_CHAR_COUNT {
+        return false;
+    }
+
+    let cutoff = chrono::Utc::now() - chrono::Duration::seconds(window_secs);
+    let utterances = recent.lock().unwrap();
+    for utterance in utterances.iter().rev() {
+        if utterance.timestamp < cutoff {
+            break;
+        }
+        if !matches!(utterance.speaker, Speaker::Them) {
+            continue;
+        }
+        let normalized_them = normalize_for_echo(&utterance.text);
+        let them_word_count = normalized_them.split_whitespace().count();
+        if them_word_count < MIN_WORD_COUNT && normalized_them.len() < MIN_CHAR_COUNT {
+            continue;
+        }
+        let sim = jaccard_word_similarity(&normalized_mic, &normalized_them);
+        let contains = normalized_mic.contains(normalized_them.as_str())
+            || normalized_them.contains(normalized_mic.as_str());
+        if sim >= SIMILARITY_THRESHOLD || contains {
+            log::info!(
+                "[echo-filter] suppressed mic as echo sim={:.2} mic='{}' them='{}'",
+                sim,
+                &mic_text[..mic_text.len().min(80)],
+                &utterance.text[..utterance.text.len().min(80)]
+            );
+            return true;
+        }
+    }
+    false
+}
+
 fn emit_transcription_progress(app: &AppHandle, state: &AppState) {
     app.emit(
         "transcription-progress",
@@ -1199,6 +1270,11 @@ pub fn start_transcription(
         let state_y = Arc::clone(&state_clone);
         let on_you = move |text: String, _speaker_id: Option<String>| {
             if !*state_y.is_running.lock().unwrap() {
+                return;
+            }
+            // Text-level echo suppression: discard mic transcripts that closely match
+            // recent system audio transcripts (catches echoes that survive audio-level AEC).
+            if is_text_echo(&text, &recent_utterances, 4) {
                 return;
             }
             let payload = TranscriptPayload {
