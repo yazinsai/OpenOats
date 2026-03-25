@@ -71,6 +71,13 @@ def handle_ensure_model(payload):
     model_name = payload["model"]
     device = payload.get("device", "auto")
     load_model(model_name, device)
+    if payload.get("diarization_enabled", False):
+        try:
+            load_titanet()
+        except Exception as exc:
+            # Log but don't fail — ASR still works without TitaNet
+            import sys
+            print(f"[parakeet] Warning: TitaNet pre-load failed: {exc}", file=sys.stderr)
     emit({"ok": True, "result": {"model": model_name}})
 
 
