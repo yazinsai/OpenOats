@@ -2865,6 +2865,8 @@ dependencies = [
  "futures",
  "keyring",
  "log",
+ "num-complex",
+ "realfft",
  "reqwest 0.12.28",
  "rubato",
  "serde",

@@ -19,6 +19,8 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 async-trait = "0.1"
 tokio-stream = "0.1"
+realfft = "3"
+num-complex = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
