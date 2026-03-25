@@ -13,13 +13,13 @@ const BAR_WIDTH = 6;
 const BAR_GAP = 4;
 const BAR_STRIDE = BAR_WIDTH + BAR_GAP;
 const CLUSTER_WIDTH = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP; // 116px
-const MAX_BAR_HEIGHT = 16;
+const MAX_BAR_HEIGHT = 18; // full canvas height
 const MIN_ACTIVE_BAR_HEIGHT = 2;
 const SILENCE_BAR_HEIGHT = 3;
 const CORNER_RADIUS = 2;
-// Traveling wave: one full cycle visible across all bars, scrolling at ~3 rad/s
+// Wave speed scales with audio level — stationary at silence, fast at loud
 const SPATIAL_FREQ = (2 * Math.PI) / BAR_COUNT;
-const TEMPORAL_FREQ = 0.003; // radians per ms
+const BASE_TEMPORAL_FREQ = 0.004; // radians per ms at full volume
 
 export function WaveformVisualizer({
   level,
@@ -63,9 +63,9 @@ export function WaveformVisualizer({
 
     const loop = () => {
       ctx.clearRect(0, 0, width, height);
-      const t = performance.now() * TEMPORAL_FREQ;
+      // Wave speed proportional to audio level: silent = barely moves, loud = fast
+      const t = performance.now() * BASE_TEMPORAL_FREQ * visualLevel;
       for (let i = 0; i < BAR_COUNT; i++) {
-        // Traveling wave: wave scrolls left→right across all bars
         const wave = 0.5 + 0.5 * Math.sin(i * SPATIAL_FREQ - t);
         const barHeight = Math.max(
           MIN_ACTIVE_BAR_HEIGHT,
