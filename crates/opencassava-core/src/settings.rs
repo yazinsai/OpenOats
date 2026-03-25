@@ -102,6 +102,9 @@ pub struct AppSettings {
 
     #[serde(default = "default_smart_question_system_prompt")]
     pub smart_question_system_prompt: String,
+
+    #[serde(default = "default_true")]
+    pub diarization_enabled: bool,
 }
 
 impl AppSettings {
@@ -174,6 +177,7 @@ impl Default for AppSettings {
             kb_surfacing_system_prompt: default_kb_surfacing_system_prompt(),
             suggestion_synthesis_system_prompt: default_suggestion_synthesis_system_prompt(),
             smart_question_system_prompt: default_smart_question_system_prompt(),
+            diarization_enabled: default_true(),
         }
     }
 }
@@ -392,5 +396,24 @@ mod tests {
         s.save_to(path.clone());
         let s2 = AppSettings::load_from(path);
         assert_eq!(s2.suggestion_interval_seconds, 180);
+    }
+
+    #[test]
+    fn diarization_enabled_defaults_to_true() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("nonexistent.json");
+        let s = AppSettings::load_from(path);
+        assert!(s.diarization_enabled);
+    }
+
+    #[test]
+    fn diarization_enabled_persists_and_reloads() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut s = AppSettings::load_from(path.clone());
+        s.diarization_enabled = false;
+        s.save_to(path.clone());
+        let s2 = AppSettings::load_from(path);
+        assert!(!s2.diarization_enabled);
     }
 }

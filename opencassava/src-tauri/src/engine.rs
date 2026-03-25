@@ -268,6 +268,7 @@ impl AppState {
             model: settings.parakeet_model.clone(),
             device: settings.parakeet_device.clone(),
             language: settings.transcription_locale.clone(),
+            diarization_enabled: settings.diarization_enabled,
         }
     }
 }
@@ -360,7 +361,7 @@ pub fn warm_parakeet_workers(state: Arc<AppState>, app: AppHandle) {
         std::thread::spawn(move || {
             log::info!("[parakeet] pre-warming {name} worker...");
             match ParakeetWorker::spawn(&config_clone) {
-                Ok(mut worker) => match worker.ensure_model() {
+                Ok(mut worker) => match worker.ensure_model(config_clone.diarization_enabled) {
                     Ok(_) => {
                         let mut slot = if name == "mic" {
                             state_clone.warmed_parakeet_mic.lock().unwrap()
@@ -558,6 +559,17 @@ fn resolve_transcription_language(settings: &AppSettings, model: &str) -> String
     } else {
         String::new()
     }
+}
+
+/// Maps a Python worker speaker ID (e.g. "speaker_0") to a (participant_id, participant_label) pair.
+/// Falls back to ("remote_1", "Speaker A") for unrecognised formats.
+fn speaker_id_to_label(id: &str) -> (String, String) {
+    if let Some(n_str) = id.strip_prefix("speaker_") {
+        if let Ok(n) = n_str.parse::<usize>() {
+            return (id.to_string(), format!("Speaker {}", n + 1));
+        }
+    }
+    ("remote_1".to_string(), "Speaker A".to_string())
 }
 
 // ── LLM / Embed resolver helpers ─────────────────────────────────────────────
@@ -872,17 +884,21 @@ pub fn start_transcription(
             let app_sg = them_app.clone();
             let state_sg = Arc::clone(&them_state);
 
-            let on_them = move |text: String| {
+            let on_them = move |text: String, speaker_id: Option<String>| {
                 if !*state_sg.is_running.lock().unwrap() {
                     return;
                 }
+                let (participant_id, participant_label) = match &speaker_id {
+                    Some(id) => speaker_id_to_label(id),
+                    None => ("remote_1".to_string(), "Speaker A".to_string()),
+                };
                 use opencassava_core::models::{Speaker, Utterance};
                 let utterance = Utterance {
                     id: uuid::Uuid::new_v4(),
                     text: text.clone(),
                     speaker: Speaker::Them,
-                    participant_id: Some("remote_1".into()),
-                    participant_label: Some("Speaker A".into()),
+                    participant_id: Some(participant_id.clone()),
+                    participant_label: Some(participant_label.clone()),
                     timestamp: chrono::Utc::now(),
                 };
 
@@ -890,16 +906,16 @@ pub fn start_transcription(
                 let payload = TranscriptPayload {
                     text: text.clone(),
                     speaker: "them".into(),
-                    participant_id: "remote_1".into(),
-                    participant_label: "Speaker A".into(),
+                    participant_id: participant_id.clone(),
+                    participant_label: participant_label.clone(),
                 };
                 app_sg.emit("transcript", &payload).ok();
 
                 // Append to session store and logger
                 let record = SessionRecord {
                     speaker: Speaker::Them,
-                    participant_id: Some("remote_1".into()),
-                    participant_label: Some("Speaker A".into()),
+                    participant_id: Some(participant_id.clone()),
+                    participant_label: Some(participant_label.clone()),
                     text: text.clone(),
                     timestamp: chrono::Utc::now(),
                     suggestions: None,
@@ -915,7 +931,7 @@ pub fn start_transcription(
                     .append_record(&record)
                     .ok();
                 state_sg.transcript_logger.lock().unwrap().append(
-                    "Speaker A",
+                    &participant_label,
                     &text,
                     chrono::Utc::now(),
                 );
@@ -965,7 +981,9 @@ pub fn start_transcription(
                 StreamingTranscriber::new(them_backend, them_lang, Box::new(on_them))
                 .with_volatile(Box::new(on_them_vol))
                 .with_progress(on_them_progress)
-                .with_stop_signal(Arc::clone(&them_state.stop_requested));
+                .with_stop_signal(Arc::clone(&them_state.stop_requested))
+                .with_diarization(settings.diarization_enabled)
+                .with_clear_speakers_on_start(true);
             if let Some(worker) = warmed_sys {
                 transcriber = transcriber.with_parakeet_worker(worker);
             }
@@ -1167,7 +1185,7 @@ pub fn start_transcription(
         });
         let app_y = app_clone.clone();
         let state_y = Arc::clone(&state_clone);
-        let on_you = move |text: String| {
+        let on_you = move |text: String, _speaker_id: Option<String>| {
             if !*state_y.is_running.lock().unwrap() {
                 return;
             }
@@ -1255,7 +1273,9 @@ pub fn start_transcription(
         let mut transcriber = StreamingTranscriber::new(backend, language, Box::new(on_you))
             .with_volatile(Box::new(on_you_vol))
             .with_progress(on_you_progress)
-            .with_stop_signal(Arc::clone(&state_clone.stop_requested));
+            .with_stop_signal(Arc::clone(&state_clone.stop_requested))
+            .with_diarization(false)
+            .with_clear_speakers_on_start(false);
         if let Some(worker) = warmed_mic {
             transcriber = transcriber.with_parakeet_worker(worker);
         }
@@ -1788,5 +1808,33 @@ mod tests {
     fn app_state_initializes_without_panic() {
         let state = AppState::new();
         assert!(!*state.is_running.lock().unwrap());
+    }
+
+    #[test]
+    fn speaker_id_to_label_parses_speaker_0() {
+        let (pid, label) = speaker_id_to_label("speaker_0");
+        assert_eq!(pid, "speaker_0");
+        assert_eq!(label, "Speaker 1");
+    }
+
+    #[test]
+    fn speaker_id_to_label_parses_speaker_4() {
+        let (pid, label) = speaker_id_to_label("speaker_4");
+        assert_eq!(pid, "speaker_4");
+        assert_eq!(label, "Speaker 5");
+    }
+
+    #[test]
+    fn speaker_id_to_label_falls_back_on_bad_format() {
+        let (pid, label) = speaker_id_to_label("unknown");
+        assert_eq!(pid, "remote_1");
+        assert_eq!(label, "Speaker A");
+    }
+
+    #[test]
+    fn speaker_id_to_label_falls_back_on_non_integer() {
+        let (pid, label) = speaker_id_to_label("speaker_abc");
+        assert_eq!(pid, "remote_1");
+        assert_eq!(label, "Speaker A");
     }
 }

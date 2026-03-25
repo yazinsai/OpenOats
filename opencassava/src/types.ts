@@ -33,6 +33,7 @@ export interface AppSettings {
   fasterWhisperDevice: string;
   parakeetModel: string;
   parakeetDevice: string;
+  diarizationEnabled: boolean;
   inputDeviceName: string | null;
   systemAudioDeviceName: string | null;
   llmProvider: string;

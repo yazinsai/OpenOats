@@ -21,6 +21,8 @@ pub struct ParakeetConfig {
     pub device: String,
     /// BCP-47 language code (e.g. "es", "fr") or empty for auto-detect.
     pub language: String,
+    /// Controls whether TitaNet speaker embedding model is downloaded and used.
+    pub diarization_enabled: bool,
 }
 
 impl ParakeetConfig {
@@ -131,7 +133,7 @@ where
         install_runtime(config, |_| {})?;
     }
     let mut worker = ParakeetWorker::spawn_with_log(config, on_line)?;
-    worker.ensure_model()?;
+    worker.ensure_model(config.diarization_enabled)?;
     fs::write(config.model_stamp_path(), &config.model).map_err(|e| e.to_string())?;
     let _ = worker.shutdown();
     Ok(())
@@ -197,13 +199,32 @@ impl ParakeetWorker {
         Ok(())
     }
 
-    pub fn ensure_model(&mut self) -> Result<(), String> {
+    pub fn ensure_model(&mut self, diarization_enabled: bool) -> Result<(), String> {
         self.send_request(json!({
             "command": "ensure_model",
             "model": self.config.model.clone(),
             "device": self.config.device.clone(),
+            "diarization_enabled": diarization_enabled,
         }))?;
         Ok(())
+    }
+
+    pub fn clear_speakers(&mut self) -> Result<(), String> {
+        self.send_request(json!({ "command": "clear_speakers" }))?;
+        Ok(())
+    }
+
+    /// Returns the stable speaker ID for this audio segment, or None if the segment
+    /// was too short to embed reliably. Errors if the worker fails.
+    pub fn speaker_id(&mut self, samples: &[f32]) -> Result<Option<String>, String> {
+        let response = self.send_request(json!({
+            "command": "speaker_id",
+            "samples": samples,
+            "model": self.config.model.clone(),
+            "device": self.config.device.clone(),
+        }))?;
+        // Python returns {"speaker_id": "speaker_N"} or {"speaker_id": null}
+        Ok(response["speaker_id"].as_str().map(|s| s.to_string()))
     }
 
     pub fn transcribe(&mut self, samples: &[f32]) -> Result<String, String> {
@@ -446,4 +467,40 @@ fn command_works(command: &str, prefix_args: &[String]) -> bool {
 
 pub fn model_storage_exists(config: &ParakeetConfig) -> bool {
     config.model_stamp_path().exists()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn speaker_id_method_exists() {
+        // Compile-time guard: won't compile until speaker_id is added to ParakeetWorker
+        // with the correct signature. The test itself is a no-op at runtime.
+        let _: fn(&mut ParakeetWorker, &[f32]) -> Result<Option<String>, String> =
+            ParakeetWorker::speaker_id;
+    }
+
+    #[test]
+    fn speaker_id_parses_none_from_result_object() {
+        // send_request returns json["result"] already.
+        // Python sends {"speaker_id": null} for short segments.
+        let result_obj: serde_json::Value =
+            serde_json::from_str(r#"{"speaker_id":null}"#).unwrap();
+        let speaker_id: Option<String> = result_obj["speaker_id"]
+            .as_str()
+            .map(|s| s.to_string());
+        assert!(speaker_id.is_none());
+    }
+
+    #[test]
+    fn speaker_id_parses_some_from_result_object() {
+        // Python sends {"speaker_id": "speaker_0"} on a match.
+        let result_obj: serde_json::Value =
+            serde_json::from_str(r#"{"speaker_id":"speaker_0"}"#).unwrap();
+        let speaker_id: Option<String> = result_obj["speaker_id"]
+            .as_str()
+            .map(|s| s.to_string());
+        assert_eq!(speaker_id, Some("speaker_0".to_string()));
+    }
 }

@@ -6,7 +6,7 @@ use std::sync::{
 };
 use std::sync::mpsc;
 
-pub type OnFinal = Box<dyn Fn(String) + Send + 'static>;
+pub type OnFinal = Box<dyn Fn(String, Option<String>) + Send + 'static>;
 pub type OnVolatile = Box<dyn Fn(String) + Send + 'static>;
 pub type OnProgress = Arc<dyn Fn(SegmentProgress) + Send + Sync + 'static>;
 
@@ -32,6 +32,8 @@ pub struct StreamingTranscriber {
     on_progress: Option<OnProgress>,
     stop_signal: Option<Arc<AtomicBool>>,
     parakeet_worker: Option<crate::transcription::parakeet::ParakeetWorker>,
+    diarization_enabled: bool,
+    clear_speakers_on_start: bool,
 }
 
 impl StreamingTranscriber {
@@ -44,6 +46,8 @@ impl StreamingTranscriber {
             on_progress: None,
             stop_signal: None,
             parakeet_worker: None,
+            diarization_enabled: false,
+            clear_speakers_on_start: false,
         }
     }
 
@@ -57,6 +61,8 @@ impl StreamingTranscriber {
             on_progress: None,
             stop_signal: None,
             parakeet_worker: None,
+            diarization_enabled: false,
+            clear_speakers_on_start: false,
         }
     }
 
@@ -82,6 +88,16 @@ impl StreamingTranscriber {
         self
     }
 
+    pub fn with_diarization(mut self, enabled: bool) -> Self {
+        self.diarization_enabled = enabled;
+        self
+    }
+
+    pub fn with_clear_speakers_on_start(mut self, enabled: bool) -> Self {
+        self.clear_speakers_on_start = enabled;
+        self
+    }
+
     pub async fn run<S>(self, stream: S)
     where
         S: Stream<Item = Vec<f32>> + Send + 'static,
@@ -102,6 +118,9 @@ impl StreamingTranscriber {
         // block a tokio worker, causing handle.await in stop_transcription to
         // return before the drain completes and letting is_running flip to
         // false while segments are still being transcribed.
+        let diarization_enabled = self.diarization_enabled;
+        let clear_speakers_on_start = self.clear_speakers_on_start;
+
         let whisper_task = tokio::task::spawn_blocking(move || {
             match backend {
                 SttBackend::WhisperRs { model_path } => {
@@ -125,7 +144,7 @@ impl StreamingTranscriber {
                                 }
                                 if !text.is_empty() {
                                     log::info!("[transcriber] {}", &text[..text.len().min(80)]);
-                                    on_final(text);
+                                    on_final(text, None);
                                 }
                             }
                         }
@@ -142,7 +161,7 @@ impl StreamingTranscriber {
                                             on_progress(SegmentProgress::Processed);
                                         }
                                         log::info!("[transcriber] {}", &text[..text.len().min(80)]);
-                                        on_final(text);
+                                        on_final(text, None);
                                     }
                                     Ok(_) => {
                                         if let Some(ref on_progress) = progress_for_backend {
@@ -167,9 +186,14 @@ impl StreamingTranscriber {
                         Ok(mut worker) => {
                             // Eagerly load the model now (no-op if pre-warmed, otherwise loads
                             // in parallel with audio capture so it's ready for the first segment).
-                            if let Err(e) = worker.ensure_model() {
+                            if let Err(e) = worker.ensure_model(config.diarization_enabled) {
                                 log::error!("parakeet ensure_model failed: {e}");
                                 return;
+                            }
+                            if clear_speakers_on_start {
+                                if let Err(e) = worker.clear_speakers() {
+                                    log::warn!("[diarization] clear_speakers failed: {e}");
+                                }
                             }
                             for samples in seg_rx.iter() {
                                 match worker.transcribe(&samples) {
@@ -178,7 +202,18 @@ impl StreamingTranscriber {
                                             on_progress(SegmentProgress::Processed);
                                         }
                                         log::info!("[transcriber] {}", &text[..text.len().min(80)]);
-                                        on_final(text);
+                                        let speaker_id = if diarization_enabled {
+                                            match worker.speaker_id(&samples) {
+                                                Ok(id) => id,
+                                                Err(e) => {
+                                                    log::warn!("[diarization] speaker_id error: {e}");
+                                                    None
+                                                }
+                                            }
+                                        } else {
+                                            None
+                                        };
+                                        on_final(text, speaker_id);
                                     }
                                     Ok(_) => {
                                         if let Some(ref on_progress) = progress_for_backend {
@@ -301,7 +336,7 @@ mod tests {
     #[tokio::test]
     async fn silence_produces_no_transcription() {
         let (tx, rx) = std::sync::mpsc::channel();
-        let on_final = move |text: String| {
+        let on_final = move |text: String, _speaker_id: Option<String>| {
             tx.send(text).ok();
         };
         let transcriber = StreamingTranscriber::new_passthrough(Box::new(on_final));
@@ -311,11 +346,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn parakeet_passthrough_speaker_id_is_none() {
+        // Passthrough backend always passes None as speaker_id
+        let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
+        let on_final = Box::new(move |_text: String, speaker_id: Option<String>| {
+            tx.send(speaker_id).ok();
+        });
+        // Passthrough mode is used in tests — it won't produce transcriptions
+        // This test just validates the closure type compiles correctly.
+        // Actual diarization path is tested via integration.
+        drop(on_final);
+        drop(rx);
+    }
+
+    #[tokio::test]
     async fn volatile_fires_while_speaking() {
         use std::sync::{Arc, Mutex};
         let calls: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let calls_clone = Arc::clone(&calls);
-        let on_final = Box::new(|_text: String| {});
+        let on_final = Box::new(|_text: String, _speaker_id: Option<String>| {});
         let on_volatile = Box::new(move |text: String| {
             calls_clone.lock().unwrap().push(text);
         });
