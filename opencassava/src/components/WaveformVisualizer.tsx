@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { colors } from "../theme";
 
 interface Props {
@@ -8,135 +8,79 @@ interface Props {
   colorLight?: string;
 }
 
+const BAR_COUNT = 3;
+const BAR_WIDTH = 6;
+const BAR_GAP = 4;
+const BAR_STRIDE = BAR_WIDTH + BAR_GAP;
+const CLUSTER_WIDTH = BAR_COUNT * BAR_WIDTH + (BAR_COUNT - 1) * BAR_GAP;
+const MAX_BAR_HEIGHT = 14;
+const SILENCE_BAR_HEIGHT = 3;
+const CORNER_RADIUS = 2;
+
+const BAR_CONFIGS = [
+  { speed: 1.0, phase: 0 },
+  { speed: 1.4, phase: Math.PI / 3 },
+  { speed: 0.8, phase: (2 * Math.PI) / 3 },
+];
+
 export function WaveformVisualizer({
   level,
   isActive,
   color = colors.accent,
-  colorLight = colors.accentLight,
+  colorLight: _colorLight = colors.accentLight,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [dataArray, setDataArray] = useState<Float32Array>(new Float32Array(64));
+  const animFrameRef = useRef<number>(0);
   const width = 140;
   const height = 18;
   const normalizedLevel = Math.max(0, Math.min(1, (level - 0.015) / 0.985));
   const visualLevel = Math.pow(normalizedLevel, 0.65);
 
-  // Generate waveform data based on level
-  useEffect(() => {
-    const generateData = () => {
-      const newData = new Float32Array(64);
-      const motionLevel = isActive ? visualLevel : 0;
-      for (let i = 0; i < 64; i++) {
-        // Create a wave pattern with noise
-        const base = Math.sin(i * 0.3) * (0.08 + motionLevel * 0.42);
-        const noise = (Math.random() - 0.5) * (motionLevel * 1.1);
-        newData[i] = (base + noise) * (isActive ? 1 : 0.1);
-      }
-      setDataArray(newData);
-    };
-
-    generateData();
-    const interval = setInterval(generateData, 50);
-    return () => clearInterval(interval);
-  }, [level, isActive]);
-
-  // Draw waveform
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const width = canvas.width;
-    const height = canvas.height;
-    const centerY = height / 2;
-    const amplitudeScale = isActive ? 0.2 + visualLevel * 3.1 : 0.2;
+    const startX = (width - CLUSTER_WIDTH) / 2; // 57px
 
-    let animationId: number;
-
-    const draw = () => {
-      ctx.clearRect(0, 0, width, height);
-
-      if (!isActive || normalizedLevel < 0.02) {
-        // Draw flat line when inactive — intentionally uses colors.border regardless of color prop
-        ctx.strokeStyle = `${colors.border}`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(0, centerY);
-        ctx.lineTo(width, centerY);
-        ctx.stroke();
-        return;
-      }
-
-      // Draw waveform
-      const gradient = ctx.createLinearGradient(0, 0, width, 0);
-      gradient.addColorStop(0, color);
-      gradient.addColorStop(0.5, colorLight);
-      gradient.addColorStop(1, color);
-
-      ctx.strokeStyle = gradient;
-      ctx.lineWidth = 2;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
+    const drawRoundedBar = (x: number, barHeight: number, fillColor: string) => {
+      const y = height - barHeight;
+      ctx.fillStyle = fillColor;
       ctx.beginPath();
-
-      const barWidth = width / dataArray.length;
-
-      for (let i = 0; i < dataArray.length; i++) {
-        const x = i * barWidth + barWidth / 2;
-        const amplitude = Math.min(
-          Math.abs(dataArray[i]) * (height / 2) * amplitudeScale,
-          centerY - 2,
-        );
-
-        if (i === 0) {
-          ctx.moveTo(x, centerY - amplitude);
-        } else {
-          const prevX = (i - 1) * barWidth + barWidth / 2;
-          const prevAmp = Math.min(
-            Math.abs(dataArray[i - 1]) * (height / 2) * amplitudeScale,
-            centerY - 2,
-          );
-          const cpX = (prevX + x) / 2;
-          ctx.quadraticCurveTo(cpX, centerY - prevAmp, x, centerY - amplitude);
-        }
-      }
-
-      // Mirror for bottom half
-      for (let i = dataArray.length - 1; i >= 0; i--) {
-        const x = i * barWidth + barWidth / 2;
-        const amplitude = Math.min(
-          Math.abs(dataArray[i]) * (height / 2) * amplitudeScale,
-          centerY - 2,
-        );
-
-        if (i === dataArray.length - 1) {
-          ctx.lineTo(x, centerY + amplitude);
-        } else {
-          const nextX = (i + 1) * barWidth + barWidth / 2;
-          const nextAmp = Math.min(
-            Math.abs(dataArray[i + 1]) * (height / 2) * amplitudeScale,
-            centerY - 2,
-          );
-          const cpX = (x + nextX) / 2;
-          ctx.quadraticCurveTo(cpX, centerY + nextAmp, x, centerY + amplitude);
-        }
-      }
-
-      ctx.closePath();
-      ctx.fillStyle = `${color}20`;
+      ctx.roundRect(x, y, BAR_WIDTH, barHeight, CORNER_RADIUS);
       ctx.fill();
-      ctx.stroke();
-
-      animationId = requestAnimationFrame(draw);
     };
 
-    draw();
+    const isSilent = !isActive || normalizedLevel < 0.02;
 
-    return () => cancelAnimationFrame(animationId);
-  }, [dataArray, isActive, normalizedLevel, visualLevel, color, colorLight]);
+    if (isSilent) {
+      cancelAnimationFrame(animFrameRef.current);
+      ctx.clearRect(0, 0, width, height);
+      for (let i = 0; i < BAR_COUNT; i++) {
+        drawRoundedBar(startX + i * BAR_STRIDE, SILENCE_BAR_HEIGHT, colors.border);
+      }
+      return;
+    }
+
+    const loop = () => {
+      ctx.clearRect(0, 0, width, height);
+      const t = performance.now() / 300;
+      for (let i = 0; i < BAR_COUNT; i++) {
+        const { speed, phase } = BAR_CONFIGS[i];
+        const barHeight = Math.max(
+          SILENCE_BAR_HEIGHT,
+          visualLevel * MAX_BAR_HEIGHT * (0.6 + 0.4 * Math.sin(t * speed + phase))
+        );
+        drawRoundedBar(startX + i * BAR_STRIDE, barHeight, color);
+      }
+      animFrameRef.current = requestAnimationFrame(loop);
+    };
+
+    animFrameRef.current = requestAnimationFrame(loop);
+
+    return () => cancelAnimationFrame(animFrameRef.current);
+  }, [level, isActive, color, normalizedLevel, visualLevel]);
 
   return (
     <canvas
