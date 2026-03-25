@@ -45,7 +45,7 @@ actor OpenRouterClient {
                         model: model,
                         messages: messages,
                         stream: true,
-                        max_tokens: maxTokens,
+                        max_tokens: nil,
                         max_completion_tokens: maxTokens
                     )
 
@@ -106,7 +106,7 @@ actor OpenRouterClient {
             model: model,
             messages: messages,
             stream: false,
-            max_tokens: maxTokens,
+            max_tokens: nil,
             max_completion_tokens: maxTokens
         )
 
