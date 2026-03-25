@@ -19,6 +19,8 @@ pub struct ParakeetConfig {
     pub models_dir: PathBuf,
     pub model: String,
     pub device: String,
+    /// Controls whether TitaNet speaker embedding model is downloaded and used.
+    pub diarization_enabled: bool,
 }
 
 impl ParakeetConfig {

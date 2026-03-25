@@ -267,6 +267,7 @@ impl AppState {
             runtime_root,
             model: settings.parakeet_model.clone(),
             device: settings.parakeet_device.clone(),
+            diarization_enabled: settings.diarization_enabled,
         }
     }
 }
