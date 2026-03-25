@@ -967,6 +967,25 @@ export function SettingsView({
                     ))}
                   </select>
                 </div>
+                <div style={styles.fieldWrap}>
+                  <label style={styles.labelStyle}>Speaker diarization</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: spacing[2] }}>
+                    <input
+                      type="checkbox"
+                      id="diarization-toggle"
+                      checked={settings.diarizationEnabled ?? true}
+                      onChange={(e) =>
+                        saveSettings({ ...settings, diarizationEnabled: e.target.checked })
+                      }
+                    />
+                    <label htmlFor="diarization-toggle" style={{ fontSize: typography.sm, color: colors.text, cursor: "pointer" }}>
+                      Enabled
+                    </label>
+                  </div>
+                  <span style={{ fontSize: typography.sm, color: colors.textMuted, marginTop: 4, display: "block" }}>
+                    Automatically identify different speakers in call audio
+                  </span>
+                </div>
               </>
             ) : null}
             {sttStatus && (
