@@ -141,6 +141,33 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Real-Time Suggestions") {
+                Toggle("Floating suggestion panel", isOn: $settings.suggestionPanelEnabled)
+                    .font(.system(size: 12))
+                Text("Show a floating side panel with real-time KB-backed suggestions during meetings.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                switch settings.llmProvider {
+                case .openRouter:
+                    TextField("Speed Model", text: $settings.realtimeModel, prompt: Text("e.g. google/gemini-2.0-flash-001"))
+                        .font(.system(size: 12, design: .monospaced))
+                    Text("A fast model used for real-time suggestion synthesis. Separate from your main model.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                case .ollama:
+                    TextField("Speed Model", text: $settings.realtimeOllamaModel, prompt: Text("Leave empty to use main model"))
+                        .font(.system(size: 12, design: .monospaced))
+                    Text("Optional Ollama model for real-time suggestions. Uses your main model if empty.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                case .mlx, .openAICompatible:
+                    Text("Real-time suggestions currently reuse the active provider model for this provider.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Suggestions") {
                 Picker("Verbosity", selection: $settings.suggestionVerbosity) {
                     ForEach(SuggestionVerbosity.allCases) { level in
