@@ -57,6 +57,13 @@ pub fn run() {
             engine::stop_calibration_preview,
             engine::calibrate_mic_threshold,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if window.label() == "main" {
+                    window.app_handle().exit(0);
+                }
+            }
+        })
         .setup(move |app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
