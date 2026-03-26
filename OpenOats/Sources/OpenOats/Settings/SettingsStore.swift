@@ -210,6 +210,61 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _realtimeModel: String
+    var realtimeModel: String {
+        get { access(keyPath: \.realtimeModel); return _realtimeModel }
+        set {
+            withMutation(keyPath: \.realtimeModel) {
+                _realtimeModel = newValue
+                defaults.set(newValue, forKey: "realtimeModel")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _realtimeOllamaModel: String
+    var realtimeOllamaModel: String {
+        get { access(keyPath: \.realtimeOllamaModel); return _realtimeOllamaModel }
+        set {
+            withMutation(keyPath: \.realtimeOllamaModel) {
+                _realtimeOllamaModel = newValue
+                defaults.set(newValue, forKey: "realtimeOllamaModel")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _suggestionPanelEnabled: Bool
+    var suggestionPanelEnabled: Bool {
+        get { access(keyPath: \.suggestionPanelEnabled); return _suggestionPanelEnabled }
+        set {
+            withMutation(keyPath: \.suggestionPanelEnabled) {
+                _suggestionPanelEnabled = newValue
+                defaults.set(newValue, forKey: "suggestionPanelEnabled")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _preFetchIntervalSeconds: Double
+    var preFetchIntervalSeconds: Double {
+        get { access(keyPath: \.preFetchIntervalSeconds); return _preFetchIntervalSeconds }
+        set {
+            withMutation(keyPath: \.preFetchIntervalSeconds) {
+                _preFetchIntervalSeconds = newValue
+                defaults.set(newValue, forKey: "preFetchIntervalSeconds")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _kbSimilarityThreshold: Double
+    var kbSimilarityThreshold: Double {
+        get { access(keyPath: \.kbSimilarityThreshold); return _kbSimilarityThreshold }
+        set {
+            withMutation(keyPath: \.kbSimilarityThreshold) {
+                _kbSimilarityThreshold = newValue
+                defaults.set(newValue, forKey: "kbSimilarityThreshold")
+            }
+        }
+    }
+
     // MARK: - Capture Settings
 
     @ObservationIgnored nonisolated(unsafe) private var _inputDeviceID: AudioDeviceID
@@ -497,6 +552,17 @@ final class SettingsStore {
             rawValue: defaults.string(forKey: "suggestionVerbosity") ?? ""
         ) ?? .quiet
         self._enableTranscriptRefinement = defaults.bool(forKey: "enableTranscriptRefinement")
+        self._realtimeModel = defaults.string(forKey: "realtimeModel") ?? "google/gemini-2.0-flash-001"
+        self._realtimeOllamaModel = defaults.string(forKey: "realtimeOllamaModel") ?? ""
+        if defaults.object(forKey: "suggestionPanelEnabled") == nil {
+            self._suggestionPanelEnabled = true
+        } else {
+            self._suggestionPanelEnabled = defaults.bool(forKey: "suggestionPanelEnabled")
+        }
+        self._preFetchIntervalSeconds = defaults.object(forKey: "preFetchIntervalSeconds") != nil
+            ? defaults.double(forKey: "preFetchIntervalSeconds") : 4.0
+        self._kbSimilarityThreshold = defaults.object(forKey: "kbSimilarityThreshold") != nil
+            ? defaults.double(forKey: "kbSimilarityThreshold") : 0.35
 
         // Capture Settings
         self._inputDeviceID = AudioDeviceID(defaults.integer(forKey: "inputDeviceID"))
@@ -590,6 +656,22 @@ final class SettingsStore {
         case .mlx: raw = mlxModel
         case .openAICompatible: raw = openAILLMModel
         }
+        return raw.split(separator: "/").last.map(String.init) ?? raw
+    }
+
+    /// The model ID to use for real-time suggestion synthesis.
+    var activeRealtimeModel: String {
+        switch llmProvider {
+        case .openRouter: return realtimeModel
+        case .ollama: return realtimeOllamaModel.isEmpty ? ollamaLLMModel : realtimeOllamaModel
+        case .mlx: return mlxModel
+        case .openAICompatible: return openAILLMModel
+        }
+    }
+
+    /// Display name for the active realtime model.
+    var activeRealtimeModelDisplay: String {
+        let raw = activeRealtimeModel
         return raw.split(separator: "/").last.map(String.init) ?? raw
     }
 
