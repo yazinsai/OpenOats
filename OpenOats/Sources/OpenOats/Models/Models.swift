@@ -14,6 +14,23 @@ enum SuggestionTriggerKind: String, Codable, Sendable {
     case unclear
 }
 
+/// Collapsed trigger categories for the real-time pipeline.
+enum RealtimeTriggerKind: String, Codable, Sendable {
+    case question   // maps from: explicitQuestion, decisionPoint
+    case claim      // maps from: assumption, disagreement
+    case topic      // maps from: customerProblem, distributionGoToMarket, productScope, prioritization
+    case general    // fallback
+
+    init(from legacy: SuggestionTriggerKind) {
+        switch legacy {
+        case .explicitQuestion, .decisionPoint: self = .question
+        case .assumption, .disagreement: self = .claim
+        case .customerProblem, .distributionGoToMarket, .productScope, .prioritization: self = .topic
+        case .unclear: self = .general
+        }
+    }
+}
+
 struct SuggestionTrigger: Sendable, Codable {
     var kind: SuggestionTriggerKind
     var utteranceID: UUID
@@ -69,6 +86,135 @@ struct KBResult: Identifiable, Sendable, Codable {
     }
 }
 
+// MARK: - KB Context Pack
+
+/// Rich KB context preserving document structure for display and synthesis.
+struct KBContextPack: Identifiable, Sendable, Codable {
+    let id: UUID
+    let matchedText: String
+    let relativePath: String      // e.g. "sales/pricing.md"
+    let folderBreadcrumb: String  // e.g. "sales"
+    let documentTitle: String     // first H1 or filename
+    let headerBreadcrumb: String  // e.g. "Pricing > Unit Economics"
+    let score: Double
+    let previousSiblingText: String?
+    let nextSiblingText: String?
+
+    init(
+        matchedText: String,
+        relativePath: String,
+        folderBreadcrumb: String = "",
+        documentTitle: String = "",
+        headerBreadcrumb: String = "",
+        score: Double,
+        previousSiblingText: String? = nil,
+        nextSiblingText: String? = nil
+    ) {
+        self.id = UUID()
+        self.matchedText = matchedText
+        self.relativePath = relativePath
+        self.folderBreadcrumb = folderBreadcrumb
+        self.documentTitle = documentTitle
+        self.headerBreadcrumb = headerBreadcrumb
+        self.score = score
+        self.previousSiblingText = previousSiblingText
+        self.nextSiblingText = nextSiblingText
+    }
+
+    /// Display breadcrumb: "sales/pricing.md > Pricing > Unit Economics"
+    var displayBreadcrumb: String {
+        var parts: [String] = []
+        if !relativePath.isEmpty { parts.append(relativePath) }
+        if !headerBreadcrumb.isEmpty { parts.append(headerBreadcrumb) }
+        return parts.joined(separator: " > ")
+    }
+}
+
+// MARK: - Realtime Suggestion
+
+enum SuggestionLifecycle: String, Codable, Sendable {
+    case raw         // KB snippet shown, no LLM yet
+    case streaming   // LLM synthesis in progress
+    case completed   // LLM synthesis finished
+    case failed      // LLM call failed, raw snippet preserved
+    case superseded  // Replaced by a newer suggestion
+}
+
+/// A real-time suggestion with stable identity across its lifecycle.
+struct RealtimeSuggestion: Identifiable, Sendable {
+    let id: UUID
+    let triggerKind: RealtimeTriggerKind
+    let triggerExcerpt: String
+    let triggerUtteranceID: UUID?
+    let contextPacks: [KBContextPack]
+    let candidateScore: Double
+    let createdAt: Date
+    var lifecycle: SuggestionLifecycle
+    var synthesizedText: String  // empty in .raw, streams in during .streaming
+    var rawSnippet: String       // first context pack's matched text
+
+    init(
+        triggerKind: RealtimeTriggerKind,
+        triggerExcerpt: String,
+        triggerUtteranceID: UUID? = nil,
+        contextPacks: [KBContextPack],
+        candidateScore: Double
+    ) {
+        self.id = UUID()
+        self.triggerKind = triggerKind
+        self.triggerExcerpt = triggerExcerpt
+        self.triggerUtteranceID = triggerUtteranceID
+        self.contextPacks = contextPacks
+        self.candidateScore = candidateScore
+        self.createdAt = .now
+        self.lifecycle = .raw
+        self.synthesizedText = ""
+        self.rawSnippet = contextPacks.first?.matchedText ?? ""
+    }
+
+    /// The best available text for display.
+    var displayText: String {
+        synthesizedText.isEmpty ? rawSnippet : synthesizedText
+    }
+
+    /// The primary source breadcrumb for display.
+    var sourceBreadcrumb: String {
+        contextPacks.first?.displayBreadcrumb ?? ""
+    }
+}
+
+// MARK: - Realtime Suggestion Candidate
+
+/// Output of the local heuristic gate — passed to Layer 3 for synthesis.
+struct RealtimeSuggestionCandidate: Sendable {
+    let candidateID: UUID
+    let triggerKind: RealtimeTriggerKind
+    let triggerExcerpt: String
+    let triggerUtteranceID: UUID?
+    let triggerFingerprint: String?
+    let contextPacks: [KBContextPack]
+    let score: Double
+    let createdAt: Date
+
+    init(
+        triggerKind: RealtimeTriggerKind,
+        triggerExcerpt: String,
+        triggerUtteranceID: UUID? = nil,
+        triggerFingerprint: String? = nil,
+        contextPacks: [KBContextPack],
+        score: Double
+    ) {
+        self.candidateID = UUID()
+        self.triggerKind = triggerKind
+        self.triggerExcerpt = triggerExcerpt
+        self.triggerUtteranceID = triggerUtteranceID
+        self.triggerFingerprint = triggerFingerprint
+        self.contextPacks = contextPacks
+        self.score = score
+        self.createdAt = .now
+    }
+}
+
 // MARK: - Suggestion
 
 struct Suggestion: Identifiable, Sendable, Codable {
@@ -114,6 +260,10 @@ struct SessionRecord: Codable {
     let surfacedSuggestionText: String?
     let conversationStateSummary: String?
     let refinedText: String?
+    // Real-time suggestion tracking
+    let suggestionID: UUID?
+    let triggerUtteranceID: UUID?
+    let suggestionLifecycle: SuggestionLifecycle?
 
     init(
         speaker: Speaker,
@@ -124,7 +274,10 @@ struct SessionRecord: Codable {
         suggestionDecision: SuggestionDecision? = nil,
         surfacedSuggestionText: String? = nil,
         conversationStateSummary: String? = nil,
-        refinedText: String? = nil
+        refinedText: String? = nil,
+        suggestionID: UUID? = nil,
+        triggerUtteranceID: UUID? = nil,
+        suggestionLifecycle: SuggestionLifecycle? = nil
     ) {
         self.speaker = speaker
         self.text = text
@@ -135,6 +288,9 @@ struct SessionRecord: Codable {
         self.surfacedSuggestionText = surfacedSuggestionText
         self.conversationStateSummary = conversationStateSummary
         self.refinedText = refinedText
+        self.suggestionID = suggestionID
+        self.triggerUtteranceID = triggerUtteranceID
+        self.suggestionLifecycle = suggestionLifecycle
     }
 
     func withRefinedText(_ text: String?) -> SessionRecord {
@@ -144,7 +300,10 @@ struct SessionRecord: Codable {
             suggestionDecision: suggestionDecision,
             surfacedSuggestionText: surfacedSuggestionText,
             conversationStateSummary: conversationStateSummary,
-            refinedText: text
+            refinedText: text,
+            suggestionID: suggestionID,
+            triggerUtteranceID: triggerUtteranceID,
+            suggestionLifecycle: suggestionLifecycle
         )
     }
 }
