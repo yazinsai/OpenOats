@@ -22,11 +22,15 @@ final class StreamingTranscriber: @unchecked Sendable {
         interleaved: false
     )!
 
+    /// Flush interval in 16kHz samples. Determined by the transcription model.
+    private let flushInterval: Int
+
     init(
         backend: any TranscriptionBackend,
         locale: Locale,
         vadManager: VadManager,
         speaker: Speaker,
+        flushInterval: Int,
         onPartial: @escaping @Sendable (String) -> Void,
         onFinal: @escaping @Sendable (String) -> Void
     ) {
@@ -34,6 +38,7 @@ final class StreamingTranscriber: @unchecked Sendable {
         self.locale = locale
         self.vadManager = vadManager
         self.speaker = speaker
+        self.flushInterval = flushInterval
         self.onPartial = onPartial
         self.onFinal = onFinal
     }
@@ -43,12 +48,7 @@ final class StreamingTranscriber: @unchecked Sendable {
     /// Parakeet TDT requires >= 1s of audio; shorter segments produce unreliable output.
     private static let minimumSpeechSamples = 16_000
     private static let prerollChunkCount = 2
-    /// Flush speech for transcription every ~10 seconds (160,000 samples at 16kHz).
-    /// Longer flush windows give the conformer encoder more context per segment,
-    /// reducing WER significantly (benchmarked: 13.6% at 5s vs 8.8% at 10s on Polish).
-    /// VAD speechEnd events still trigger immediate flush on natural pauses,
-    /// so short utterances appear without the full 10s delay.
-    private static let flushInterval = 10 * 16_000
+    // flushInterval is now an instance property, set per-model via TranscriptionModel.flushIntervalSamples
     /// Number of trailing words to carry across segment boundaries for decoder priming.
     private static let contextWordCount = 5
 
@@ -139,7 +139,7 @@ final class StreamingTranscriber: @unchecked Sendable {
                     } else if isSpeaking {
 
                         // Flush on long continuous speech (see flushInterval)
-                        if speechSamples.count >= Self.flushInterval {
+                        if speechSamples.count >= flushInterval {
                             let segment = speechSamples
                             speechSamples.removeAll(keepingCapacity: true)
                             await transcribeSegment(segment)

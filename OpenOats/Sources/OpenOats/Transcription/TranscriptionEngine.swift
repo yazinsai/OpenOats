@@ -757,6 +757,7 @@ final class TranscriptionEngine {
             locale: locale,
             vadManager: vadManager,
             speaker: speaker,
+            flushInterval: settings.transcriptionModel.flushIntervalSamples,
             onPartial: onPartial,
             onFinal: onFinal
         )

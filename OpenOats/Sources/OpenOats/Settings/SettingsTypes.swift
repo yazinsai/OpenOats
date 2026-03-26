@@ -166,6 +166,17 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Flush interval in 16kHz samples for streaming transcription.
+    /// Whisper models benefit from longer context windows (10s); Parakeet/Qwen are robust at 5s.
+    var flushIntervalSamples: Int {
+        switch self {
+        case .whisperBase, .whisperSmall, .whisperLargeV3Turbo:
+            10 * 16_000
+        case .parakeetV2, .parakeetV3, .qwen3ASR06B:
+            5 * 16_000
+        }
+    }
+
     /// Models suitable for offline batch re-transcription.
     static var batchSuitableModels: [TranscriptionModel] {
         [.parakeetV2, .parakeetV3, .whisperSmall, .whisperLargeV3Turbo, .qwen3ASR06B]
