@@ -660,6 +660,12 @@ fn normalize_for_echo(text: &str) -> String {
         .join(" ")
 }
 
+/// Returns true if any sliding window of `n` consecutive words from `them_words`
+/// appears verbatim as a substring in `mic_text`.
+fn has_shared_ngram(them_words: &[&str], mic_text: &str, n: usize) -> bool {
+    them_words.windows(n).any(|w| mic_text.contains(&w.join(" ")))
+}
+
 /// Jaccard similarity over word sets of two normalized strings.
 fn jaccard_word_similarity(a: &str, b: &str) -> f64 {
     use std::collections::HashSet;
@@ -681,7 +687,7 @@ fn is_text_echo(
     recent: &Arc<Mutex<Vec<opencassava_core::models::Utterance>>>,
     window_secs: i64,
 ) -> bool {
-    const SIMILARITY_THRESHOLD: f64 = 0.78;
+    const SIMILARITY_THRESHOLD: f64 = 0.45;
     const MIN_WORD_COUNT: usize = 4;
     const MIN_CHAR_COUNT: usize = 20;
 
@@ -708,10 +714,14 @@ fn is_text_echo(
         let sim = jaccard_word_similarity(&normalized_mic, &normalized_them);
         let contains = normalized_mic.contains(normalized_them.as_str())
             || normalized_them.contains(normalized_mic.as_str());
-        if sim >= SIMILARITY_THRESHOLD || contains {
+        let them_words: Vec<&str> = normalized_them.split_whitespace().collect();
+        let has_ngram = has_shared_ngram(&them_words, &normalized_mic, 3)
+            || (word_count <= 5 && has_shared_ngram(&them_words, &normalized_mic, 2));
+        if sim >= SIMILARITY_THRESHOLD || contains || has_ngram {
             log::info!(
-                "[echo-filter] suppressed mic as echo sim={:.2} mic='{}' them='{}'",
+                "[echo-filter] suppressed mic as echo sim={:.2} ngram={} mic='{}' them='{}'",
                 sim,
+                has_ngram,
                 &mic_text[..mic_text.len().min(80)],
                 &utterance.text[..utterance.text.len().min(80)]
             );
