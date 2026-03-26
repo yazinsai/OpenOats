@@ -64,6 +64,9 @@ struct NotesView: View {
         .onChange(of: coordinator.lastEndedSession?.id) {
             Task { await controller.handleLastEndedSessionChanged() }
         }
+        .onChange(of: coordinator.sessionHistory.count) {
+            Task { await controller.loadHistory() }
+        }
         .onChange(of: coordinator.requestedSessionSelectionID) {
             if controller.handleRequestedSessionSelection() {
                 detailViewMode = .notes

@@ -1071,10 +1071,14 @@ actor SessionRepository {
             source: meta?.source
         )
 
+        // Load generated notes (if any) to include in the export
+        let notes = loadNotes(sessionID: sessionID)
+
         // Write/update Markdown meeting notes
         MarkdownMeetingWriter.write(
             metadata: .init(from: index),
             records: records,
+            notesMarkdown: notes?.markdown,
             outputDirectory: outputDir
         )
     }

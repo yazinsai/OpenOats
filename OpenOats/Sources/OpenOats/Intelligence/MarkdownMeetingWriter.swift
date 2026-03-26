@@ -38,12 +38,14 @@ enum MarkdownMeetingWriter {
     /// - Parameters:
     ///   - metadata: Session metadata (title, dates, app, engine).
     ///   - records: The transcript records from the JSONL session store.
+    ///   - notesMarkdown: Optional LLM-generated notes markdown to include before the transcript.
     ///   - outputDirectory: The directory to write into (e.g. `~/Documents/OpenOats/`).
     /// - Returns: The URL of the written file, or `nil` on failure.
     @discardableResult
     static func write(
         metadata: Metadata,
         records: [SessionRecord],
+        notesMarkdown: String? = nil,
         outputDirectory: URL
     ) -> URL? {
         guard !records.isEmpty else {
@@ -55,7 +57,7 @@ enum MarkdownMeetingWriter {
         try? fm.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
         // Build the Markdown content
-        let content = buildMarkdown(metadata: metadata, records: records)
+        let content = buildMarkdown(metadata: metadata, records: records, notesMarkdown: notesMarkdown)
 
         // Generate filename with collision handling
         let fileURL = resolveFilename(
@@ -78,10 +80,10 @@ enum MarkdownMeetingWriter {
 
     // MARK: - Markdown Assembly
 
-    static func buildMarkdown(metadata: Metadata, records: [SessionRecord]) -> String {
+    static func buildMarkdown(metadata: Metadata, records: [SessionRecord], notesMarkdown: String? = nil) -> String {
         let resolvedTitle = metadata.title?.isEmpty == false ? metadata.title! : "Meeting"
         let frontmatter = buildFrontmatter(metadata: metadata, records: records, title: resolvedTitle)
-        let body = buildBody(title: resolvedTitle, records: records, startedAt: metadata.startedAt)
+        let body = buildBody(title: resolvedTitle, records: records, startedAt: metadata.startedAt, notesMarkdown: notesMarkdown)
         return frontmatter + "\n" + body
     }
 
@@ -143,12 +145,20 @@ enum MarkdownMeetingWriter {
 
     // MARK: - Body
 
-    static func buildBody(title: String, records: [SessionRecord], startedAt: Date) -> String {
+    static func buildBody(title: String, records: [SessionRecord], startedAt: Date, notesMarkdown: String? = nil) -> String {
         var parts: [String] = []
 
         // H1 title
         parts.append("# \(title)")
         parts.append("")
+
+        // Notes section (if generated notes are available)
+        if let notes = notesMarkdown, !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append("## Notes")
+            parts.append("")
+            parts.append(notes.trimmingCharacters(in: .whitespacesAndNewlines))
+            parts.append("")
+        }
 
         // Transcript section
         parts.append("## Transcript")

@@ -334,6 +334,76 @@ final class MarkdownMeetingWriterTests: XCTestCase {
         XCTAssertFalse(markdown.contains("raw text"))
     }
 
+    func testBuildMarkdownIncludesNotesSection() {
+        let start = Date()
+        let metadata = MarkdownMeetingWriter.Metadata(
+            from: SessionIndex(
+                id: "test",
+                startedAt: start,
+                endedAt: start.addingTimeInterval(120),
+                utteranceCount: 1,
+                hasNotes: true
+            )
+        )
+
+        let records = [SessionRecord(speaker: .you, text: "Hello", timestamp: start)]
+        let notes = "- Discussed project timeline\n- Agreed on next steps"
+
+        let markdown = MarkdownMeetingWriter.buildMarkdown(
+            metadata: metadata, records: records, notesMarkdown: notes
+        )
+
+        XCTAssertTrue(markdown.contains("## Notes"))
+        XCTAssertTrue(markdown.contains("- Discussed project timeline"))
+        XCTAssertTrue(markdown.contains("## Transcript"))
+
+        // Notes should appear before Transcript
+        let notesRange = markdown.range(of: "## Notes")!
+        let transcriptRange = markdown.range(of: "## Transcript")!
+        XCTAssertTrue(notesRange.lowerBound < transcriptRange.lowerBound)
+    }
+
+    func testBuildMarkdownOmitsNotesSectionWhenNil() {
+        let start = Date()
+        let metadata = MarkdownMeetingWriter.Metadata(
+            from: SessionIndex(
+                id: "test",
+                startedAt: start,
+                utteranceCount: 1,
+                hasNotes: false
+            )
+        )
+
+        let records = [SessionRecord(speaker: .you, text: "Hello", timestamp: start)]
+
+        let markdown = MarkdownMeetingWriter.buildMarkdown(
+            metadata: metadata, records: records, notesMarkdown: nil
+        )
+
+        XCTAssertFalse(markdown.contains("## Notes"))
+        XCTAssertTrue(markdown.contains("## Transcript"))
+    }
+
+    func testBuildMarkdownOmitsNotesSectionWhenEmpty() {
+        let start = Date()
+        let metadata = MarkdownMeetingWriter.Metadata(
+            from: SessionIndex(
+                id: "test",
+                startedAt: start,
+                utteranceCount: 1,
+                hasNotes: false
+            )
+        )
+
+        let records = [SessionRecord(speaker: .you, text: "Hello", timestamp: start)]
+
+        let markdown = MarkdownMeetingWriter.buildMarkdown(
+            metadata: metadata, records: records, notesMarkdown: "   \n  "
+        )
+
+        XCTAssertFalse(markdown.contains("## Notes"))
+    }
+
     // MARK: - File Writing
 
     func testWriteCreatesFileOnDisk() {

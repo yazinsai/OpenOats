@@ -45,5 +45,10 @@
     <string>RMSxoyjk8gEBvqmECGMvBLYQ7Kl7ptbacDBWSbsdgeI=</string>
     <key>LSUIElement</key>
     <true/>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
 </dict>
 </plist>
