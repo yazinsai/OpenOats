@@ -176,9 +176,21 @@ impl StreamingTranscriber {
                     }
                 }
                 SttBackend::Parakeet(config) => {
-                    let worker_result = if let Some(worker) = prewarmed_parakeet {
-                        log::info!("[parakeet] using pre-warmed worker");
-                        Ok(worker)
+                    // Acquire a ready worker: use the pre-warmed one if healthy, otherwise
+                    // spawn fresh. The pre-warmed Python process can die between warmup and
+                    // recording start (e.g. OS memory pressure), so we verify it with
+                    // ensure_model and fall back to a new spawn on failure.
+                    let worker_result = if let Some(mut w) = prewarmed_parakeet {
+                        match w.ensure_model(config.diarization_enabled) {
+                            Ok(_) => {
+                                log::info!("[parakeet] using pre-warmed worker");
+                                Ok(w)
+                            }
+                            Err(e) => {
+                                log::warn!("[parakeet] pre-warmed worker unhealthy ({e}), spawning fresh");
+                                crate::transcription::parakeet::ParakeetWorker::spawn(&config)
+                            }
+                        }
                     } else {
                         crate::transcription::parakeet::ParakeetWorker::spawn(&config)
                     };
