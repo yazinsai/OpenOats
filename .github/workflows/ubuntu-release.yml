@@ -48,6 +48,7 @@ jobs:
             libssl-dev \
             pkg-config \
             libdbus-1-dev \
+            libasound2-dev \
             cmake \
             clang \
             libclang-dev
