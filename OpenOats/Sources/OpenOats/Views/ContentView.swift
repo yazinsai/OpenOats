@@ -153,19 +153,27 @@ struct ContentView: View {
                 Divider()
             }
 
-            // Main content: Suggestions
-            VStack(alignment: .leading, spacing: 0) {
-                Text("SUGGESTIONS")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .tracking(1.5)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 4)
-                SuggestionsView(
-                    suggestions: controllerState.suggestions,
-                    isGenerating: controllerState.isGeneratingSuggestions
-                )
+            // Suggestion panel status
+            if controllerState.isRunning {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(controllerState.isGeneratingSuggestions ? Color.orange : Color.green)
+                        .frame(width: 6, height: 6)
+                    Text("Suggestions \(overlayManager.isVisible ? "visible" : "hidden")")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        toggleOverlay()
+                    } label: {
+                        Text(overlayManager.isVisible ? "Hide Panel" : "Show Panel")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
 
             Divider()
@@ -295,7 +303,7 @@ struct ContentView: View {
 
             // Create and wire the controller
             let controller = LiveSessionController(coordinator: coordinator, container: container)
-            controller.onRunningStateChanged = { [weak miniBarManager] isRunning in
+            controller.onRunningStateChanged = { [weak miniBarManager, weak overlayManager] isRunning in
                 if isRunning {
                     miniBarManager?.state.onTap = {
                         if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == OpenOatsRootApp.mainWindowID }) {
@@ -304,8 +312,17 @@ struct ContentView: View {
                         }
                     }
                     showMiniBar(controller: controller, miniBarManager: miniBarManager)
+                    // Start pre-fetching and show suggestion panel
+                    coordinator.suggestionEngine?.startPreFetching()
+                    if settings.suggestionPanelEnabled {
+                        let panelContent = SuggestionPanelContent(engine: coordinator.suggestionEngine)
+                        overlayManager?.showSidePanel(content: panelContent)
+                    }
                 } else {
                     miniBarManager?.hide()
+                    // Stop pre-fetching and hide panel after delay
+                    coordinator.suggestionEngine?.stopPreFetching()
+                    overlayManager?.hideAfterDelay(seconds: 2)
                 }
             }
             controller.openNotesWindow = {
@@ -388,12 +405,7 @@ struct ContentView: View {
     }
 
     private func toggleOverlay() {
-        guard let controller = liveSessionController else { return }
-        let content = OverlayContent(
-            suggestions: controller.state.suggestions,
-            isGenerating: controller.state.isGeneratingSuggestions,
-            volatileThemText: controller.state.volatileThemText
-        )
+        let content = SuggestionPanelContent(engine: coordinator.suggestionEngine)
         overlayManager.toggle(content: content)
     }
 
