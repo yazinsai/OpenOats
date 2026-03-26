@@ -4,9 +4,9 @@
 
 **Goal:** Replace the 5-stage serial suggestion pipeline with a 3-layer concurrent architecture that delivers KB-backed suggestions within 2 seconds of a conversational trigger.
 
-**Architecture:** Three concurrent layers — (1) continuous context accumulator with periodic KB pre-fetching on partial speech, (2) instant retrieval with a local heuristic gate, (3) streaming LLM synthesis. The existing `OverlayPanel` is repurposed as a floating side panel. Partial speech from the transcription engine (already emitted via `onPartial` callbacks) is tapped for pre-fetching.
+**Architecture:** Three concurrent layers — (1) continuous context accumulator with periodic KB pre-fetching on incremental speech, (2) instant retrieval with a local heuristic gate, (3) streaming LLM synthesis. The existing `OverlayPanel` is repurposed as a floating side panel. The current transcription path does not yet emit useful partial hypotheses, so this plan explicitly adds throttled best-effort partial emission in `StreamingTranscriber.swift` and plumbs it through `TranscriptionEngine.swift` before any pre-fetch work relies on it.
 
-**Tech Stack:** Swift 6.2, SwiftUI, macOS 15+, SPM. Existing dependencies: FluidAudio (transcription), Sparkle (updates). No new dependencies.
+**Tech Stack:** Swift 6.2, SwiftUI, macOS 26+, SPM. Existing dependencies: FluidAudio (transcription), Sparkle (updates). No new dependencies.
 
 **Spec:** `docs/superpowers/specs/2026-03-26-realtime-suggestions-design.md`
 
@@ -31,15 +31,19 @@
 
 | File | Change Summary |
 |------|---------------|
-| `Models/Models.swift` | Add `KBContextPack`, `RealtimeSuggestionCandidate`, `SuggestionLifecycle`, `RealtimeTriggerKind`. Modify `Suggestion` for streaming state. |
-| `Settings/AppSettings.swift` | Add `realtimeModel`, `realtimeOllamaModel`, `suggestionPanelEnabled`, `preFetchIntervalSeconds`, `kbSimilarityThreshold`. |
-| `Models/TranscriptStore.swift` | Add question density tracking, rolling partial text window, utterance-from-either-speaker trigger. |
-| `Intelligence/KnowledgeBase.swift` | Return `KBContextPack` with relative path, folder breadcrumb, header breadcrumb, adjacent chunks. Add `searchFromCache()`. Embed with metadata prefix. |
-| `Intelligence/SuggestionEngine.swift` | **Full rewrite.** 3-layer concurrent architecture. |
+| `Models/Models.swift` | Add `KBContextPack`, `RealtimeSuggestionCandidate`, `SuggestionLifecycle`, `RealtimeTriggerKind`, and stable suggestion identity fields on `SessionRecord`. |
+| `Settings/SettingsStore.swift` | Add `realtimeModel`, `realtimeOllamaModel`, `suggestionPanelEnabled`, `preFetchIntervalSeconds`, `kbSimilarityThreshold`, and provider-aware realtime model helpers. |
+| `Models/TranscriptStore.swift` | Add question density tracking, rolling partial/final text windows, and state-update tracking from either speaker without regressing diarized remote speakers. |
+| `Transcription/StreamingTranscriber.swift` | Emit throttled best-effort partial hypotheses during active speech instead of finals only. |
+| `Transcription/TranscriptionEngine.swift` | Plumb mic + system partial callbacks into `TranscriptStore` and clear partial state correctly on finalization/restart. |
+| `Intelligence/KnowledgeBase.swift` | Return `KBContextPack` with relative path, folder breadcrumb, header breadcrumb, adjacent chunks, and cached context-pack lookup helpers. |
+| `Intelligence/SuggestionEngine.swift` | **Full rewrite.** 3-layer concurrent architecture plus compatibility/logging shims during rollout. |
+| `Storage/SessionRepository.swift` | Persist suggestion identity by `suggestionID` + `triggerUtteranceID` instead of snapshotting the latest suggestion. |
+| `App/LiveSessionController.swift` | Trigger suggestions from either speaker, route delayed writes for both-speaker logging, and drive suggestion-panel refresh callbacks. |
 | `Views/OverlayPanel.swift` | Extend `OverlayManager` to support side-panel mode (250px wide, docked right, auto-show/hide). |
-| `Views/ContentView.swift` | Remove inline `SuggestionsView` section. Wire panel show/hide to session lifecycle. Tap partial text for pre-fetching. |
+| `Views/ContentView.swift` | Remove inline `SuggestionsView` section. Wire the panel through `LiveSessionController` callbacks and build panel content from realtime suggestions. |
 | `Views/SettingsView.swift` | Add "Real-Time Suggestions" section with new settings. |
-| `App/OpenOatsApp.swift` | Add global hotkey (`Cmd+Shift+O`) to toggle panel. |
+| `App/OpenOatsApp.swift` | Extend the existing global/local hotkey infrastructure with `Cmd+Shift+O` to toggle the panel. |
 
 ### Deleted/Deprecated
 
@@ -212,12 +216,24 @@ struct RealtimeSuggestionCandidate: Sendable {
 }
 ```
 
-- [ ] **Step 5: Build to verify compilation**
+- [ ] **Step 5: Extend `SessionRecord` for stable suggestion logging**
+
+Update `SessionRecord` in the same file to persist the identity of the suggestion that was actually surfaced for a specific utterance.
+
+Add fields for:
+
+- `suggestionID: UUID?`
+- `triggerUtteranceID: UUID?`
+- `suggestionLifecycle: SuggestionLifecycle?`
+
+Keep existing human-readable fields such as `suggestions`, `kbHits`, and `surfacedSuggestionText` for backwards compatibility with current history readers, but treat the new identity fields as the source of truth for delayed logging.
+
+- [ ] **Step 6: Build to verify compilation**
 
 Run: `cd /Users/rock/ai/projects/openoats/OpenOats && swift build 2>&1 | tail -5`
 Expected: BUILD SUCCEEDED (new types are unused — that's fine for now)
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add OpenOats/Sources/OpenOats/Models/Models.swift
@@ -229,126 +245,71 @@ RealtimeSuggestionCandidate, and RealtimeTriggerKind."
 
 ---
 
-### Task 2: New Settings
+### Task 2: SettingsStore Additions
 
 **Files:**
-- Modify: `OpenOats/Sources/OpenOats/Settings/AppSettings.swift`
+- Modify: `OpenOats/Sources/OpenOats/Settings/SettingsStore.swift`
 
-- [ ] **Step 1: Add new settings properties**
+`AppSettings` is currently a typealias to `SettingsStore`, so patch `SettingsStore.swift` directly.
 
-Add these properties to `AppSettings` class, after `_hideFromScreenShare`:
+- [ ] **Step 1: Add new persisted settings**
 
-```swift
-@ObservationIgnored nonisolated(unsafe) private var _realtimeModel: String
-var realtimeModel: String {
-    get { access(keyPath: \.realtimeModel); return _realtimeModel }
-    set {
-        withMutation(keyPath: \.realtimeModel) {
-            _realtimeModel = newValue
-            UserDefaults.standard.set(newValue, forKey: "realtimeModel")
-        }
-    }
-}
+Add persisted backing stores + accessors for:
 
-@ObservationIgnored nonisolated(unsafe) private var _realtimeOllamaModel: String
-var realtimeOllamaModel: String {
-    get { access(keyPath: \.realtimeOllamaModel); return _realtimeOllamaModel }
-    set {
-        withMutation(keyPath: \.realtimeOllamaModel) {
-            _realtimeOllamaModel = newValue
-            UserDefaults.standard.set(newValue, forKey: "realtimeOllamaModel")
-        }
-    }
-}
+- `realtimeModel`
+- `realtimeOllamaModel`
+- `suggestionPanelEnabled`
+- `preFetchIntervalSeconds`
+- `kbSimilarityThreshold`
 
-@ObservationIgnored nonisolated(unsafe) private var _suggestionPanelEnabled: Bool
-var suggestionPanelEnabled: Bool {
-    get { access(keyPath: \.suggestionPanelEnabled); return _suggestionPanelEnabled }
-    set {
-        withMutation(keyPath: \.suggestionPanelEnabled) {
-            _suggestionPanelEnabled = newValue
-            UserDefaults.standard.set(newValue, forKey: "suggestionPanelEnabled")
-        }
-    }
-}
+Implementation rules:
 
-@ObservationIgnored nonisolated(unsafe) private var _preFetchIntervalSeconds: Double
-var preFetchIntervalSeconds: Double {
-    get { access(keyPath: \.preFetchIntervalSeconds); return _preFetchIntervalSeconds }
-    set {
-        withMutation(keyPath: \.preFetchIntervalSeconds) {
-            _preFetchIntervalSeconds = newValue
-            UserDefaults.standard.set(newValue, forKey: "preFetchIntervalSeconds")
-        }
-    }
-}
+- Follow the existing `@ObservationIgnored nonisolated(unsafe)` pattern exactly.
+- Persist through the injected `defaults` instance already held by `SettingsStore`, not `UserDefaults.standard`.
+- Keep using the existing `hideFromScreenShare` setting name; do not introduce a second screen-share visibility flag.
 
-@ObservationIgnored nonisolated(unsafe) private var _kbSimilarityThreshold: Double
-var kbSimilarityThreshold: Double {
-    get { access(keyPath: \.kbSimilarityThreshold); return _kbSimilarityThreshold }
-    set {
-        withMutation(keyPath: \.kbSimilarityThreshold) {
-            _kbSimilarityThreshold = newValue
-            UserDefaults.standard.set(newValue, forKey: "kbSimilarityThreshold")
-        }
-    }
-}
-```
+- [ ] **Step 2: Initialize them in `SettingsStore.init()`**
 
-- [ ] **Step 2: Initialize new settings in `init()`**
+Initialize the new properties alongside the existing persisted settings using the same defaults-handling style already used elsewhere in the file.
 
-Add to the `init()` method, after the `hideFromScreenShare` initialization:
+Default values:
 
-```swift
-self._realtimeModel = defaults.string(forKey: "realtimeModel") ?? "google/gemini-2.0-flash-001"
-self._realtimeOllamaModel = defaults.string(forKey: "realtimeOllamaModel") ?? ""
+- `realtimeModel = "google/gemini-2.0-flash-001"`
+- `realtimeOllamaModel = ""`
+- `suggestionPanelEnabled = true`
+- `preFetchIntervalSeconds = 4.0`
+- `kbSimilarityThreshold = 0.35`
 
-if defaults.object(forKey: "suggestionPanelEnabled") == nil {
-    self._suggestionPanelEnabled = true
-} else {
-    self._suggestionPanelEnabled = defaults.bool(forKey: "suggestionPanelEnabled")
-}
+- [ ] **Step 3: Add provider-aware realtime model helpers**
 
-let storedInterval = defaults.double(forKey: "preFetchIntervalSeconds")
-self._preFetchIntervalSeconds = storedInterval > 0 ? storedInterval : 4.0
+Add `activeRealtimeModel` and `activeRealtimeModelDisplay` helpers.
 
-let storedThreshold = defaults.double(forKey: "kbSimilarityThreshold")
-self._kbSimilarityThreshold = storedThreshold > 0 ? storedThreshold : 0.35
-```
+Behavior:
 
-- [ ] **Step 3: Add computed helper for the active realtime model**
+- `.openRouter`: use `realtimeModel`
+- `.ollama`: use `realtimeOllamaModel` when non-empty, otherwise `ollamaLLMModel`
+- `.mlx`: reuse `mlxModel` for now
+- `.openAICompatible`: reuse `openAILLMModel` for now
 
-Add after `activeModelDisplay`:
+Do not leave the switch non-exhaustive.
 
-```swift
-/// The model identifier used for real-time suggestion synthesis.
-var activeRealtimeModel: String {
-    switch llmProvider {
-    case .openRouter: realtimeModel
-    case .ollama: realtimeOllamaModel.isEmpty ? ollamaLLMModel : realtimeOllamaModel
-    }
-}
+- [ ] **Step 4: Update any intentional settings migration lists**
 
-/// Display name for the active realtime model.
-var activeRealtimeModelDisplay: String {
-    let raw = activeRealtimeModel
-    return raw.split(separator: "/").last.map(String.init) ?? raw
-}
-```
+If the existing settings migration paths are supposed to carry these new keys forward from prior bundle IDs, add the keys there as part of the same task.
 
-- [ ] **Step 4: Build to verify**
+- [ ] **Step 5: Build to verify**
 
 Run: `cd /Users/rock/ai/projects/openoats/OpenOats && swift build 2>&1 | tail -5`
 Expected: BUILD SUCCEEDED
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add OpenOats/Sources/OpenOats/Settings/AppSettings.swift
-git commit -m "feat: add real-time suggestion settings
+git add OpenOats/Sources/OpenOats/Settings/SettingsStore.swift
+git commit -m "feat: add real-time suggestion settings to SettingsStore
 
 realtimeModel, realtimeOllamaModel, suggestionPanelEnabled,
-preFetchIntervalSeconds, kbSimilarityThreshold."
+preFetchIntervalSeconds, and kbSimilarityThreshold."
 ```
 
 ---
@@ -358,154 +319,61 @@ preFetchIntervalSeconds, kbSimilarityThreshold."
 **Files:**
 - Modify: `OpenOats/Sources/OpenOats/Models/TranscriptStore.swift`
 
-- [ ] **Step 1: Add question density tracking**
+- [ ] **Step 1: Add question-density state**
 
-Add new properties after `volatileThemText`:
+Add rolling timestamp arrays for:
 
-```swift
-/// Rolling count of question-bearing utterances in the last 60 seconds.
-private var recentQuestionTimestamps: [Date] = []
-/// Rolling count of all utterances in the last 60 seconds.
-private var recentUtteranceTimestamps: [Date] = []
+- recent utterances in the last 60 seconds
+- recent question-bearing utterances in the last 60 seconds
 
-/// Question density: ratio of question-bearing utterances to total in the last 60s.
-var questionDensity: Double {
-    pruneTimestamps()
-    guard !recentUtteranceTimestamps.isEmpty else { return 0 }
-    return Double(recentQuestionTimestamps.count) / Double(recentUtteranceTimestamps.count)
-}
-```
+Also add a computed `questionDensity` that prunes stale timestamps and returns the ratio.
 
-- [ ] **Step 2: Add timestamp pruning and question detection**
+- [ ] **Step 2: Add question detection helpers**
 
-Add these methods:
+Add:
 
-```swift
-private static let questionPatterns: Set<String> = [
-    "what", "how", "why", "should", "could", "would", "do", "does",
-    "did", "is", "are", "was", "were", "can", "will", "which", "where", "when"
-]
+- a small set of question-leading keywords
+- a non-`mutating` `pruneTimestamps()` helper (this is a class, not a struct)
+- an `isQuestion(_:)` helper
 
-private mutating func pruneTimestamps() {
-    let cutoff = Date.now.addingTimeInterval(-60)
-    recentQuestionTimestamps.removeAll { $0 < cutoff }
-    recentUtteranceTimestamps.removeAll { $0 < cutoff }
-}
+- [ ] **Step 3: Update `append(_:)` against the current store**
 
-private func isQuestion(_ text: String) -> Bool {
-    let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-    if lower.contains("?") { return true }
-    let firstWord = lower.split(separator: " ").first.map(String.init) ?? ""
-    return Self.questionPatterns.contains(firstWord)
-}
-```
+Patch the real current implementation, not the older `.them`-only version.
 
-- [ ] **Step 3: Update `append` to track question density**
+Implementation rules:
 
-Modify the existing `append` method. Replace:
+- Keep the acoustic-echo suppression guard unchanged.
+- Track question density for utterances from both speakers.
+- Preserve `speaker.isRemote` semantics so diarized remote speakers still count as remote.
+- Increment the existing remote-only counter and a new `utterancesSinceStateUpdate` counter.
 
-```swift
-@discardableResult
-func append(_ utterance: Utterance) -> Bool {
-    guard !shouldSuppressAcousticEcho(utterance) else { return false }
-    utterances.append(utterance)
-    if utterance.speaker == .them {
-        themUtterancesSinceStateUpdate += 1
-    }
-    return true
-}
-```
+- [ ] **Step 4: Add state-refresh tracking from either speaker**
 
-With:
+Add:
 
-```swift
-@discardableResult
-func append(_ utterance: Utterance) -> Bool {
-    guard !shouldSuppressAcousticEcho(utterance) else { return false }
-    utterances.append(utterance)
+- `utterancesSinceStateUpdate`
+- `needsStateUpdateFromEitherSpeaker`
 
-    // Track for question density (both speakers)
-    recentUtteranceTimestamps.append(utterance.timestamp)
-    if isQuestion(utterance.text) {
-        recentQuestionTimestamps.append(utterance.timestamp)
-    }
+Update both `clear()` and `updateConversationState(_:)` to reset:
 
-    // Track for background state update
-    if utterance.speaker == .them {
-        themUtterancesSinceStateUpdate += 1
-    }
-    utterancesSinceStateUpdate += 1
+- `remoteUtterancesSinceStateUpdate`
+- `utterancesSinceStateUpdate`
+- both timestamp arrays
 
-    return true
-}
-```
+Keep the existing remote-only `needsStateUpdate` helper if other code still depends on it during rollout.
 
-- [ ] **Step 4: Add utterances-from-either-speaker state tracking**
+- [ ] **Step 5: Add combined partial/final text windows**
 
-Add a new counter alongside `themUtterancesSinceStateUpdate`:
+Add:
 
-```swift
-private var utterancesSinceStateUpdate: Int = 0
+- `combinedPartialText`
+- `recentTextWindow`
+- `preFetchQueryText`
 
-/// Whether conversation state needs a refresh (every 2-3 finalized utterances from either speaker).
-var needsStateUpdateFromEitherSpeaker: Bool {
-    utterancesSinceStateUpdate >= 2
-}
-```
+Implementation rules:
 
-Update `updateConversationState` to also reset the new counter:
-
-```swift
-func updateConversationState(_ state: ConversationState) {
-    conversationState = state
-    themUtterancesSinceStateUpdate = 0
-    utterancesSinceStateUpdate = 0
-}
-```
-
-Update `clear()` to reset new state:
-
-```swift
-func clear() {
-    utterances.removeAll()
-    volatileYouText = ""
-    volatileThemText = ""
-    conversationState = .empty
-    themUtterancesSinceStateUpdate = 0
-    utterancesSinceStateUpdate = 0
-    recentQuestionTimestamps.removeAll()
-    recentUtteranceTimestamps.removeAll()
-}
-```
-
-- [ ] **Step 5: Add combined partial text window**
-
-```swift
-/// Combined volatile text from both speakers for pre-fetch queries.
-/// Returns the most recent partial text with speaker label.
-var combinedPartialText: String {
-    var parts: [String] = []
-    if !volatileThemText.isEmpty { parts.append("Them: \(volatileThemText)") }
-    if !volatileYouText.isEmpty { parts.append("You: \(volatileYouText)") }
-    return parts.joined(separator: "\n")
-}
-
-/// Recent finalized text window (~40-80 words) with speaker labels.
-var recentTextWindow: String {
-    let recent = utterances.suffix(6)
-    return recent.map { u in
-        let label = u.speaker == .you ? "You" : "Them"
-        return "\(label): \(u.text)"
-    }.joined(separator: "\n")
-}
-
-/// Best available text for KB pre-fetching: partial if available, else recent finalized.
-var preFetchQueryText: String {
-    let partial = combinedPartialText
-    if !partial.isEmpty { return partial }
-    return recentTextWindow
-}
-```
+- Use `speaker.displayLabel` when building the final-text window so diarized remote speakers stay distinct.
+- Prefer partial text when available, otherwise fall back to the recent finalized window.
 
 - [ ] **Step 6: Build to verify**
 
@@ -516,7 +384,47 @@ Expected: BUILD SUCCEEDED
 
 ```bash
 git add OpenOats/Sources/OpenOats/Models/TranscriptStore.swift
-git commit -m "feat: add question density tracking and partial text windows to TranscriptStore"
+git commit -m "feat: add question density tracking and partial/final text windows to TranscriptStore"
+```
+
+---
+
+### Task 3A: Incremental Transcript Emission
+
+**Files:**
+- Modify: `OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift`
+- Modify: `OpenOats/Sources/OpenOats/Transcription/TranscriptionEngine.swift`
+
+Layer 1 cannot rely on partials until the live transcription path actually emits them. Implement best-effort partial hypotheses here before any pre-fetch work depends on them.
+
+- [ ] **Step 1: Add throttled partial emission in `StreamingTranscriber`**
+
+Implementation rules:
+
+- While speech is active, periodically run a best-effort decode over the accumulated in-flight speech buffer and send the result through `onPartial`.
+- Throttle partial attempts to roughly every 250-500ms.
+- Do not allow overlapping partial-decode tasks.
+- Do not append utterances or advance final-segment state from partial decodes.
+- Clear partial output on speech end, cancellation, and final delivery.
+
+- [ ] **Step 2: Plumb partial callbacks through `TranscriptionEngine`**
+
+Implementation rules:
+
+- Update both mic and system-audio paths to keep `volatileYouText` / `volatileThemText` current from partial callbacks.
+- Clear those partial strings on final utterance delivery, stop, restart, and session clear.
+- Keep final utterance append semantics unchanged.
+
+- [ ] **Step 3: Build to verify**
+
+Run: `cd /Users/rock/ai/projects/openoats/OpenOats && swift build 2>&1 | tail -5`
+Expected: BUILD SUCCEEDED
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add OpenOats/Sources/OpenOats/Transcription/StreamingTranscriber.swift OpenOats/Sources/OpenOats/Transcription/TranscriptionEngine.swift
+git commit -m "feat: add throttled partial transcript emission for real-time suggestions"
 ```
 
 ---
@@ -1058,6 +966,14 @@ The new `SuggestionEngine` has three concurrent layers:
 2. Gate + retrieval on finalized utterances (from either speaker)
 3. Streaming LLM synthesis
 
+Implementation constraints for this task:
+
+- Assume Task 3A is already complete; Layer 1 should consume real incremental hypotheses or the finalized-window fallback, not imaginary partial callbacks.
+- Preserve compatibility shims needed by the rest of the app during rollout: a computed `[Suggestion]` projection for the mini bar/live state, an `isGenerating` alias if existing polling code still depends on it, and a per-trigger log snapshot API for `SessionRepository`.
+- Every provider switch in this task must cover `.openRouter`, `.ollama`, `.mlx`, and `.openAICompatible`.
+- Use the same provider URL construction rules as the current engine (`OpenRouterClient.chatCompletionsURL(from:)`), not hard-coded string concatenation.
+- The background state tracker must use the active primary model for the current provider, not hard-code `selectedModel`.
+
 ```swift
 import Foundation
 import Observation
@@ -1190,7 +1106,7 @@ final class SuggestionEngine {
         do {
             let response = try await client.complete(
                 apiKey: llmApiKey,
-                model: settings.selectedModel,  // Use main model for state tracking
+                model: activePrimaryModel,
                 messages: statePrompt,
                 maxTokens: 512,
                 baseURL: llmBaseURL(forRealtime: false)
@@ -1236,7 +1152,7 @@ final class SuggestionEngine {
         switch settings.llmProvider {
         case .openRouter:
             guard !settings.openRouterApiKey.isEmpty else { return }
-        case .ollama:
+        case .ollama, .mlx, .openAICompatible:
             guard llmBaseURL(forRealtime: true) != nil else { return }
         }
 
@@ -1436,10 +1352,22 @@ final class SuggestionEngine {
 
     // MARK: - LLM Helpers
 
+    private var activePrimaryModel: String {
+        switch settings.llmProvider {
+        case .openRouter: settings.selectedModel
+        case .ollama: settings.ollamaLLMModel
+        case .mlx: settings.mlxModel
+        case .openAICompatible: settings.openAILLMModel
+        }
+    }
+
     private var llmApiKey: String? {
         switch settings.llmProvider {
         case .openRouter: settings.openRouterApiKey
         case .ollama: nil
+        case .mlx: nil
+        case .openAICompatible:
+            settings.openAILLMApiKey.isEmpty ? nil : settings.openAILLMApiKey
         }
     }
 
@@ -1447,8 +1375,11 @@ final class SuggestionEngine {
         switch settings.llmProvider {
         case .openRouter: return nil  // Uses default OpenRouter URL
         case .ollama:
-            let base = settings.ollamaBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            return URL(string: base + "/v1/chat/completions")
+            return OpenRouterClient.chatCompletionsURL(from: settings.ollamaBaseURL)
+        case .mlx:
+            return OpenRouterClient.chatCompletionsURL(from: settings.mlxBaseURL)
+        case .openAICompatible:
+            return OpenRouterClient.chatCompletionsURL(from: settings.openAILLMBaseURL)
         }
     }
 
@@ -1579,93 +1510,50 @@ Both speakers analyzed. Sub-2-second target latency."
 
 ---
 
-### Task 9: SessionStore Compatibility
+### Task 9: SessionRepository Suggestion Identity Persistence
 
 **Files:**
-- Modify: `OpenOats/Sources/OpenOats/Storage/SessionStore.swift`
+- Modify: `OpenOats/Sources/OpenOats/Storage/SessionRepository.swift`
 - Modify: `OpenOats/Sources/OpenOats/Intelligence/SuggestionEngine.swift`
+- Modify: `OpenOats/Sources/OpenOats/App/LiveSessionController.swift`
 
-The old `SessionStore.appendRecordDelayed` reads `.lastDecision` and `.suggestions.first` from `SuggestionEngine`. The rewritten engine uses different properties. We need to update the delayed write to work with the new engine.
+The delayed live-write path must log the suggestion triggered by a specific utterance, not whichever suggestion happens to be newest five seconds later.
 
-- [ ] **Step 1: Add compatibility properties to SuggestionEngine**
+- [ ] **Step 1: Add a per-trigger log snapshot API to `SuggestionEngine`**
 
-In the rewritten `SuggestionEngine.swift` (from Task 8), add after `recentSuggestionTexts`:
+Implementation rules:
 
-```swift
-/// Compatibility: the most recent surfaced suggestion text for session logging.
-var latestSuggestionText: String? {
-    activeSuggestions.first?.displayText
-}
+- Maintain a short-lived non-UI lookup keyed by `triggerUtteranceID`.
+- Store enough data to write a `SessionRecord`: `suggestionID`, `triggerUtteranceID`, lifecycle, surfaced text, and KB hit paths.
+- Keep snapshots alive long enough for delayed writes even after a suggestion is superseded or falls out of `activeSuggestions`.
+- Expose a method such as `logSnapshot(forTriggerUtteranceID:)`.
 
-/// Compatibility: KB source files from the most recent suggestion.
-var latestKBHitFiles: [String]? {
-    guard let first = activeSuggestions.first else { return nil }
-    return first.contextPacks.map(\.relativePath)
-}
-```
+- [ ] **Step 2: Update `SessionRepository.appendRecordDelayed`**
 
-- [ ] **Step 2: Update SessionStore.appendRecordDelayed**
+Implementation rules:
 
-In `SessionStore.swift`, replace the pipeline result capture block inside `appendRecordDelayed`. Change:
+- Patch `SessionRepository.swift`, not the removed `SessionStore.swift`.
+- Replace any `lastDecision`, `suggestions.first`, or `activeSuggestions.first` lookup with `logSnapshot(forTriggerUtteranceID: utteranceID)`.
+- Populate the new `SessionRecord` identity fields from that snapshot.
+- Keep human-readable fields like `surfacedSuggestionText` and `kbHits`, but make them derived from the matched snapshot rather than the latest suggestion overall.
 
-```swift
-            // Capture pipeline results after delay
-            let decision = await suggestionEngine?.lastDecision
-            let latestSuggestion = await suggestionEngine?.suggestions.first
-            let summary = await transcriptStore?.conversationState.shortSummary
-```
+- [ ] **Step 3: Route delayed writes through both-speaker triggers**
 
-To:
+Implementation rules:
 
-```swift
-            // Capture pipeline results after delay
-            let latestSuggestionText = await suggestionEngine?.latestSuggestionText
-            let latestKBHitFiles = await suggestionEngine?.latestKBHitFiles
-            let summary = await transcriptStore?.conversationState.shortSummary
-```
+- In `LiveSessionController.handleNewUtterance`, any finalized utterance that can trigger suggestions should be written with delayed metadata (`utteranceID`, `suggestionEngine`, `transcriptStore`, `isDelayed: true`).
+- Do not keep the old remote-only delayed-write split now that `.you` utterances can also surface suggestions.
 
-And update the enriched record construction. Change:
-
-```swift
-            let enrichedRecord = SessionRecord(
-                speaker: baseRecord.speaker,
-                text: baseRecord.text,
-                timestamp: baseRecord.timestamp,
-                suggestions: latestSuggestion.map { [$0.text] },
-                kbHits: latestSuggestion?.kbHits.map { $0.sourceFile },
-                suggestionDecision: decision,
-                surfacedSuggestionText: decision?.shouldSurface == true ? latestSuggestion?.text : nil,
-                conversationStateSummary: summary?.isEmpty == false ? summary : nil,
-                refinedText: refinedText
-            )
-```
-
-To:
-
-```swift
-            let enrichedRecord = SessionRecord(
-                speaker: baseRecord.speaker,
-                text: baseRecord.text,
-                timestamp: baseRecord.timestamp,
-                suggestions: latestSuggestionText.map { [$0] },
-                kbHits: latestKBHitFiles,
-                suggestionDecision: nil,
-                surfacedSuggestionText: latestSuggestionText,
-                conversationStateSummary: summary?.isEmpty == false ? summary : nil,
-                refinedText: refinedText
-            )
-```
-
-- [ ] **Step 3: Build to verify**
+- [ ] **Step 4: Build to verify**
 
 Run: `cd /Users/rock/ai/projects/openoats/OpenOats && swift build 2>&1 | tail -5`
 Expected: BUILD SUCCEEDED
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add OpenOats/Sources/OpenOats/Storage/SessionStore.swift OpenOats/Sources/OpenOats/Intelligence/SuggestionEngine.swift
-git commit -m "fix: update SessionStore delayed writes for new SuggestionEngine API"
+git add OpenOats/Sources/OpenOats/Storage/SessionRepository.swift OpenOats/Sources/OpenOats/Intelligence/SuggestionEngine.swift OpenOats/Sources/OpenOats/App/LiveSessionController.swift
+git commit -m "fix: persist realtime suggestions by trigger identity in SessionRepository"
 ```
 
 ---
@@ -1684,6 +1572,7 @@ Replace the entire `OverlayManager` class (keep the `OverlayPanel` class unchang
 @MainActor
 final class OverlayManager: ObservableObject {
     private var panel: OverlayPanel?
+    var defaults: UserDefaults = .standard
     private static let panelWidth: CGFloat = 250
     private static let panelMinHeight: CGFloat = 100
     private static let panelMaxHeight: CGFloat = 400
@@ -1700,7 +1589,7 @@ final class OverlayManager: ObservableObject {
                 width: Self.panelWidth,
                 height: Self.panelMaxHeight
             )
-            let newPanel = OverlayPanel(contentRect: rect)
+            let newPanel = OverlayPanel(contentRect: rect, defaults: defaults)
             newPanel.minSize = NSSize(width: Self.panelWidth, height: Self.panelMinHeight)
             newPanel.maxSize = NSSize(width: Self.panelWidth + 100, height: Self.panelMaxHeight)
             newPanel.setFrameAutosaveName("SuggestionSidePanel")
@@ -1896,163 +1785,66 @@ git commit -m "feat: add SuggestionPanelContent view for floating side panel"
 
 ---
 
-### Task 12: ContentView Integration
+### Task 12: LiveSessionController + ContentView Integration
 
 **Files:**
+- Modify: `OpenOats/Sources/OpenOats/App/LiveSessionController.swift`
 - Modify: `OpenOats/Sources/OpenOats/Views/ContentView.swift`
 
-- [ ] **Step 1: Replace inline suggestions with panel management**
+`ContentView` now mostly wraps controller behavior; the real session lifecycle and utterance ingestion live in `LiveSessionController`. Wire the suggestion panel through the controller instead of patching stale view-only entry points.
 
-In the `rootContent` body, remove the "Main content: Suggestions" VStack. Replace:
+- [ ] **Step 1: Remove the inline `SuggestionsView` from `ContentView`**
 
-```swift
-            // Main content: Suggestions
-            VStack(alignment: .leading, spacing: 0) {
-                sectionHeader("SUGGESTIONS")
-                SuggestionsView(
-                    suggestions: suggestionEngine?.suggestions ?? [],
-                    isGenerating: suggestionEngine?.isGenerating ?? false
-                )
-            }
-```
+Replace the main inline suggestions area with a compact status row that points users to the floating panel.
 
-With:
+Implementation rules:
 
-```swift
-            // Suggestion panel status (compact inline indicator)
-            if let engine = suggestionEngine, !engine.activeSuggestions.isEmpty {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 6, height: 6)
-                    Text("\(engine.activeSuggestions.count) suggestion\(engine.activeSuggestions.count == 1 ? "" : "s") in panel")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if !overlayManager.isVisible && settings.suggestionPanelEnabled {
-                        Button("Show Panel") {
-                            showSuggestionPanel()
-                        }
-                        .font(.system(size: 11))
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.blue)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-            } else if isRunning {
-                HStack(spacing: 6) {
-                    Text("Suggestions will appear in the floating panel")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-            }
-```
+- Read from the controller-driven state or `coordinator.suggestionEngine`, not from an undeclared local `suggestionEngine`.
+- Keep the transcript and control-bar layout intact.
 
-- [ ] **Step 2: Wire panel show/hide to session lifecycle**
+- [ ] **Step 2: Extend controller wiring in `ContentView.task`**
 
-In `startSession()`, after `await transcriptionEngine?.start(...)`, add:
+Implementation rules:
 
-```swift
-            suggestionEngine?.startPreFetching()
-            if settings.suggestionPanelEnabled {
-                showSuggestionPanel()
-            }
-```
+- Keep the existing mini-bar behavior.
+- When `onRunningStateChanged(true)` fires, start pre-fetching and show the suggestion panel if `settings.suggestionPanelEnabled` is true.
+- When `onRunningStateChanged(false)` fires, stop pre-fetching and hide the panel after roughly 2 seconds.
+- Add an `onSuggestionPanelContentUpdate` callback analogous to `onMiniBarContentUpdate`.
 
-In `stopSession()`, before `await coordinator.finalizeSession(...)`, add:
+- [ ] **Step 3: Update `LiveSessionController` state synchronization**
 
-```swift
-            suggestionEngine?.stopPreFetching()
-            overlayManager.hideAfterDelay(seconds: 2)
-```
+Implementation rules:
 
-- [ ] **Step 3: Update `handleNewUtterance` to trigger on both speakers**
+- Observe realtime suggestion IDs and streaming state from `coordinator.suggestionEngine`.
+- Fire `onSuggestionPanelContentUpdate` when those values change.
+- If the mini bar still depends on `[Suggestion]` / `isGeneratingSuggestions`, populate those from the compatibility projection exposed by `SuggestionEngine`.
 
-Replace the suggestion trigger block. Change from:
+- [ ] **Step 4: Update `LiveSessionController.handleNewUtterance`**
 
-```swift
-        // Trigger suggestions on THEM utterance
-        if last.speaker == .them {
-            suggestionEngine?.onThemUtterance(last)
-```
+Implementation rules:
 
-To:
+- Call `coordinator.suggestionEngine?.onUtterance(last)` for finalized utterances from either speaker.
+- Keep refinement and meeting-detection behavior unchanged.
+- Use delayed session-write metadata for both speakers as described in Task 9.
 
-```swift
-        // Trigger suggestions on ANY utterance (both speakers)
-        suggestionEngine?.onUtterance(last)
+- [ ] **Step 5: Add panel helper methods in `ContentView`**
 
-        if last.speaker == .them {
-```
+Implementation rules:
 
-(Keep the existing session record logic below unchanged)
+- Build panel content from `coordinator.suggestionEngine?.activeSuggestions` and `.isStreaming`.
+- `toggleOverlay()` should toggle the side panel, not recreate the removed `OverlayContent`.
+- Avoid direct session-start/session-stop mutations in `ContentView` beyond calling the controller wrappers.
 
-- [ ] **Step 4: Add panel update task**
-
-In `contentWithEventHandlers`, add a new `.onChange` that updates the panel content when suggestions change. Add after the existing `.onChange(of: transcriptStore.utterances.count)`:
-
-```swift
-        .onChange(of: suggestionEngine?.activeSuggestions.count) {
-            updateSuggestionPanel()
-        }
-        .onChange(of: suggestionEngine?.isStreaming) {
-            updateSuggestionPanel()
-        }
-```
-
-- [ ] **Step 5: Add panel helper methods**
-
-Add these methods to ContentView:
-
-```swift
-    private func showSuggestionPanel() {
-        updateSuggestionPanel()
-        if !overlayManager.isVisible {
-            updateSuggestionPanel()
-        }
-    }
-
-    private func updateSuggestionPanel() {
-        guard settings.suggestionPanelEnabled else { return }
-        let content = SuggestionPanelContent(
-            suggestions: suggestionEngine?.activeSuggestions ?? [],
-            isStreaming: suggestionEngine?.isStreaming ?? false
-        )
-        overlayManager.showSidePanel(content: content)
-    }
-```
-
-- [ ] **Step 6: Update `toggleOverlay` to use the new panel**
-
-Replace the existing `toggleOverlay` method:
-
-```swift
-    private func toggleOverlay() {
-        let content = SuggestionPanelContent(
-            suggestions: suggestionEngine?.activeSuggestions ?? [],
-            isStreaming: suggestionEngine?.isStreaming ?? false
-        )
-        overlayManager.toggle(content: content)
-    }
-```
-
-- [ ] **Step 7: Build to verify**
+- [ ] **Step 6: Build to verify**
 
 Run: `cd /Users/rock/ai/projects/openoats/OpenOats && swift build 2>&1 | tail -5`
-Expected: BUILD SUCCEEDED (warnings about unused `SuggestionsView` and `OverlayContent` are expected)
+Expected: BUILD SUCCEEDED
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add OpenOats/Sources/OpenOats/Views/ContentView.swift
-git commit -m "feat: integrate suggestion panel into ContentView
-
-Replace inline suggestions with floating side panel.
-Trigger suggestions from both speakers.
-Auto-show panel on session start, auto-hide on end."
+git add OpenOats/Sources/OpenOats/App/LiveSessionController.swift OpenOats/Sources/OpenOats/Views/ContentView.swift
+git commit -m "feat: integrate realtime suggestion panel through LiveSessionController"
 ```
 
 ---
@@ -2074,16 +1866,21 @@ Add after the "LLM Provider" section:
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
 
-                if settings.llmProvider == .openRouter {
+                switch settings.llmProvider {
+                case .openRouter:
                     TextField("Speed Model", text: $settings.realtimeModel, prompt: Text("e.g. google/gemini-2.0-flash-001"))
                         .font(.system(size: 12, design: .monospaced))
                     Text("A fast model used for real-time suggestion synthesis. Separate from your main model.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
-                } else {
+                case .ollama:
                     TextField("Speed Model", text: $settings.realtimeOllamaModel, prompt: Text("Leave empty to use main model"))
                         .font(.system(size: 12, design: .monospaced))
                     Text("Optional Ollama model for real-time suggestions. Uses your main model if empty.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                case .mlx, .openAICompatible:
+                    Text("Real-time suggestions currently reuse the active provider model for this provider.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -2104,35 +1901,29 @@ git commit -m "feat: add real-time suggestion settings to SettingsView"
 
 ---
 
-### Task 14: Global Hotkey
+### Task 14: Panel Hotkey
 
 **Files:**
 - Modify: `OpenOats/Sources/OpenOats/App/OpenOatsApp.swift`
+- Modify: `OpenOats/Sources/OpenOats/Views/ContentView.swift`
 
-- [ ] **Step 1: Add Cmd+Shift+O keyboard shortcut**
+- [ ] **Step 1: Extend the existing hotkey infrastructure**
 
-In the `commands` section of the `WindowGroup` scene, add after the "Past Meetings" button:
+Reuse the existing global/local hotkey monitor flow in `AppDelegate` rather than adding a command-only shortcut.
 
-```swift
-                Button("Toggle Suggestion Panel") {
-                    NotificationCenter.default.post(name: .toggleSuggestionPanel, object: nil)
-                }
-                .keyboardShortcut("o", modifiers: [.command, .shift])
-```
+Implementation rules:
 
-- [ ] **Step 2: Add notification name extension**
+- Add a second matcher for `Cmd+Shift+O` alongside the existing meeting toggle hotkey.
+- Ensure both the global and local monitors trigger the same panel-toggle path.
+- Keep the scene command keyboard shortcut aligned with the same key so the shortcut works when the app is focused too.
 
-Add at the bottom of the file:
+- [ ] **Step 2: Add a lightweight toggle signal**
 
-```swift
-extension Notification.Name {
-    static let toggleSuggestionPanel = Notification.Name("toggleSuggestionPanel")
-}
-```
+Use the same signal path for both hotkey monitors and the focused-app command shortcut. A `Notification.Name.toggleSuggestionPanel` helper is acceptable if you want to keep the wiring lightweight.
 
-- [ ] **Step 3: Handle the notification in ContentView**
+- [ ] **Step 3: Handle the toggle in `ContentView`**
 
-In `ContentView.swift`, add to `contentWithEventHandlers`:
+Add the matching receiver to `contentWithEventHandlers` and route it to `toggleOverlay()`.
 
 ```swift
         .onReceive(NotificationCenter.default.publisher(for: .toggleSuggestionPanel)) { _ in
@@ -2149,7 +1940,7 @@ Expected: BUILD SUCCEEDED
 
 ```bash
 git add OpenOats/Sources/OpenOats/App/OpenOatsApp.swift OpenOats/Sources/OpenOats/Views/ContentView.swift
-git commit -m "feat: add Cmd+Shift+O global hotkey to toggle suggestion panel"
+git commit -m "feat: add Cmd+Shift+O hotkey to toggle the realtime suggestion panel"
 ```
 
 ---
