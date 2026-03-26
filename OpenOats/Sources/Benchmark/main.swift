@@ -1,6 +1,10 @@
 /// WhisperKit CoreML Benchmark
 /// Tests whisper models (small, large-v3-turbo) against multilingual audio samples.
 /// Measures WER and CER using the same ground truth as the Python benchmark.
+///
+/// Modes:
+///   --chunked   Compare 5s vs 10s flush intervals (streaming simulation)
+///   (default)   Full-file transcription baseline
 
 import AVFoundation
 import Foundation
@@ -143,12 +147,48 @@ func loadWAV(_ url: URL) throws -> [Float] {
     return Array(UnsafeBufferPointer(start: data[0], count: Int(outBuf.frameLength)))
 }
 
+// MARK: - Audio Chunking
+
+/// Split audio samples into chunks of `seconds` duration at 16kHz sample rate.
+func chunkAudio(_ samples: [Float], seconds: Int) -> [[Float]] {
+    let chunkSize = seconds * 16_000
+    var chunks: [[Float]] = []
+    var offset = 0
+    while offset < samples.count {
+        let end = min(offset + chunkSize, samples.count)
+        chunks.append(Array(samples[offset..<end]))
+        offset = end
+    }
+    return chunks
+}
+
+/// Transcribe audio in fixed-size chunks and concatenate results (simulates streaming flush).
+func transcribeChunked(
+    whisperKit: WhisperKit,
+    audioSamples: [Float],
+    chunkSeconds: Int,
+    options: DecodingOptions
+) async throws -> (text: String, elapsed: Double) {
+    let chunks = chunkAudio(audioSamples, seconds: chunkSeconds)
+    var texts: [String] = []
+    let start = CFAbsoluteTimeGetCurrent()
+    for chunk in chunks {
+        let results = try await whisperKit.transcribe(audioArray: chunk, decodeOptions: options)
+        let text = results.map { $0.text }.joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { texts.append(text) }
+    }
+    let elapsed = CFAbsoluteTimeGetCurrent() - start
+    return (texts.joined(separator: " "), elapsed)
+}
+
 // MARK: - Main
 
 struct Result: Codable {
     let model: String
     let language: String
     let file: String
+    let mode: String
     let wer: Double
     let cer: Double
     let elapsed: Double
@@ -156,18 +196,27 @@ struct Result: Codable {
     let hyp: String
 }
 
+let chunkedMode = CommandLine.arguments.contains("--chunked")
+
 func runBenchmark() async throws {
     do {
         let samplesURL = benchmarkDir.appendingPathComponent("samples.json")
         let data = try Data(contentsOf: samplesURL)
         let samples = try JSONDecoder().decode([Sample].self, from: data)
 
-        log("WhisperKit CoreML Benchmark")
+        if chunkedMode {
+            log("WhisperKit CoreML Benchmark — CHUNKED MODE (5s vs 10s flush interval)")
+        } else {
+            log("WhisperKit CoreML Benchmark")
+        }
         log("Loaded \(samples.count) samples from \(benchmarkDir.path)")
         log("Models: \(modelsToTest.map(\.name).joined(separator: ", "))")
-        log(String(repeating: "=", count: 110))
+        log(String(repeating: "=", count: 120))
 
         var allResults: [Result] = []
+        let modes: [(label: String, chunkSeconds: Int?)] = chunkedMode
+            ? [("full", nil), ("5s", 5), ("10s", 10)]
+            : [("full", nil)]
 
         for (modelName, variant) in modelsToTest {
             log("\n--- Model: \(modelName) (WhisperKit CoreML: \(variant)) ---")
@@ -207,38 +256,52 @@ func runBenchmark() async throws {
                         language: langCode,
                         wordTimestamps: false
                     )
-
-                    let start = CFAbsoluteTimeGetCurrent()
-                    let results = try await whisperKit.transcribe(audioArray: audioSamples, decodeOptions: options)
-                    let elapsed = CFAbsoluteTimeGetCurrent() - start
-
-                    let hypothesis = results.map { $0.text }.joined(separator: " ")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-
                     let refNorm = normalizeText(sample.transcript)
-                    let hypNorm = normalizeText(hypothesis)
+                    let fileName = (wavFile as NSString).lastPathComponent
+                    let durationSec = String(format: "%.1f", Double(audioSamples.count) / 16000.0)
 
-                    let sampleWER = computeWER(reference: refNorm, hypothesis: hypNorm)
-                    let sampleCER = computeCER(reference: refNorm, hypothesis: hypNorm)
+                    log("  [\(sample.language)] \(fileName) (\(durationSec)s audio):")
 
-                    allResults.append(Result(
-                        model: modelName,
-                        language: sample.language,
-                        file: (wavFile as NSString).lastPathComponent,
-                        wer: sampleWER,
-                        cer: sampleCER,
-                        elapsed: elapsed,
-                        ref: String(refNorm.prefix(80)),
-                        hyp: String(hypNorm.prefix(80))
-                    ))
+                    for (modeLabel, chunkSec) in modes {
+                        let hypothesis: String
+                        let elapsed: Double
 
-                    let werPct = String(format: "%.1f%%", sampleWER * 100)
-                    let cerPct = String(format: "%.1f%%", sampleCER * 100)
-                    log("  [\(sample.language)] \((wavFile as NSString).lastPathComponent): WER=\(werPct) CER=\(cerPct) (\(String(format: "%.1f", elapsed))s)")
+                        if let cs = chunkSec {
+                            let result = try await transcribeChunked(
+                                whisperKit: whisperKit,
+                                audioSamples: audioSamples,
+                                chunkSeconds: cs,
+                                options: options
+                            )
+                            hypothesis = result.text
+                            elapsed = result.elapsed
+                        } else {
+                            let start = CFAbsoluteTimeGetCurrent()
+                            let results = try await whisperKit.transcribe(audioArray: audioSamples, decodeOptions: options)
+                            elapsed = CFAbsoluteTimeGetCurrent() - start
+                            hypothesis = results.map { $0.text }.joined(separator: " ")
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
 
-                    if sampleWER > 0.5 {
-                        log("    REF: \(String(refNorm.prefix(100)))")
-                        log("    HYP: \(String(hypNorm.prefix(100)))")
+                        let hypNorm = normalizeText(hypothesis)
+                        let sampleWER = computeWER(reference: refNorm, hypothesis: hypNorm)
+                        let sampleCER = computeCER(reference: refNorm, hypothesis: hypNorm)
+
+                        allResults.append(Result(
+                            model: modelName,
+                            language: sample.language,
+                            file: fileName,
+                            mode: modeLabel,
+                            wer: sampleWER,
+                            cer: sampleCER,
+                            elapsed: elapsed,
+                            ref: String(refNorm.prefix(80)),
+                            hyp: String(hypNorm.prefix(80))
+                        ))
+
+                        let werPct = String(format: "%.1f%%", sampleWER * 100)
+                        let cerPct = String(format: "%.1f%%", sampleCER * 100)
+                        log("    \(modeLabel.padding(toLength: 5, withPad: " ", startingAt: 0)) WER=\(werPct) CER=\(cerPct) (\(String(format: "%.1f", elapsed))s)")
                     }
                 } catch {
                     log("  [\(sample.language)] \(wavFile): ERROR \(error)")
@@ -247,43 +310,82 @@ func runBenchmark() async throws {
         }
 
         // Summary
-        log("\n" + String(repeating: "=", count: 110))
-        log("WHISPERKIT COREML BENCHMARK RESULTS")
-        log(String(repeating: "=", count: 110))
-        log(String(format: "%-20s %-10s %-18s %8s %8s %8s", "Model", "Language", "File", "WER%", "CER%", "Time(s)"))
-        log(String(repeating: "-", count: 110))
+        log("\n" + String(repeating: "=", count: 120))
+        if chunkedMode {
+            log("FLUSH INTERVAL BENCHMARK RESULTS")
+        } else {
+            log("WHISPERKIT COREML BENCHMARK RESULTS")
+        }
+        log(String(repeating: "=", count: 120))
+        log(String(format: "%-20s %-6s %-10s %-18s %8s %8s %8s", "Model", "Mode", "Language", "File", "WER%", "CER%", "Time(s)"))
+        log(String(repeating: "-", count: 120))
 
         for r in allResults {
-            log(String(format: "%-20s %-10s %-18s %7.1f%% %7.1f%% %7.1f",
-                         r.model, r.language, r.file, r.wer * 100, r.cer * 100, r.elapsed))
+            log(String(format: "%-20s %-6s %-10s %-18s %7.1f%% %7.1f%% %7.1f",
+                         r.model, r.mode, r.language, r.file, r.wer * 100, r.cer * 100, r.elapsed))
         }
 
-        // Per-model averages
-        log(String(repeating: "-", count: 110))
+        // Per-model per-mode averages
+        log(String(repeating: "-", count: 120))
         for (modelName, _) in modelsToTest {
             let modelResults = allResults.filter { $0.model == modelName }
-            guard !modelResults.isEmpty else { continue }
-            let avgWER = modelResults.map(\.wer).reduce(0, +) / Double(modelResults.count)
-            let avgCER = modelResults.map(\.cer).reduce(0, +) / Double(modelResults.count)
-            let avgTime = modelResults.map(\.elapsed).reduce(0, +) / Double(modelResults.count)
-            log(String(format: "%-20s %-10s %-18s %7.1f%% %7.1f%% %7.1f",
-                         modelName, "AVG", "", avgWER * 100, avgCER * 100, avgTime))
+            for (modeLabel, _) in modes {
+                let modeResults = modelResults.filter { $0.mode == modeLabel }
+                guard !modeResults.isEmpty else { continue }
+                let avgWER = modeResults.map(\.wer).reduce(0, +) / Double(modeResults.count)
+                let avgCER = modeResults.map(\.cer).reduce(0, +) / Double(modeResults.count)
+                let avgTime = modeResults.map(\.elapsed).reduce(0, +) / Double(modeResults.count)
+                log(String(format: "%-20s %-6s %-10s %-18s %7.1f%% %7.1f%% %7.1f",
+                             modelName, modeLabel, "AVG", "", avgWER * 100, avgCER * 100, avgTime))
+            }
         }
 
-        // Per-model per-language averages
-        log("\n--- Average WER by Language ---")
-        for (modelName, _) in modelsToTest {
-            let modelResults = allResults.filter { $0.model == modelName }
-            let langs = Set(modelResults.map(\.language)).sorted()
-            for lang in langs {
-                let langResults = modelResults.filter { $0.language == lang }
-                let avgWER = langResults.map(\.wer).reduce(0, +) / Double(langResults.count)
-                log(String(format: "  %-20s %-10s WER=%.1f%%", modelName, lang, avgWER * 100))
+        if chunkedMode {
+            // Delta summary: 5s vs 10s
+            log("\n--- WER Delta: 5s vs 10s (positive = 5s is worse) ---")
+            for (modelName, _) in modelsToTest {
+                let modelResults = allResults.filter { $0.model == modelName }
+                let wer5 = modelResults.filter { $0.mode == "5s" }
+                let wer10 = modelResults.filter { $0.mode == "10s" }
+                guard !wer5.isEmpty, !wer10.isEmpty else { continue }
+                let avg5 = wer5.map(\.wer).reduce(0, +) / Double(wer5.count)
+                let avg10 = wer10.map(\.wer).reduce(0, +) / Double(wer10.count)
+                let delta = (avg5 - avg10) * 100
+                let sign = delta >= 0 ? "+" : ""
+                log(String(format: "  %-20s  5s=%.1f%%  10s=%.1f%%  delta=%s%.1fpp",
+                             modelName, avg5 * 100, avg10 * 100, sign, delta))
+
+                // Per-language breakdown
+                let langs = Set(modelResults.map(\.language)).sorted()
+                for lang in langs {
+                    let l5 = modelResults.filter { $0.mode == "5s" && $0.language == lang }
+                    let l10 = modelResults.filter { $0.mode == "10s" && $0.language == lang }
+                    guard !l5.isEmpty, !l10.isEmpty else { continue }
+                    let a5 = l5.map(\.wer).reduce(0, +) / Double(l5.count)
+                    let a10 = l10.map(\.wer).reduce(0, +) / Double(l10.count)
+                    let d = (a5 - a10) * 100
+                    let s = d >= 0 ? "+" : ""
+                    log(String(format: "    %-18s  5s=%.1f%%  10s=%.1f%%  delta=%s%.1fpp",
+                                 lang, a5 * 100, a10 * 100, s, d))
+                }
+            }
+        } else {
+            // Per-model per-language averages
+            log("\n--- Average WER by Language ---")
+            for (modelName, _) in modelsToTest {
+                let modelResults = allResults.filter { $0.model == modelName }
+                let langs = Set(modelResults.map(\.language)).sorted()
+                for lang in langs {
+                    let langResults = modelResults.filter { $0.language == lang }
+                    let avgWER = langResults.map(\.wer).reduce(0, +) / Double(langResults.count)
+                    log(String(format: "  %-20s %-10s WER=%.1f%%", modelName, lang, avgWER * 100))
+                }
             }
         }
 
         // Save results
-        let resultsURL = benchmarkDir.appendingPathComponent("coreml_results.json")
+        let suffix = chunkedMode ? "chunked_results" : "coreml_results"
+        let resultsURL = benchmarkDir.appendingPathComponent("\(suffix).json")
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
         let jsonData = try encoder.encode(allResults)
