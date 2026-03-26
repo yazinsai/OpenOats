@@ -16,6 +16,9 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     /// Called when the user taps "Dismiss".
     var onDismiss: (() -> Void)?
 
+    /// Called when the user taps "Ignore This App".
+    var onIgnoreApp: (() -> Void)?
+
     /// Called when the notification times out (60 seconds).
     var onTimeout: (() -> Void)?
 
@@ -24,6 +27,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     private static let categoryID = "MEETING_DETECTED"
     private static let startAction = "START_TRANSCRIBING"
     private static let notMeetingAction = "NOT_A_MEETING"
+    private static let ignoreAppAction = "IGNORE_APP"
     private static let dismissAction = "DISMISS"
 
     override init() {
@@ -41,6 +45,11 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
             title: "Not a Meeting",
             options: []
         )
+        let ignoreApp = UNNotificationAction(
+            identifier: Self.ignoreAppAction,
+            title: "Ignore This App",
+            options: []
+        )
         let dismiss = UNNotificationAction(
             identifier: Self.dismissAction,
             title: "Dismiss",
@@ -49,7 +58,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
 
         let category = UNNotificationCategory(
             identifier: Self.categoryID,
-            actions: [notMeeting, dismiss],
+            actions: [notMeeting, ignoreApp, dismiss],
             intentIdentifiers: [],
             options: [.customDismissAction]
         )
@@ -177,6 +186,8 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
                 self.onAccept?()
             case Self.notMeetingAction:
                 self.onNotAMeeting?()
+            case Self.ignoreAppAction:
+                self.onIgnoreApp?()
             case Self.dismissAction, UNNotificationDismissActionIdentifier:
                 self.onDismiss?()
             default:

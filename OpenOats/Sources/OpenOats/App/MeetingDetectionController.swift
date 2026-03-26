@@ -139,6 +139,13 @@ final class MeetingDetectionController {
             }
         }
 
+        service.onIgnoreApp = { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                self.handleIgnoreApp()
+            }
+        }
+
         service.onTimeout = { [weak self] in
             guard let self else { return }
             Task { @MainActor in
@@ -326,6 +333,12 @@ final class MeetingDetectionController {
             return
         }
 
+        // Don't prompt for permanently ignored apps
+        if let bundleID = app?.bundleID,
+           activeSettings?.ignoredAppBundleIDs.contains(bundleID) == true {
+            return
+        }
+
         if activeSettings?.detectionLogEnabled == true {
             logger.info("Detected: \(app?.name ?? "unknown", privacy: .public)")
         }
@@ -373,6 +386,23 @@ final class MeetingDetectionController {
 
         if activeSettings?.detectionLogEnabled == true {
             logger.debug("User dismissed as not a meeting")
+        }
+    }
+
+    private func handleIgnoreApp() {
+        Task {
+            if let app = await meetingDetector?.detectedApp, let settings = activeSettings {
+                var ignored = settings.ignoredAppBundleIDs
+                if !ignored.contains(app.bundleID) {
+                    ignored.append(app.bundleID)
+                    settings.ignoredAppBundleIDs = ignored
+                }
+                dismissedEvents.insert(app.bundleID)
+            }
+        }
+
+        if activeSettings?.detectionLogEnabled == true {
+            logger.debug("User chose to ignore this app permanently")
         }
     }
 

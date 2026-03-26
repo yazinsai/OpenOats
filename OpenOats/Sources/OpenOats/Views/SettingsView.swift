@@ -369,6 +369,29 @@ struct SettingsView: View {
                 .font(.system(size: 12))
             }
 
+            if !settings.ignoredAppBundleIDs.isEmpty {
+                Section("Ignored Apps") {
+                    Text("These apps won't trigger meeting detection notifications.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    ForEach(settings.ignoredAppBundleIDs, id: \.self) { bundleID in
+                        HStack {
+                            Text(bundleID)
+                                .font(.system(size: 12, design: .monospaced))
+                            Spacer()
+                            Button {
+                                settings.ignoredAppBundleIDs.removeAll { $0 == bundleID }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Stop ignoring this app")
+                        }
+                    }
+                }
+            }
+
             Section("Updates") {
                 Toggle("Automatically check for updates", isOn: $automaticallyChecksForUpdates)
                 .font(.system(size: 12))

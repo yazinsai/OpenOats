@@ -346,6 +346,17 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _ignoredAppBundleIDs: [String]
+    var ignoredAppBundleIDs: [String] {
+        get { access(keyPath: \.ignoredAppBundleIDs); return _ignoredAppBundleIDs }
+        set {
+            withMutation(keyPath: \.ignoredAppBundleIDs) {
+                _ignoredAppBundleIDs = newValue
+                defaults.set(newValue, forKey: "ignoredAppBundleIDs")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _silenceTimeoutMinutes: Int
     var silenceTimeoutMinutes: Int {
         get { access(keyPath: \.silenceTimeoutMinutes); return _silenceTimeoutMinutes }
@@ -520,6 +531,7 @@ final class SettingsStore {
             self._meetingAutoDetectEnabled = defaults.bool(forKey: "meetingAutoDetectEnabled")
         }
         self._customMeetingAppBundleIDs = defaults.stringArray(forKey: "customMeetingAppBundleIDs") ?? []
+        self._ignoredAppBundleIDs = defaults.stringArray(forKey: "ignoredAppBundleIDs") ?? []
         self._silenceTimeoutMinutes = defaults.object(forKey: "silenceTimeoutMinutes") != nil
             ? defaults.integer(forKey: "silenceTimeoutMinutes") : 15
         self._detectionLogEnabled = defaults.bool(forKey: "detectionLogEnabled")
