@@ -223,24 +223,28 @@ final class AppCoordinator {
                 switch event {
                 case .accepted(let metadata):
                     // Start silence monitoring for auto-detected sessions
-                    if case .appLaunched = metadata.detectionContext?.signal {
+                    if case .appLaunched(let app) = metadata.detectionContext?.signal {
                         controller.startSilenceMonitoring()
+                        controller.startAppExitMonitoring(bundleID: app.bundleID)
                     }
                     self.handle(.userStarted(metadata), settings: self.activeSettings)
                 case .meetingAppExited:
                     if case .recording(let meta) = self.state,
                        case .appLaunched = meta.detectionContext?.signal {
                         controller.stopSilenceMonitoring()
+                        controller.stopAppExitMonitoring()
                         self.handle(.userStopped)
                     }
                 case .silenceTimeout:
                     if case .recording = self.state {
                         controller.stopSilenceMonitoring()
+                        controller.stopAppExitMonitoring()
                         self.handle(.userStopped)
                     }
                 case .systemSleep:
                     if case .recording = self.state {
                         controller.stopSilenceMonitoring()
+                        controller.stopAppExitMonitoring()
                         self.handle(.userStopped)
                     }
                 case .notAMeeting, .dismissed, .timeout:

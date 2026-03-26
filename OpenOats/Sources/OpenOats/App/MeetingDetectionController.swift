@@ -62,6 +62,9 @@ final class MeetingDetectionController {
     /// Task monitoring silence timeout during detected sessions.
     private var silenceCheckTask: Task<Void, Never>?
 
+    /// Task polling for meeting app process exit during recording.
+    private var appExitMonitorTask: Task<Void, Never>?
+
     /// Observer token for system sleep notifications.
     private var sleepObserver: Any?
 
@@ -176,6 +179,9 @@ final class MeetingDetectionController {
         silenceCheckTask = nil
         isMonitoringSilence = false
 
+        appExitMonitorTask?.cancel()
+        appExitMonitorTask = nil
+
         Task {
             await meetingDetector?.stop()
         }
@@ -256,6 +262,42 @@ final class MeetingDetectionController {
     /// Called when a new utterance arrives, resets the silence timer.
     func noteUtterance() {
         lastUtteranceAt = Date()
+    }
+
+    // MARK: - Meeting App Process Monitor
+
+    /// Start polling for meeting app process exit during recording.
+    /// When the meeting app that triggered detection is no longer running,
+    /// yield `.meetingAppExited` so the coordinator can auto-stop.
+    func startAppExitMonitoring(bundleID: String) {
+        appExitMonitorTask?.cancel()
+
+        appExitMonitorTask = Task { [weak self] in
+            // Poll every 5 seconds
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { break }
+                guard let self else { break }
+
+                let isRunning = NSWorkspace.shared.runningApplications.contains {
+                    $0.bundleIdentifier == bundleID
+                }
+
+                if !isRunning {
+                    if self.activeSettings?.detectionLogEnabled == true {
+                        logger.info("Meeting app exited (\(bundleID, privacy: .public)), yielding event")
+                    }
+                    self.eventContinuation.yield(.meetingAppExited)
+                    break
+                }
+            }
+        }
+    }
+
+    /// Stop monitoring for meeting app process exit.
+    func stopAppExitMonitoring() {
+        appExitMonitorTask?.cancel()
+        appExitMonitorTask = nil
     }
 
     // MARK: - Evaluate Immediate

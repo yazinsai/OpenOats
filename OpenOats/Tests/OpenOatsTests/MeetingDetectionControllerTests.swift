@@ -178,4 +178,60 @@ final class MeetingDetectionControllerTests: XCTestCase {
         _ = controller.events
         // Reaching this point means the stream didn't block on init
     }
+
+    // MARK: - App Exit Monitoring
+
+    func testAppExitMonitorYieldsEventWhenAppNotRunning() async throws {
+        let controller = MeetingDetectionController()
+        var receivedEvent: DetectionEvent?
+
+        let consumeTask = Task { @MainActor in
+            for await event in controller.events {
+                receivedEvent = event
+                break
+            }
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+
+        // Use a bundle ID that is definitely not running
+        controller.startAppExitMonitoring(bundleID: "com.test.fake-app-not-running")
+
+        // The monitor polls every 5 seconds; wait for it to fire
+        try await Task.sleep(for: .seconds(6))
+
+        if case .meetingAppExited = receivedEvent {
+            // correct — the monitor detected the app is not running
+        } else {
+            XCTFail("Expected .meetingAppExited, got \(String(describing: receivedEvent))")
+        }
+
+        consumeTask.cancel()
+    }
+
+    func testStopAppExitMonitoringPreventsEvent() async throws {
+        let controller = MeetingDetectionController()
+        var receivedEvent: DetectionEvent?
+
+        let consumeTask = Task { @MainActor in
+            for await event in controller.events {
+                receivedEvent = event
+                break
+            }
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+
+        // Start monitoring then immediately stop
+        controller.startAppExitMonitoring(bundleID: "com.test.fake-app-not-running")
+        controller.stopAppExitMonitoring()
+
+        // Wait past the poll interval
+        try await Task.sleep(for: .seconds(6))
+
+        // No event should have been yielded since we stopped monitoring
+        XCTAssertNil(receivedEvent)
+
+        consumeTask.cancel()
+    }
 }
