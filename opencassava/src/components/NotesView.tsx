@@ -16,6 +16,14 @@ const REGEN_INTERVALS = [
   { value: 600, label: "10 min" },
 ];
 
+function getPlainTextPreview(markdown: string, length: number): string {
+  const withoutCode = markdown.replace(/`[^`]*`/g, "");
+  const withoutLinks = withoutCode.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  const withoutFormatting = withoutLinks.replace(/[*_#>~-]+/g, " ");
+  const collapsedWhitespace = withoutFormatting.replace(/\s+/g, " ").trim();
+  return collapsedWhitespace.slice(0, length);
+}
+
 interface SummarySnapshot {
   timestamp: string;
   markdown: string;
@@ -531,7 +539,7 @@ export function NotesView({ sessionId, initialNotes, onNotesChange, isRunning }:
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {entry.markdown.replace(/<[^>]+>/g, "").slice(0, 60)}
+                        {getPlainTextPreview(entry.markdown, 60)}
                       </div>
                     </button>
                   );
