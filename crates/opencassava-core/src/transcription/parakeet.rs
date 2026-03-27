@@ -39,8 +39,12 @@ impl ParakeetConfig {
     }
 
     pub fn model_stamp_path(&self) -> PathBuf {
-        let device = self.device.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
-        let model = self.model.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+        let device = self
+            .device
+            .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+        let model = self
+            .model
+            .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
         self.runtime_root
             .join(format!("model-{model}-{device}.stamp"))
     }
@@ -538,11 +542,8 @@ mod tests {
     fn speaker_id_parses_none_from_result_object() {
         // send_request returns json["result"] already.
         // Python sends {"speaker_id": null} for short segments.
-        let result_obj: serde_json::Value =
-            serde_json::from_str(r#"{"speaker_id":null}"#).unwrap();
-        let speaker_id: Option<String> = result_obj["speaker_id"]
-            .as_str()
-            .map(|s| s.to_string());
+        let result_obj: serde_json::Value = serde_json::from_str(r#"{"speaker_id":null}"#).unwrap();
+        let speaker_id: Option<String> = result_obj["speaker_id"].as_str().map(|s| s.to_string());
         assert!(speaker_id.is_none());
     }
 
@@ -551,9 +552,7 @@ mod tests {
         // Python sends {"speaker_id": "speaker_0"} on a match.
         let result_obj: serde_json::Value =
             serde_json::from_str(r#"{"speaker_id":"speaker_0"}"#).unwrap();
-        let speaker_id: Option<String> = result_obj["speaker_id"]
-            .as_str()
-            .map(|s| s.to_string());
+        let speaker_id: Option<String> = result_obj["speaker_id"].as_str().map(|s| s.to_string());
         assert_eq!(speaker_id, Some("speaker_0".to_string()));
     }
 }

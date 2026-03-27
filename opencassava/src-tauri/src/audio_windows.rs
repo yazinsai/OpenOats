@@ -305,11 +305,10 @@ mod wasapi_impl {
                     Ok(e) => e,
                     Err(_) => return vec![],
                 };
-            let collection =
-                match enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE) {
-                    Ok(c) => c,
-                    Err(_) => return vec![],
-                };
+            let collection = match enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE) {
+                Ok(c) => c,
+                Err(_) => return vec![],
+            };
             let count = collection.GetCount().unwrap_or(0);
             let friendly_name_key = property_key_from_devprop(DEVPKEY_Device_FriendlyName);
             let mut names = Vec::new();
@@ -344,7 +343,10 @@ mod wasapi_impl {
             Self
         }
 
-        pub fn with_stop_signal(self, _signal: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Self {
+        pub fn with_stop_signal(
+            self,
+            _signal: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        ) -> Self {
             self
         }
     }
@@ -366,5 +368,5 @@ mod wasapi_impl {
     }
 }
 
-pub use wasapi_impl::SystemAudioCapture;
 pub use wasapi_impl::list_render_devices;
+pub use wasapi_impl::SystemAudioCapture;

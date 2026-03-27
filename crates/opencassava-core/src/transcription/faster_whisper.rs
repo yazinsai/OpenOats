@@ -36,11 +36,15 @@ impl FasterWhisperConfig {
     }
 
     pub fn model_stamp_path(&self) -> PathBuf {
-        let device = self.device.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+        let device = self
+            .device
+            .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
         let compute = self
             .compute_type
             .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
-        let model = self.model.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+        let model = self
+            .model
+            .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
         self.runtime_root
             .join(format!("model-{model}-{device}-{compute}.stamp"))
     }
@@ -76,10 +80,10 @@ where
         let python = detect_system_python()?;
         run_command(
             Command::new(&python.command)
-            .args(&python.prefix_args)
-            .arg("-m")
-            .arg("venv")
-            .arg(&config.venv_path),
+                .args(&python.prefix_args)
+                .arg("-m")
+                .arg("venv")
+                .arg(&config.venv_path),
             "create faster-whisper virtual environment",
             on_line.clone(),
         )?;
@@ -88,24 +92,24 @@ where
     let python_path = config.python_path();
     run_command(
         Command::new(&python_path)
-        .arg("-m")
-        .arg("pip")
-        .arg("install")
-        .arg("-v")
-        .arg("--upgrade")
-        .arg("pip"),
+            .arg("-m")
+            .arg("pip")
+            .arg("install")
+            .arg("-v")
+            .arg("--upgrade")
+            .arg("pip"),
         "upgrade pip for faster-whisper",
         on_line.clone(),
     )?;
 
     run_command(
         Command::new(&python_path)
-        .arg("-m")
-        .arg("pip")
-        .arg("install")
-        .arg("-v")
-        .arg("-r")
-        .arg(&config.requirements_path),
+            .arg("-m")
+            .arg("pip")
+            .arg("install")
+            .arg("-v")
+            .arg("-r")
+            .arg(&config.requirements_path),
         "install faster-whisper runtime dependencies",
         on_line,
     )?;

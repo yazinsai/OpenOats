@@ -11,6 +11,7 @@ interface Props {
   onStart: () => void;
   onStop: () => void;
   disabled?: boolean;
+  engineWarming?: boolean;
   kbConnected?: boolean;
   kbFileCount?: number;
   isSuggestionAnalyzing?: boolean;
@@ -50,6 +51,7 @@ export function ControlBar({
   onStart,
   onStop,
   disabled,
+  engineWarming = false,
   kbConnected = false,
   kbFileCount = 0,
   isSuggestionAnalyzing = false,
@@ -299,6 +301,38 @@ export function ControlBar({
         )}
       </button>
 
+      {engineWarming && !isRunning && (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: spacing[2],
+            padding: `${spacing[1]}px ${spacing[2]}px`,
+            background: `${colors.warning}18`,
+            color: colors.warning,
+            borderRadius: 12,
+            fontSize: 11,
+            fontWeight: 500,
+            fontFamily: "SF Mono, Monaco, monospace",
+          }}
+          title="STT engine is loading — record will be available shortly"
+        >
+          <span
+            style={{
+              display: "inline-block",
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              border: `2px solid ${colors.warning}`,
+              borderTopColor: "transparent",
+              animation: "spin 0.8s linear infinite",
+              flexShrink: 0,
+            }}
+          />
+          STT loading…
+        </span>
+      )}
+
       {isBusy && (
         <div style={{ display: "flex", alignItems: "center", gap: spacing[3] }}>
           <span
@@ -370,6 +404,9 @@ export function ControlBar({
         @keyframes pulse {
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.6; transform: scale(0.9); }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
         }
       `}</style>
     </div>

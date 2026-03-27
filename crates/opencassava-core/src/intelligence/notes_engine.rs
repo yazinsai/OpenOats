@@ -7,7 +7,8 @@ pub fn language_response_instruction(locale: &str) -> String {
     if locale.is_empty() || locale == "auto" || locale.starts_with("en") {
         return String::new();
     }
-    "IMPORTANT: Write your entire response in the same language as the transcript above.".to_string()
+    "IMPORTANT: Write your entire response in the same language as the transcript above."
+        .to_string()
 }
 
 const MAX_TRANSCRIPT_CHARS: usize = 60_000;

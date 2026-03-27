@@ -1,8 +1,8 @@
+use num_complex::Complex32;
+use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use num_complex::Complex32;
-use realfft::{RealFftPlanner, RealToComplex, ComplexToReal};
 
 const SAMPLE_RATE: usize = 16_000;
 const DEFAULT_REFERENCE_WINDOW_MS: usize = 1_000;
@@ -18,7 +18,9 @@ const REGULARIZATION: f32 = 1e-6;
 const SILENCE_DECAY_BLOCKS: usize = 50;
 
 fn rms(samples: &[f32]) -> f32 {
-    if samples.is_empty() { return 0.0; }
+    if samples.is_empty() {
+        return 0.0;
+    }
     let mean_sq = samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32;
     mean_sq.sqrt()
 }
@@ -45,7 +47,9 @@ impl EchoReferenceBuffer {
     }
 
     pub fn push_render_chunk(&self, samples: &[f32]) {
-        if samples.is_empty() { return; }
+        if samples.is_empty() {
+            return;
+        }
         let mut inner = self.inner.lock().unwrap();
         for &sample in samples {
             if inner.len() == self.capacity {
@@ -53,7 +57,8 @@ impl EchoReferenceBuffer {
             }
             inner.push_back(sample);
         }
-        self.total_pushed.fetch_add(samples.len(), Ordering::Relaxed);
+        self.total_pushed
+            .fetch_add(samples.len(), Ordering::Relaxed);
     }
 
     fn total_pushed(&self) -> usize {
@@ -68,12 +73,21 @@ impl EchoReferenceBuffer {
             return None;
         }
         let local_start = abs_offset - evicted;
-        Some(inner.iter().skip(local_start).take(BLOCK_SIZE).copied().collect())
+        Some(
+            inner
+                .iter()
+                .skip(local_start)
+                .take(BLOCK_SIZE)
+                .copied()
+                .collect(),
+        )
     }
 }
 
 impl Default for EchoReferenceBuffer {
-    fn default() -> Self { Self::default_window() }
+    fn default() -> Self {
+        Self::default_window()
+    }
 }
 
 struct FreqDomainAec {
@@ -143,8 +157,8 @@ impl FreqDomainAec {
         }
         // Smooth power estimate
         for k in 0..SPEC_SIZE {
-            self.ref_power[k] = POWER_SMOOTH * self.ref_power[k]
-                + (1.0 - POWER_SMOOTH) * total_ref_power[k];
+            self.ref_power[k] =
+                POWER_SMOOTH * self.ref_power[k] + (1.0 - POWER_SMOOTH) * total_ref_power[k];
         }
 
         // Compute echo estimate: sum over partitions of W_p * X_p
@@ -159,7 +173,8 @@ impl FreqDomainAec {
         }
 
         // Error = mic - echo_estimate
-        let error_spec: Vec<Complex32> = mic_spec.iter()
+        let error_spec: Vec<Complex32> = mic_spec
+            .iter()
             .zip(echo_est.iter())
             .map(|(&m, &e)| m - e)
             .collect();
@@ -201,7 +216,10 @@ impl FreqDomainAec {
         let mut time = vec![0.0f32; FFT_SIZE];
         self.fft_inverse.process(&mut spec, &mut time).unwrap();
         let norm = 1.0 / FFT_SIZE as f32;
-        time[BLOCK_SIZE..].iter().map(|&s| (s * norm).clamp(-1.0, 1.0)).collect()
+        time[BLOCK_SIZE..]
+            .iter()
+            .map(|&s| (s * norm).clamp(-1.0, 1.0))
+            .collect()
     }
 
     fn constrain_gradient(&self, gradient: &[Complex32]) -> Vec<Complex32> {
@@ -209,10 +227,16 @@ impl FreqDomainAec {
         let mut time = vec![0.0f32; FFT_SIZE];
         self.fft_inverse.process(&mut spec, &mut time).unwrap();
         let norm = 1.0 / FFT_SIZE as f32;
-        for s in time.iter_mut() { *s *= norm; }
-        for s in time[BLOCK_SIZE..].iter_mut() { *s = 0.0; }
+        for s in time.iter_mut() {
+            *s *= norm;
+        }
+        for s in time[BLOCK_SIZE..].iter_mut() {
+            *s = 0.0;
+        }
         let mut constrained_spec = vec![Complex32::new(0.0, 0.0); SPEC_SIZE];
-        self.fft_forward.process(&mut time, &mut constrained_spec).unwrap();
+        self.fft_forward
+            .process(&mut time, &mut constrained_spec)
+            .unwrap();
         constrained_spec
     }
 }
@@ -322,7 +346,11 @@ mod tests {
         reference.push_render_chunk(&quiet);
         let out = processor.process_chunk(&quiet);
         assert_eq!(out.len(), quiet.len(), "length must be preserved");
-        assert!(chunk_rms(&out) < 1e-6, "output should be silence, got rms={}", chunk_rms(&out));
+        assert!(
+            chunk_rms(&out) < 1e-6,
+            "output should be silence, got rms={}",
+            chunk_rms(&out)
+        );
     }
 
     #[test]
@@ -335,7 +363,11 @@ mod tests {
         let loud: Vec<f32> = (0..480).map(|i| (i as f32 * 0.1).sin() * 0.5).collect();
         reference.push_render_chunk(&loud);
         let out = processor.process_chunk(&loud);
-        assert!(chunk_rms(&out) > 0.1, "loud audio should pass gate, got rms={}", chunk_rms(&out));
+        assert!(
+            chunk_rms(&out) > 0.1,
+            "loud audio should pass gate, got rms={}",
+            chunk_rms(&out)
+        );
     }
 
     #[test]
@@ -347,7 +379,11 @@ mod tests {
         let quiet = vec![0.001f32; 480];
         reference.push_render_chunk(&quiet);
         let out = processor.process_chunk(&quiet);
-        assert!(chunk_rms(&out) > 0.0005, "gate should be open when threshold=0, got rms={}", chunk_rms(&out));
+        assert!(
+            chunk_rms(&out) > 0.0005,
+            "gate should be open when threshold=0, got rms={}",
+            chunk_rms(&out)
+        );
     }
 
     #[test]
@@ -361,24 +397,34 @@ mod tests {
         let loud: Vec<f32> = (0..480).map(|i| (i as f32 * 0.1).sin() * 0.5).collect();
         reference.push_render_chunk(&loud);
         let out_loud = processor.process_chunk(&loud);
-        assert!(chunk_rms(&out_loud) > 0.1, "loud chunk should pass gate, got rms={}", chunk_rms(&out_loud));
+        assert!(
+            chunk_rms(&out_loud) > 0.1,
+            "loud chunk should pass gate, got rms={}",
+            chunk_rms(&out_loud)
+        );
 
         // quiet chunk — rms ~0.003 → below threshold, must be silenced
         let quiet = vec![0.005f32; 480];
         reference.push_render_chunk(&quiet);
         let out_quiet = processor.process_chunk(&quiet);
-        assert!(chunk_rms(&out_quiet) < 1e-6, "quiet chunk should be silenced by gate, got rms={}", chunk_rms(&out_quiet));
+        assert!(
+            chunk_rms(&out_quiet) < 1e-6,
+            "quiet chunk should be silenced by gate, got rms={}",
+            chunk_rms(&out_quiet)
+        );
     }
 
     #[test]
     fn freq_domain_aec_cancels_pure_echo() {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        let render: Vec<f32> = (0..64_000).map(|i| {
-            let mut h = DefaultHasher::new();
-            i.hash(&mut h);
-            (h.finish() as f32 / u64::MAX as f32) * 2.0 - 1.0
-        }).collect();
+        let render: Vec<f32> = (0..64_000)
+            .map(|i| {
+                let mut h = DefaultHasher::new();
+                i.hash(&mut h);
+                (h.finish() as f32 / u64::MAX as f32) * 2.0 - 1.0
+            })
+            .collect();
 
         let delay = 80;
         let mut mic = vec![0.0f32; delay];
@@ -394,7 +440,11 @@ mod tests {
         for (render_chunk, mic_chunk) in render.chunks(chunk_size).zip(mic.chunks(chunk_size)) {
             reference.push_render_chunk(render_chunk);
             let cleaned = processor.process_chunk(mic_chunk);
-            assert_eq!(cleaned.len(), mic_chunk.len(), "output length must match input");
+            assert_eq!(
+                cleaned.len(),
+                mic_chunk.len(),
+                "output length must match input"
+            );
             all_cleaned.extend_from_slice(&cleaned);
         }
 
@@ -402,7 +452,11 @@ mod tests {
         let raw_tail_energy = energy(&mic[tail_start..]);
         let cleaned_tail_energy = energy(&all_cleaned[tail_start..]);
         let ratio = cleaned_tail_energy / raw_tail_energy;
-        assert!(ratio < 0.15, "cleaned energy should be < 15% of raw, got {:.2}%", ratio * 100.0);
+        assert!(
+            ratio < 0.15,
+            "cleaned energy should be < 15% of raw, got {:.2}%",
+            ratio * 100.0
+        );
     }
 
     #[test]
@@ -411,15 +465,18 @@ mod tests {
         let reference = EchoReferenceBuffer::new(1_000);
         let mut processor = MicEchoProcessor::new(reference.clone());
 
-        let render: Vec<f32> = (0..n).map(|i| {
-            (2.0 * std::f32::consts::PI * 200.0 * i as f32 / 16_000.0).sin() * 0.5
-        }).collect();
+        let render: Vec<f32> = (0..n)
+            .map(|i| (2.0 * std::f32::consts::PI * 200.0 * i as f32 / 16_000.0).sin() * 0.5)
+            .collect();
 
-        let mic: Vec<f32> = (0..n).map(|i| {
-            let local_speech = (2.0 * std::f32::consts::PI * 800.0 * i as f32 / 16_000.0).sin() * 0.4;
-            let echo = (2.0 * std::f32::consts::PI * 200.0 * i as f32 / 16_000.0).sin() * 0.3;
-            local_speech + echo
-        }).collect();
+        let mic: Vec<f32> = (0..n)
+            .map(|i| {
+                let local_speech =
+                    (2.0 * std::f32::consts::PI * 800.0 * i as f32 / 16_000.0).sin() * 0.4;
+                let echo = (2.0 * std::f32::consts::PI * 200.0 * i as f32 / 16_000.0).sin() * 0.3;
+                local_speech + echo
+            })
+            .collect();
 
         let chunk_size = 480;
         let mut all_cleaned = Vec::new();
@@ -430,14 +487,18 @@ mod tests {
         }
 
         let tail_start = 32_000;
-        let local_only: Vec<f32> = (tail_start..n).map(|i| {
-            (2.0 * std::f32::consts::PI * 800.0 * i as f32 / 16_000.0).sin() * 0.4
-        }).collect();
+        let local_only: Vec<f32> = (tail_start..n)
+            .map(|i| (2.0 * std::f32::consts::PI * 800.0 * i as f32 / 16_000.0).sin() * 0.4)
+            .collect();
 
         let local_energy = energy(&local_only);
         let cleaned_energy = energy(&all_cleaned[tail_start..]);
         let ratio = cleaned_energy / local_energy;
-        assert!(ratio > 0.70, "local speech energy should be > 70% preserved, got {:.2}%", ratio * 100.0);
+        assert!(
+            ratio > 0.70,
+            "local speech energy should be > 70% preserved, got {:.2}%",
+            ratio * 100.0
+        );
     }
 
     #[test]
@@ -453,11 +514,13 @@ mod tests {
 
         for block_idx in 0..200 {
             let offset = block_idx * BLOCK_SIZE;
-            let render: Vec<f32> = (0..BLOCK_SIZE).map(|i| {
-                let mut h = DefaultHasher::new();
-                (offset + i).hash(&mut h);
-                (h.finish() as f32 / u64::MAX as f32) * 2.0 - 1.0
-            }).collect();
+            let render: Vec<f32> = (0..BLOCK_SIZE)
+                .map(|i| {
+                    let mut h = DefaultHasher::new();
+                    (offset + i).hash(&mut h);
+                    (h.finish() as f32 / u64::MAX as f32) * 2.0 - 1.0
+                })
+                .collect();
             let mic: Vec<f32> = render.iter().map(|&s| s * 0.5).collect();
 
             reference.push_render_chunk(&render);
@@ -472,7 +535,12 @@ mod tests {
 
         let block = converged_at_block.expect("filter never converged to 15dB suppression");
         let ms = block * BLOCK_SIZE * 1000 / SAMPLE_RATE;
-        assert!(block < 25, "should converge within 25 blocks (400ms), converged at block {} ({}ms)", block, ms);
+        assert!(
+            block < 25,
+            "should converge within 25 blocks (400ms), converged at block {} ({}ms)",
+            block,
+            ms
+        );
     }
 
     #[test]
@@ -489,7 +557,12 @@ mod tests {
             let mic = vec![0.05f32; size];
             reference.push_render_chunk(&render);
             let cleaned = processor.process_chunk(&mic);
-            assert_eq!(cleaned.len(), size, "output length must match input length {}", size);
+            assert_eq!(
+                cleaned.len(),
+                size,
+                "output length must match input length {}",
+                size
+            );
             total_in += size;
             total_out += cleaned.len();
         }
@@ -507,11 +580,13 @@ mod tests {
         let n = 64_000;
         let delay = 2400;
 
-        let render: Vec<f32> = (0..n).map(|i| {
-            let mut h = DefaultHasher::new();
-            i.hash(&mut h);
-            (h.finish() as f32 / u64::MAX as f32) * 2.0 - 1.0
-        }).collect();
+        let render: Vec<f32> = (0..n)
+            .map(|i| {
+                let mut h = DefaultHasher::new();
+                i.hash(&mut h);
+                (h.finish() as f32 / u64::MAX as f32) * 2.0 - 1.0
+            })
+            .collect();
 
         let mut mic = vec![0.0f32; delay];
         mic.extend(render.iter().map(|&s| s * 0.5));
@@ -529,7 +604,11 @@ mod tests {
         let raw_e = energy(&mic[tail_start..]);
         let clean_e = energy(&all_cleaned[tail_start..]);
         let ratio = clean_e / raw_e;
-        assert!(ratio < 0.20, "delayed echo energy should be < 20% after convergence, got {:.2}%", ratio * 100.0);
+        assert!(
+            ratio < 0.20,
+            "delayed echo energy should be < 20% after convergence, got {:.2}%",
+            ratio * 100.0
+        );
     }
 
     #[test]
@@ -540,9 +619,7 @@ mod tests {
         let silence = vec![0.0f32; 4800];
         reference.push_render_chunk(&silence);
 
-        let mic: Vec<f32> = (0..4800).map(|i| {
-            ((i as f32) * 0.11).sin() * 0.3
-        }).collect();
+        let mic: Vec<f32> = (0..4800).map(|i| ((i as f32) * 0.11).sin() * 0.3).collect();
 
         let mut all_cleaned = Vec::new();
         for chunk in mic.chunks(480) {
@@ -552,7 +629,11 @@ mod tests {
         }
 
         let ratio = energy(&all_cleaned) / energy(&mic);
-        assert!(ratio > 0.95, "mic should pass through when reference silent, got {:.2}%", ratio * 100.0);
+        assert!(
+            ratio > 0.95,
+            "mic should pass through when reference silent, got {:.2}%",
+            ratio * 100.0
+        );
     }
 
     #[test]
@@ -565,11 +646,13 @@ mod tests {
 
         for i in 0..125 {
             let offset = i * 256;
-            let render: Vec<f32> = (0..256).map(|j| {
-                let mut h = DefaultHasher::new();
-                (offset + j).hash(&mut h);
-                (h.finish() as f32 / u64::MAX as f32) * 2.0 - 1.0
-            }).collect();
+            let render: Vec<f32> = (0..256)
+                .map(|j| {
+                    let mut h = DefaultHasher::new();
+                    (offset + j).hash(&mut h);
+                    (h.finish() as f32 / u64::MAX as f32) * 2.0 - 1.0
+                })
+                .collect();
             let mic: Vec<f32> = render.iter().map(|&s| s * 0.5).collect();
             reference.push_render_chunk(&render);
             processor.process_chunk(&mic);
@@ -581,9 +664,7 @@ mod tests {
             processor.process_chunk(&silence);
         }
 
-        let new_mic: Vec<f32> = (0..4800).map(|i| {
-            ((i as f32) * 0.07).sin() * 0.3
-        }).collect();
+        let new_mic: Vec<f32> = (0..4800).map(|i| ((i as f32) * 0.07).sin() * 0.3).collect();
         let mut all_cleaned = Vec::new();
         for chunk in new_mic.chunks(480) {
             reference.push_render_chunk(&vec![0.0; chunk.len()]);
@@ -592,7 +673,15 @@ mod tests {
         }
 
         let ratio = energy(&all_cleaned) / energy(&new_mic);
-        assert!(ratio < 1.2, "output should not have artifacts after silence reset, energy ratio {:.2}", ratio);
-        assert!(ratio > 0.7, "output should not be excessively suppressed, energy ratio {:.2}", ratio);
+        assert!(
+            ratio < 1.2,
+            "output should not have artifacts after silence reset, energy ratio {:.2}",
+            ratio
+        );
+        assert!(
+            ratio > 0.7,
+            "output should not be excessively suppressed, energy ratio {:.2}",
+            ratio
+        );
     }
 }

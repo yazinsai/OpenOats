@@ -24,8 +24,12 @@ fn model_url(whisper_model: &str) -> &'static str {
         "small" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
         "small-en" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
         "medium" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
-        "medium-en" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
-        "large-v3-turbo" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+        "medium-en" => {
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin"
+        }
+        "large-v3-turbo" => {
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"
+        }
         _ => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
     }
 }

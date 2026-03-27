@@ -68,7 +68,10 @@ impl TemplateStore {
     }
 
     pub fn reset_to_default(&mut self, id: uuid::Uuid) {
-        if let Some(built_in) = MeetingTemplate::built_ins().into_iter().find(|t| t.id == id) {
+        if let Some(built_in) = MeetingTemplate::built_ins()
+            .into_iter()
+            .find(|t| t.id == id)
+        {
             if let Some(t) = self.templates.iter_mut().find(|t| t.id == id) {
                 *t = built_in;
                 self.save();

@@ -81,6 +81,8 @@ pub fn run() {
                 .map_err(|err| std::io::Error::other(err))?;
             // Pre-warm Parakeet workers so the model is loaded before the user first clicks record.
             engine::warm_parakeet_workers(Arc::clone(&_warmup_state), app.handle().clone());
+            // Pre-warm OmniASR workers for the same reason.
+            engine::warm_omni_asr_workers(Arc::clone(&_warmup_state), app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -144,6 +144,7 @@ function App() {
   const [installLogLines, setInstallLogLines] = useState<string[]>([]);
   const [stopStatusMessage, setStopStatusMessage] = useState<string | null>(null);
   const [parakeetWarming, setParakeetWarming] = useState(false);
+  const [omniAsrWarming, setOmniAsrWarming] = useState(false);
   const [speakerLabels, setSpeakerLabels] = useState<Record<string, string>>({});
 
   const handleRenameParticipant = useCallback((key: string, newName: string) => {
@@ -176,7 +177,7 @@ function App() {
   // Keyboard shortcuts
   useKeyboardShortcuts({
     onStartStop: () => {
-      if (modelState === "ready" && !isStopping) {
+      if (modelState === "ready" && !isStopping && !parakeetWarming && !omniAsrWarming) {
         isRunning ? handleStop() : handleStart();
       }
     },
@@ -311,6 +312,10 @@ function App() {
 
       listen<{ ready: boolean; message: string }>("parakeet-warmup-status", (e) => {
         setParakeetWarming(!e.payload.ready);
+      }),
+
+      listen<{ ready: boolean; message: string }>("omni-asr-warmup-status", (e) => {
+        setOmniAsrWarming(!e.payload.ready);
       }),
     ];
 
@@ -579,7 +584,8 @@ function App() {
         processedSegments={transcriptionProgress.processedSegments}
         onStart={handleStart}
         onStop={handleStop}
-        disabled={isStopping || (parakeetWarming && !isRunning)}
+        disabled={isStopping || ((parakeetWarming || omniAsrWarming) && !isRunning)}
+        engineWarming={(parakeetWarming || omniAsrWarming) && !isRunning}
         kbConnected={kbConnected}
         kbFileCount={0}
         isSuggestionAnalyzing={isGeneratingSuggestion}
@@ -738,29 +744,32 @@ function App() {
           >
             {compactModelName(modelName)}
           </span>
-          <span
-            style={{
-              padding: `${spacing[1]}px ${spacing[2]}px`,
-              background: parakeetWarming && activeSttProvider === "parakeet"
-                ? `${colors.warning}18`
-                : colors.surface,
-              color: parakeetWarming && activeSttProvider === "parakeet"
-                ? colors.warning
-                : colors.them,
-              borderRadius: 12,
-              fontWeight: 500,
-              fontFamily: "SF Mono, Monaco, monospace",
-            }}
-            title={
-              parakeetWarming && activeSttProvider === "parakeet"
-                ? "Parakeet engine is loading — record will be available shortly"
-                : "Active speech-to-text backend"
-            }
-          >
-            {sttProviderLabel(activeSttProvider)} | {activeSttModel} | {transcriptionLocaleLabel(settings?.transcriptionLocale)}
-            {sttStatus?.usingFallback ? " | fallback" : ""}
-            {parakeetWarming && activeSttProvider === "parakeet" ? " · loading..." : ""}
-          </span>
+          {(() => {
+            const isWarming =
+              (parakeetWarming && activeSttProvider === "parakeet") ||
+              (omniAsrWarming && activeSttProvider === "omni-asr");
+            return (
+              <span
+                style={{
+                  padding: `${spacing[1]}px ${spacing[2]}px`,
+                  background: isWarming ? `${colors.warning}18` : colors.surface,
+                  color: isWarming ? colors.warning : colors.them,
+                  borderRadius: 12,
+                  fontWeight: 500,
+                  fontFamily: "SF Mono, Monaco, monospace",
+                }}
+                title={
+                  isWarming
+                    ? `${sttProviderLabel(activeSttProvider)} engine is loading — record will be available shortly`
+                    : "Active speech-to-text backend"
+                }
+              >
+                {sttProviderLabel(activeSttProvider)} | {activeSttModel} | {transcriptionLocaleLabel(settings?.transcriptionLocale)}
+                {sttStatus?.usingFallback ? " | fallback" : ""}
+                {isWarming ? " · loading..." : ""}
+              </span>
+            );
+          })()}
         </div>
 
         <div style={{ display: "flex", gap: spacing[4], flexWrap: "wrap", justifyContent: "center" }}>

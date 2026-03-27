@@ -1,10 +1,7 @@
 use crate::transcription::vad::Vad;
 use futures::Stream;
-use std::sync::{
-    atomic::AtomicBool,
-    Arc,
-};
 use std::sync::mpsc;
+use std::sync::{atomic::AtomicBool, Arc};
 
 pub type OnFinal = Box<dyn Fn(String, Option<String>) + Send + 'static>;
 pub type OnVolatile = Box<dyn Fn(String) + Send + 'static>;
@@ -33,6 +30,7 @@ pub struct StreamingTranscriber {
     on_progress: Option<OnProgress>,
     stop_signal: Option<Arc<AtomicBool>>,
     parakeet_worker: Option<crate::transcription::parakeet::ParakeetWorker>,
+    omni_asr_worker: Option<crate::transcription::omni_asr::OmniAsrWorker>,
     diarization_enabled: bool,
     clear_speakers_on_start: bool,
 }
@@ -47,6 +45,7 @@ impl StreamingTranscriber {
             on_progress: None,
             stop_signal: None,
             parakeet_worker: None,
+            omni_asr_worker: None,
             diarization_enabled: false,
             clear_speakers_on_start: false,
         }
@@ -62,14 +61,27 @@ impl StreamingTranscriber {
             on_progress: None,
             stop_signal: None,
             parakeet_worker: None,
+            omni_asr_worker: None,
             diarization_enabled: false,
             clear_speakers_on_start: false,
         }
     }
 
     /// Attach a pre-warmed Parakeet worker so the model is already loaded when recording starts.
-    pub fn with_parakeet_worker(mut self, worker: crate::transcription::parakeet::ParakeetWorker) -> Self {
+    pub fn with_parakeet_worker(
+        mut self,
+        worker: crate::transcription::parakeet::ParakeetWorker,
+    ) -> Self {
         self.parakeet_worker = Some(worker);
+        self
+    }
+
+    /// Attach a pre-warmed OmniASR worker so the model is already loaded when recording starts.
+    pub fn with_omni_asr_worker(
+        mut self,
+        worker: crate::transcription::omni_asr::OmniAsrWorker,
+    ) -> Self {
+        self.omni_asr_worker = Some(worker);
         self
     }
 
@@ -113,6 +125,7 @@ impl StreamingTranscriber {
         let language = self.language.clone();
         let backend = self.backend.clone();
         let prewarmed_parakeet = self.parakeet_worker;
+        let prewarmed_omni_asr = self.omni_asr_worker;
 
         // Run Whisper on a blocking thread-pool thread so that joining it is
         // async-friendly. Using std::thread::join() inside an async fn would
@@ -144,7 +157,10 @@ impl StreamingTranscriber {
                                     on_progress(SegmentProgress::Processed);
                                 }
                                 if !text.is_empty() {
-                                    log::info!("[transcriber] {}", text.chars().take(80).collect::<String>());
+                                    log::info!(
+                                        "[transcriber] {}",
+                                        text.chars().take(80).collect::<String>()
+                                    );
                                     on_final(text, None);
                                 }
                             }
@@ -153,7 +169,8 @@ impl StreamingTranscriber {
                     }
                 }
                 SttBackend::FasterWhisper(config) => {
-                    match crate::transcription::faster_whisper::FasterWhisperWorker::spawn(&config) {
+                    match crate::transcription::faster_whisper::FasterWhisperWorker::spawn(&config)
+                    {
                         Ok(mut worker) => {
                             for samples in seg_rx.iter() {
                                 match worker.transcribe(&samples, &language) {
@@ -161,7 +178,10 @@ impl StreamingTranscriber {
                                         if let Some(ref on_progress) = progress_for_backend {
                                             on_progress(SegmentProgress::Processed);
                                         }
-                                        log::info!("[transcriber] {}", text.chars().take(80).collect::<String>());
+                                        log::info!(
+                                            "[transcriber] {}",
+                                            text.chars().take(80).collect::<String>()
+                                        );
                                         on_final(text, None);
                                     }
                                     Ok(_) => {
@@ -188,7 +208,9 @@ impl StreamingTranscriber {
                                 Ok(w)
                             }
                             Err(e) => {
-                                log::warn!("[parakeet] pre-warmed worker unhealthy ({e}), spawning fresh");
+                                log::warn!(
+                                    "[parakeet] pre-warmed worker unhealthy ({e}), spawning fresh"
+                                );
                                 crate::transcription::parakeet::ParakeetWorker::spawn(&config)
                             }
                         }
@@ -222,7 +244,8 @@ impl StreamingTranscriber {
                                 if diarization_enabled {
                                     diarization_buf.extend_from_slice(&samples);
                                     if diarization_buf.len() > DIARIZATION_BUF_SAMPLES {
-                                        let excess = diarization_buf.len() - DIARIZATION_BUF_SAMPLES;
+                                        let excess =
+                                            diarization_buf.len() - DIARIZATION_BUF_SAMPLES;
                                         diarization_buf.drain(..excess);
                                     }
                                 }
@@ -231,7 +254,10 @@ impl StreamingTranscriber {
                                         if let Some(ref on_progress) = progress_for_backend {
                                             on_progress(SegmentProgress::Processed);
                                         }
-                                        log::info!("[transcriber] {}", text.chars().take(80).collect::<String>());
+                                        log::info!(
+                                            "[transcriber] {}",
+                                            text.chars().take(80).collect::<String>()
+                                        );
                                         let speaker_id = if diarization_enabled {
                                             match worker.speaker_id(&diarization_buf) {
                                                 Ok(Some(id)) => {
@@ -240,7 +266,9 @@ impl StreamingTranscriber {
                                                 }
                                                 Ok(None) => last_speaker_id.clone(),
                                                 Err(e) => {
-                                                    log::warn!("[diarization] speaker_id error: {e}");
+                                                    log::warn!(
+                                                        "[diarization] speaker_id error: {e}"
+                                                    );
                                                     last_speaker_id.clone()
                                                 }
                                             }
@@ -262,21 +290,42 @@ impl StreamingTranscriber {
                     }
                 }
                 SttBackend::OmniAsr(config) => {
-                    match crate::transcription::omni_asr::OmniAsrWorker::spawn(&config) {
+                    // Acquire a ready worker: use the pre-warmed one if healthy, otherwise
+                    // spawn fresh. The pre-warmed Python process can die between warmup and
+                    // recording start, so we verify it with ensure_model first.
+                    let worker_result = if let Some(mut w) = prewarmed_omni_asr {
+                        match w.ensure_model() {
+                            Ok(_) => {
+                                log::info!("[omni-asr] using pre-warmed worker");
+                                Ok(w)
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "[omni-asr] pre-warmed worker unhealthy ({e}), spawning fresh"
+                                );
+                                crate::transcription::omni_asr::OmniAsrWorker::spawn(&config)
+                            }
+                        }
+                    } else {
+                        crate::transcription::omni_asr::OmniAsrWorker::spawn(&config)
+                    };
+                    match worker_result {
                         Ok(mut worker) => {
-                            // Load the model into memory before entering the audio loop.
-                            // Without this, the first transcribe() call silently blocks
-                            // for 30-60 s while the 1+ GB checkpoint loads.
+                            // No-op if pre-warmed; otherwise loads the 1+ GB checkpoint before
+                            // the first segment arrives so transcription isn't delayed.
                             if let Err(e) = worker.ensure_model() {
                                 log::error!("omni-asr ensure_model failed: {e}");
                             }
                             for samples in seg_rx.iter() {
-                                match worker.transcribe(&samples) {
+                                match worker.transcribe(&samples, &language) {
                                     Ok(text) if !text.is_empty() => {
                                         if let Some(ref on_progress) = progress_for_backend {
                                             on_progress(SegmentProgress::Processed);
                                         }
-                                        log::info!("[transcriber] {}", text.chars().take(80).collect::<String>());
+                                        log::info!(
+                                            "[transcriber] {}",
+                                            text.chars().take(80).collect::<String>()
+                                        );
                                         on_final(text, None);
                                     }
                                     Ok(_) => {
@@ -291,9 +340,7 @@ impl StreamingTranscriber {
                         Err(e) => log::error!("Failed to launch omni-asr worker: {e}"),
                     }
                 }
-                SttBackend::Passthrough => {
-                    for _ in seg_rx.iter() {}
-                }
+                SttBackend::Passthrough => for _ in seg_rx.iter() {},
             }
         });
 
@@ -340,7 +387,9 @@ impl StreamingTranscriber {
                                         on_progress(SegmentProgress::Captured);
                                     }
                                 }
-                                Err(e) => { log::warn!("[vad] seg dropped (end-of-speech): {e}"); }
+                                Err(e) => {
+                                    log::warn!("[vad] seg dropped (end-of-speech): {e}");
+                                }
                             }
                         } else {
                             speech_buf.clear();
@@ -355,7 +404,9 @@ impl StreamingTranscriber {
                                 on_progress(SegmentProgress::Captured);
                             }
                         }
-                        Err(e) => { log::warn!("[vad] seg dropped (flush): {e}"); }
+                        Err(e) => {
+                            log::warn!("[vad] seg dropped (flush): {e}");
+                        }
                     }
                 }
 

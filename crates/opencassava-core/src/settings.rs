@@ -45,10 +45,10 @@ pub struct AppSettings {
 
     #[serde(default = "default_parakeet_device", alias = "parakeet_device")]
     pub parakeet_device: String,
- 
+
     #[serde(default = "default_omni_asr_model", alias = "omni_asr_model")]
     pub omni_asr_model: String,
- 
+
     #[serde(default = "default_omni_asr_device", alias = "omni_asr_device")]
     pub omni_asr_device: String,
 
@@ -147,11 +147,12 @@ impl AppSettings {
         // Migrate old HuggingFace-style omni-asr model names to fairseq2 card names.
         s.omni_asr_model = match s.omni_asr_model.as_str() {
             "facebook/omnilingual-asr-300m" | "omnilingual-asr-300m" => "omniASR_CTC_300M",
-            "facebook/omnilingual-asr-1b"   | "omnilingual-asr-1b"   => "omniASR_CTC_1B",
-            "facebook/omnilingual-asr-3b"   | "omnilingual-asr-3b"   => "omniASR_CTC_3B",
-            "facebook/omnilingual-asr-7b"   | "omnilingual-asr-7b"   => "omniASR_LLM_7B",
+            "facebook/omnilingual-asr-1b" | "omnilingual-asr-1b" => "omniASR_CTC_1B",
+            "facebook/omnilingual-asr-3b" | "omnilingual-asr-3b" => "omniASR_CTC_3B",
+            "facebook/omnilingual-asr-7b" | "omnilingual-asr-7b" => "omniASR_LLM_7B",
             other => other,
-        }.to_string();
+        }
+        .to_string();
         s
     }
 
@@ -480,7 +481,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("nonexistent.json");
         let s = AppSettings::load_from(path);
-        assert!(s.mic_calibration_rms.is_none(), "mic_calibration_rms should default to None");
+        assert!(
+            s.mic_calibration_rms.is_none(),
+            "mic_calibration_rms should default to None"
+        );
         assert!(
             (s.mic_threshold_multiplier - 0.6).abs() < 1e-6,
             "mic_threshold_multiplier should default to 0.6"

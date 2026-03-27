@@ -61,8 +61,12 @@ impl OmniAsrConfig {
     }
 
     pub fn model_stamp_path(&self) -> PathBuf {
-        let device = self.device.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
-        let model = self.model.replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+        let device = self
+            .device
+            .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+        let model = self
+            .model
+            .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
         self.runtime_root
             .join(format!("model-{model}-{device}.stamp"))
     }
@@ -105,6 +109,61 @@ impl OmniAsrConfig {
     }
 }
 
+/// Map a BCP-47 locale like `en-US` or a short ISO code like `en` to the
+/// fairseq2 language code expected by Omni-ASR LLM models.
+/// Returns an empty string for `auto` / unknown locales so the model
+/// auto-detects instead.
+pub fn locale_to_fairseq_lang(locale: &str) -> String {
+    let trimmed = locale.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("auto") {
+        return String::new();
+    }
+
+    if trimmed.contains('_') {
+        return trimmed.to_string();
+    }
+
+    let primary = trimmed
+        .split(['-', '_'])
+        .next()
+        .unwrap_or(trimmed)
+        .to_ascii_lowercase();
+
+    let code = match primary.as_str() {
+        "en" | "eng" => "eng_Latn",
+        "es" | "spa" => "spa_Latn",
+        "fr" | "fra" => "fra_Latn",
+        "de" | "deu" => "deu_Latn",
+        "it" | "ita" => "ita_Latn",
+        "pt" | "por" => "por_Latn",
+        "nl" | "nld" => "nld_Latn",
+        "pl" | "pol" => "pol_Latn",
+        "ru" | "rus" => "rus_Cyrl",
+        "zh" | "zho" => "zho_Hans",
+        "ja" | "jpn" => "jpn_Jpan",
+        "ko" | "kor" => "kor_Hang",
+        "ar" | "ara" => "ara_Arab",
+        "hi" | "hin" => "hin_Deva",
+        "tr" | "tur" => "tur_Latn",
+        "vi" | "vie" => "vie_Latn",
+        "id" | "ind" => "ind_Latn",
+        "sv" | "swe" => "swe_Latn",
+        "da" | "dan" => "dan_Latn",
+        "fi" | "fin" => "fin_Latn",
+        "nb" | "nor" => "nob_Latn",
+        "uk" | "ukr" => "ukr_Cyrl",
+        "cs" | "ces" => "ces_Latn",
+        "sk" | "slk" => "slk_Latn",
+        "ro" | "ron" => "ron_Latn",
+        "hu" | "hun" => "hun_Latn",
+        "el" | "ell" => "ell_Grek",
+        "he" | "heb" => "heb_Hebr",
+        "th" | "tha" => "tha_Thai",
+        _ => return String::new(),
+    };
+
+    code.to_string()
+}
 
 fn install_native_runtime_packages<F>(
     _python_path: &Path,
@@ -172,14 +231,16 @@ pub fn check_wsl2_available() -> Result<(), String> {
         .status();
 
     match wsl_status {
-        Err(_) => return Err(
-            "WSL2 is not installed or not on PATH. \
-            Install it with: wsl --install".into()
-        ),
-        Ok(s) if !s.success() => return Err(
-            "WSL2 is installed but returned an error. \
-            Make sure a Linux distribution is set as the default: wsl --set-default <distro>".into()
-        ),
+        Err(_) => {
+            return Err("WSL2 is not installed or not on PATH. \
+            Install it with: wsl --install"
+                .into())
+        }
+        Ok(s) if !s.success() => {
+            return Err("WSL2 is installed but returned an error. \
+            Make sure a Linux distribution is set as the default: wsl --set-default <distro>"
+                .into())
+        }
         Ok(_) => {}
     }
 
@@ -215,11 +276,10 @@ pub fn check_wsl2_available() -> Result<(), String> {
         Err(_) => false,
     };
     if !venv_ok {
-        return Err(
-            "WSL2 has Python 3 but the 'venv' module is missing. \
+        return Err("WSL2 has Python 3 but the 'venv' module is missing. \
             In your WSL terminal run: sudo apt install -y python3-venv python3-pip\n\
-            (If your Python is 3.12, use: sudo apt install -y python3.12-venv)".into()
-        );
+            (If your Python is 3.12, use: sudo apt install -y python3.12-venv)"
+            .into());
     }
 
     Ok(())
@@ -253,10 +313,14 @@ pub fn check_native_python_available() -> Result<String, String> {
     if cfg!(windows) {
         Err("Python 3 is not installed on Windows. \
             Download it from https://python.org/downloads/ and make sure to check \
-            'Add Python to PATH' during installation.".into())
+            'Add Python to PATH' during installation."
+            .into())
     } else {
-        Err("Python 3 is not installed. Install it with your package manager, \
-            e.g.: sudo apt install python3 python3-venv python3-pip".into())
+        Err(
+            "Python 3 is not installed. Install it with your package manager, \
+            e.g.: sudo apt install python3 python3-venv python3-pip"
+                .into(),
+        )
     }
 }
 
@@ -294,11 +358,12 @@ where
     if config.use_wsl {
         // The WSL venv lives on the Linux-native filesystem — check and clean via WSL.
         let venv = &config.wsl_venv_linux_path;
-        let stale = !venv.is_empty() && Command::new("wsl")
-            .args(["bash", "-c", &format!("test -d '{venv}'")])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+        let stale = !venv.is_empty()
+            && Command::new("wsl")
+                .args(["bash", "-c", &format!("test -d '{venv}'")])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
         if stale {
             on_line("[omni-asr] Removing stale virtual environment...");
             let _ = Command::new("wsl")
@@ -333,8 +398,11 @@ where
     }
 
     if config.use_wsl {
-        fs::write(config.wsl_install_stamp_path(), config.install_stamp_contents())
-            .map_err(|e| e.to_string())?;
+        fs::write(
+            config.wsl_install_stamp_path(),
+            config.install_stamp_contents(),
+        )
+        .map_err(|e| e.to_string())?;
     } else {
         fs::write(config.install_stamp_path(), config.install_stamp_contents())
             .map_err(|e| e.to_string())?;
@@ -364,14 +432,22 @@ where
     let python_path = config.native_python_path();
     run_command(
         Command::new(&python_path)
-            .arg("-m").arg("pip").arg("install").arg("--upgrade").arg("pip"),
+            .arg("-m")
+            .arg("pip")
+            .arg("install")
+            .arg("--upgrade")
+            .arg("pip"),
         "upgrade pip for omni-asr",
         on_line.clone(),
     )?;
     install_native_runtime_packages(&python_path, config.install_variant(), on_line.clone())?;
     run_command(
         Command::new(&python_path)
-            .arg("-m").arg("pip").arg("install").arg("-r").arg(&config.requirements_path),
+            .arg("-m")
+            .arg("pip")
+            .arg("install")
+            .arg("-r")
+            .arg(&config.requirements_path),
         "install omni-asr runtime dependencies",
         on_line,
     )?;
@@ -411,24 +487,37 @@ where
             "On Ubuntu 24.04 with Python 3.12, use:\n",
             "  sudo apt install -y python3.12-venv python3-pip\n\n",
             "Then click 'Set up Omni-ASR' again."
-        ).into());
+        )
+        .into());
     }
     on_line("[omni-asr] python3-venv is available.");
 
     // 1. Create venv inside WSL
-    let create_venv_script = format!(
-        "python3 -m venv '{venv_wsl}' 2>&1 && echo 'venv created'"
-    );
-    run_wsl_command(&create_venv_script, "create omni-asr WSL virtual environment", on_line.clone())?;
+    let create_venv_script = format!("python3 -m venv '{venv_wsl}' 2>&1 && echo 'venv created'");
+    run_wsl_command(
+        &create_venv_script,
+        "create omni-asr WSL virtual environment",
+        on_line.clone(),
+    )?;
 
     // 2. Upgrade pip
-    let upgrade_pip_script = format!(
-        "'{venv_wsl}/bin/python3' -m pip install --upgrade pip"
-    );
-    run_wsl_command(&upgrade_pip_script, "upgrade pip for omni-asr (WSL)", on_line.clone())?;
+    let upgrade_pip_script = format!("'{venv_wsl}/bin/python3' -m pip install --upgrade pip");
+    run_wsl_command(
+        &upgrade_pip_script,
+        "upgrade pip for omni-asr (WSL)",
+        on_line.clone(),
+    )?;
 
-    let torch_index = if install_variant == "cu124" { PYTORCH_CUDA_INDEX } else { PYTORCH_CPU_INDEX };
-    let fairseq2_index = if install_variant == "cu124" { FAIRSEQ2_CUDA_INDEX } else { FAIRSEQ2_CPU_INDEX };
+    let torch_index = if install_variant == "cu124" {
+        PYTORCH_CUDA_INDEX
+    } else {
+        PYTORCH_CPU_INDEX
+    };
+    let fairseq2_index = if install_variant == "cu124" {
+        FAIRSEQ2_CUDA_INDEX
+    } else {
+        FAIRSEQ2_CPU_INDEX
+    };
 
     if install_variant != "cu124" {
         // 3 (CPU). Pre-install torch + torchaudio from the CPU index BEFORE omnilingual-asr
@@ -441,21 +530,33 @@ where
              torch==2.6.0 torchaudio==2.6.0 \
              --index-url {torch_index}"
         );
-        run_wsl_command(&install_torch_cpu, "install torch CPU builds (WSL)", on_line.clone())?;
+        run_wsl_command(
+            &install_torch_cpu,
+            "install torch CPU builds (WSL)",
+            on_line.clone(),
+        )?;
 
         // 4 (CPU). Pre-install fairseq2==0.6 from the Meta index.
         let install_fairseq2 = format!(
             "'{venv_wsl}/bin/python3' -m pip install 'fairseq2==0.6' \
              --extra-index-url {fairseq2_index}"
         );
-        run_wsl_command(&install_fairseq2, "install fairseq2 CPU (WSL)", on_line.clone())?;
+        run_wsl_command(
+            &install_fairseq2,
+            "install fairseq2 CPU (WSL)",
+            on_line.clone(),
+        )?;
     } else {
         // 3 (CUDA). Pre-install fairseq2==0.6 from the CUDA Meta index.
         let install_fairseq2 = format!(
             "'{venv_wsl}/bin/python3' -m pip install 'fairseq2==0.6' \
              --extra-index-url {fairseq2_index}"
         );
-        run_wsl_command(&install_fairseq2, "install fairseq2 CUDA (WSL)", on_line.clone())?;
+        run_wsl_command(
+            &install_fairseq2,
+            "install fairseq2 CUDA (WSL)",
+            on_line.clone(),
+        )?;
     }
 
     // 5. Install all requirements. torch/torchaudio are already installed for the CPU
@@ -464,7 +565,11 @@ where
         "'{venv_wsl}/bin/python3' -m pip install -r '{req_wsl}' \
          --extra-index-url {fairseq2_index}"
     );
-    run_wsl_command(&install_req_script, "install omni-asr dependencies (WSL)", on_line.clone())?;
+    run_wsl_command(
+        &install_req_script,
+        "install omni-asr dependencies (WSL)",
+        on_line.clone(),
+    )?;
 
     if install_variant != "cu124" {
         // 6 (CPU). Best-effort cleanup of stray CUDA packages.
@@ -475,7 +580,11 @@ where
              nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cusolver-cu12 \
              nvidia-cusparse-cu12 2>/dev/null; exit 0"
         );
-        run_wsl_command(&cleanup_cuda_script, "remove stray CUDA packages (WSL)", on_line.clone())?;
+        run_wsl_command(
+            &cleanup_cuda_script,
+            "remove stray CUDA packages (WSL)",
+            on_line.clone(),
+        )?;
     }
 
     // 7. Create libsndfile.so.1 symlink inside the venv so fairseq2n can dlopen it.
@@ -492,7 +601,11 @@ where
           print(str(src)+sys.argv[4]+str(dst))' \
          libsndfile_x86_64.so lib libsndfile.so.1 ' -> '"
     );
-    run_wsl_command(&link_sndfile_script, "link libsndfile.so.1 for fairseq2 (WSL)", on_line.clone())?;
+    run_wsl_command(
+        &link_sndfile_script,
+        "link libsndfile.so.1 for fairseq2 (WSL)",
+        on_line.clone(),
+    )?;
 
     Ok(())
 }
@@ -659,8 +772,13 @@ impl OmniAsrWorker {
         Ok(())
     }
 
-    pub fn transcribe(&mut self, samples: &[f32]) -> Result<String, String> {
-        let lang = self.config.lang.trim();
+    pub fn transcribe(&mut self, samples: &[f32], language: &str) -> Result<String, String> {
+        let request_lang = locale_to_fairseq_lang(language);
+        let lang = if request_lang.is_empty() {
+            self.config.lang.trim()
+        } else {
+            request_lang.as_str()
+        };
         let lang_value = if lang.is_empty() || lang == "auto" {
             serde_json::Value::Null
         } else {
@@ -956,4 +1074,29 @@ fn command_works(command: &str, prefix_args: &[String]) -> bool {
 
 pub fn model_storage_exists(config: &OmniAsrConfig) -> bool {
     config.model_stamp_path().exists()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::locale_to_fairseq_lang;
+
+    #[test]
+    fn maps_bcp47_locales_to_fairseq_codes() {
+        assert_eq!(locale_to_fairseq_lang("en-US"), "eng_Latn");
+        assert_eq!(locale_to_fairseq_lang("es-ES"), "spa_Latn");
+        assert_eq!(locale_to_fairseq_lang("pt-BR"), "por_Latn");
+    }
+
+    #[test]
+    fn preserves_existing_fairseq_codes() {
+        assert_eq!(locale_to_fairseq_lang("eng_Latn"), "eng_Latn");
+        assert_eq!(locale_to_fairseq_lang("ara_Arab"), "ara_Arab");
+    }
+
+    #[test]
+    fn unknown_or_auto_locale_falls_back_to_auto_detect() {
+        assert_eq!(locale_to_fairseq_lang("auto"), "");
+        assert_eq!(locale_to_fairseq_lang(""), "");
+        assert_eq!(locale_to_fairseq_lang("xx-YY"), "");
+    }
 }

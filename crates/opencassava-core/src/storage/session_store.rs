@@ -115,7 +115,8 @@ impl SessionStore {
     }
 
     pub fn load_notes(&self, session_id: &str) -> Option<EnhancedNotes> {
-        self.load_sidecar(session_id).and_then(|sidecar| sidecar.notes)
+        self.load_sidecar(session_id)
+            .and_then(|sidecar| sidecar.notes)
     }
 
     pub fn load_session_index(&self) -> Vec<SessionIndex> {

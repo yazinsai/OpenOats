@@ -9,7 +9,7 @@ pub struct Vad {
 
 impl Vad {
     pub const CHUNK_SIZE: usize = 1_600;
-    pub const SILENCE_END_CHUNKS: usize = 8;  // 800 ms — wait for a real pause, not a breath
+    pub const SILENCE_END_CHUNKS: usize = 8; // 800 ms — wait for a real pause, not a breath
     pub const MIN_SPEECH_SAMPLES: usize = 8_000; // 500 ms minimum before considering a segment
     pub const FLUSH_SAMPLES: usize = 48_000; // 3 s max — long enough for a full phrase
 

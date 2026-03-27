@@ -10,8 +10,7 @@ use opencassava_core::{
     audio::{
         cpal_mic::CpalMicCapture,
         echo_cancel::{EchoReferenceBuffer, MicEchoProcessor},
-        AudioCaptureService,
-        MicCaptureService,
+        AudioCaptureService, MicCaptureService,
     },
     download,
     intelligence::{
@@ -183,6 +182,12 @@ pub struct AppState {
     pub warmed_parakeet_sys: Mutex<Option<ParakeetWorker>>,
     /// True while Parakeet workers are being pre-warmed in the background.
     pub parakeet_warming: Arc<std::sync::atomic::AtomicBool>,
+    /// Pre-warmed OmniASR worker for microphone audio.
+    pub warmed_omni_asr_mic: Mutex<Option<omni_asr::OmniAsrWorker>>,
+    /// Pre-warmed OmniASR worker for system audio.
+    pub warmed_omni_asr_sys: Mutex<Option<omni_asr::OmniAsrWorker>>,
+    /// True while OmniASR workers are being pre-warmed in the background.
+    pub omni_asr_warming: Arc<std::sync::atomic::AtomicBool>,
     pub preview_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     pub preview_stop: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -222,6 +227,9 @@ impl AppState {
             warmed_parakeet_mic: Mutex::new(None),
             warmed_parakeet_sys: Mutex::new(None),
             parakeet_warming: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            warmed_omni_asr_mic: Mutex::new(None),
+            warmed_omni_asr_sys: Mutex::new(None),
+            omni_asr_warming: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             preview_task: Mutex::new(None),
             preview_stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
@@ -236,7 +244,8 @@ impl AppState {
     }
 
     pub fn whisper_model_path_for(_app: &AppHandle, model: &str) -> Result<PathBuf, String> {
-        let provider_path = Self::whisper_models_dir().join(opencassava_core::download::model_filename(model));
+        let provider_path =
+            Self::whisper_models_dir().join(opencassava_core::download::model_filename(model));
         if provider_path.exists() {
             Ok(provider_path)
         } else {
@@ -250,7 +259,9 @@ impl AppState {
     }
 
     pub fn faster_whisper_root() -> PathBuf {
-        Self::persistent_data_dir().join("stt").join("faster-whisper")
+        Self::persistent_data_dir()
+            .join("stt")
+            .join("faster-whisper")
     }
 
     pub fn faster_whisper_config(settings: &AppSettings) -> FasterWhisperConfig {
@@ -308,55 +319,11 @@ impl AppState {
             runtime_root,
             model: settings.omni_asr_model.clone(),
             device: settings.omni_asr_device.clone(),
-            lang: locale_to_omni_asr_lang(&settings.transcription_locale),
+            lang: omni_asr::locale_to_fairseq_lang(&settings.transcription_locale),
             use_wsl,
             wsl_venv_linux_path,
         }
     }
-}
-
-/// Map the app's transcription_locale (ISO 639 / BCP-47 short code) to a
-/// fairseq2 lang code accepted by omnilingual-asr LLM models.
-/// Returns an empty string for "auto" so the pipeline auto-detects.
-fn locale_to_omni_asr_lang(locale: &str) -> String {
-    let l = locale.trim().to_ascii_lowercase();
-    let code = match l.as_str() {
-        "" | "auto"   => return String::new(),
-        "en" | "eng"  => "eng_Latn",
-        "es" | "spa"  => "spa_Latn",
-        "fr" | "fra"  => "fra_Latn",
-        "de" | "deu"  => "deu_Latn",
-        "it" | "ita"  => "ita_Latn",
-        "pt" | "por"  => "por_Latn",
-        "nl" | "nld"  => "nld_Latn",
-        "pl" | "pol"  => "pol_Latn",
-        "ru" | "rus"  => "rus_Cyrl",
-        "zh" | "zho"  => "zho_Hans",
-        "ja" | "jpn"  => "jpn_Jpan",
-        "ko" | "kor"  => "kor_Hang",
-        "ar" | "ara"  => "ara_Arab",
-        "hi" | "hin"  => "hin_Deva",
-        "tr" | "tur"  => "tur_Latn",
-        "vi" | "vie"  => "vie_Latn",
-        "id" | "ind"  => "ind_Latn",
-        "sv" | "swe"  => "swe_Latn",
-        "da" | "dan"  => "dan_Latn",
-        "fi" | "fin"  => "fin_Latn",
-        "nb" | "nor"  => "nob_Latn",
-        "uk" | "ukr"  => "ukr_Cyrl",
-        "cs" | "ces"  => "ces_Latn",
-        "sk" | "slk"  => "slk_Latn",
-        "ro" | "ron"  => "ron_Latn",
-        "hu" | "hun"  => "hun_Latn",
-        "el" | "ell"  => "ell_Grek",
-        "he" | "heb"  => "heb_Hebr",
-        "th" | "tha"  => "tha_Thai",
-        // Pass through if it already looks like a fairseq2 code (e.g. "eng_Latn")
-        other if other.contains('_') => return locale.trim().to_string(),
-        // Unknown locale — fall back to auto-detect
-        _ => return String::new(),
-    };
-    code.to_string()
 }
 
 fn resolve_whisper_model(settings: &AppSettings) -> &'static str {
@@ -397,12 +364,8 @@ fn resolve_whisper_model(settings: &AppSettings) -> &'static str {
         }
         "medium-en" => "medium-en",
         "large-v3-turbo" => "large-v3-turbo",
-        "auto" => {
-            "base"
-        }
-        _ => {
-            "base"
-        }
+        "auto" => "base",
+        _ => "base",
     }
 }
 
@@ -430,10 +393,14 @@ pub fn warm_parakeet_workers(state: Arc<AppState>, app: AppHandle) {
     if state.parakeet_warming.swap(true, Ordering::Relaxed) {
         return;
     }
-    app.emit("parakeet-warmup-status", &ParakeetWarmupStatus {
-        ready: false,
-        message: "Parakeet engine loading...".into(),
-    }).ok();
+    app.emit(
+        "parakeet-warmup-status",
+        &ParakeetWarmupStatus {
+            ready: false,
+            message: "Parakeet engine loading...".into(),
+        },
+    )
+    .ok();
 
     // Counter: decremented by each thread; last one to finish emits "ready".
     let remaining = Arc::new(std::sync::atomic::AtomicU32::new(2));
@@ -464,11 +431,93 @@ pub fn warm_parakeet_workers(state: Arc<AppState>, app: AppHandle) {
             // When the last thread finishes, clear the warming flag and notify the UI.
             if remaining_clone.fetch_sub(1, Ordering::Relaxed) == 1 {
                 state_clone.parakeet_warming.store(false, Ordering::Relaxed);
-                app_clone.emit("parakeet-warmup-status", &ParakeetWarmupStatus {
-                    ready: true,
-                    message: "Parakeet engine ready".into(),
-                }).ok();
+                app_clone
+                    .emit(
+                        "parakeet-warmup-status",
+                        &ParakeetWarmupStatus {
+                            ready: true,
+                            message: "Parakeet engine ready".into(),
+                        },
+                    )
+                    .ok();
                 log::info!("[parakeet] all workers pre-warmed");
+            }
+        });
+    }
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct OmniAsrWarmupStatus {
+    ready: bool,
+    message: String,
+}
+
+/// Spawn background threads to pre-warm OmniASR workers so the model is loaded and ready
+/// before the user clicks record. Emits `omni-asr-warmup-status` events so the UI can show
+/// a loading indicator. Safe to call at any time — does nothing if omni-asr is not configured
+/// or not ready (not installed / model not downloaded).
+pub fn warm_omni_asr_workers(state: Arc<AppState>, app: AppHandle) {
+    let settings = state.settings.lock().unwrap().clone();
+    if selected_stt_provider(&settings) != "omni-asr" {
+        return;
+    }
+    let config = AppState::omni_asr_config(&settings);
+    if !config.is_installed() || !omni_asr::model_storage_exists(&config) {
+        return;
+    }
+    // Don't start a second warmup if one is already in progress.
+    if state.omni_asr_warming.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    app.emit(
+        "omni-asr-warmup-status",
+        &OmniAsrWarmupStatus {
+            ready: false,
+            message: "OmniASR engine loading...".into(),
+        },
+    )
+    .ok();
+
+    // Counter: decremented by each thread; last one to finish emits "ready".
+    let remaining = Arc::new(std::sync::atomic::AtomicU32::new(2));
+
+    for slot_name in ["mic", "sys"] {
+        let state_clone = Arc::clone(&state);
+        let config_clone = config.clone();
+        let app_clone = app.clone();
+        let remaining_clone = Arc::clone(&remaining);
+        let name = slot_name;
+        std::thread::spawn(move || {
+            log::info!("[omni-asr] pre-warming {name} worker...");
+            match omni_asr::OmniAsrWorker::spawn(&config_clone) {
+                Ok(mut worker) => match worker.ensure_model() {
+                    Ok(_) => {
+                        let mut slot = if name == "mic" {
+                            state_clone.warmed_omni_asr_mic.lock().unwrap()
+                        } else {
+                            state_clone.warmed_omni_asr_sys.lock().unwrap()
+                        };
+                        *slot = Some(worker);
+                        log::info!("[omni-asr] {name} worker pre-warmed and ready");
+                    }
+                    Err(e) => log::warn!("[omni-asr] {name} worker ensure_model failed: {e}"),
+                },
+                Err(e) => log::warn!("[omni-asr] failed to pre-warm {name} worker: {e}"),
+            }
+            // When the last thread finishes, clear the warming flag and notify the UI.
+            if remaining_clone.fetch_sub(1, Ordering::Relaxed) == 1 {
+                state_clone.omni_asr_warming.store(false, Ordering::Relaxed);
+                app_clone
+                    .emit(
+                        "omni-asr-warmup-status",
+                        &OmniAsrWarmupStatus {
+                            ready: true,
+                            message: "OmniASR engine ready".into(),
+                        },
+                    )
+                    .ok();
+                log::info!("[omni-asr] all workers pre-warmed");
             }
         });
     }
@@ -492,8 +541,8 @@ fn resolve_stt_status(app: &AppHandle, settings: &AppSettings) -> SttStatusPaylo
 
     if selected_provider == "faster-whisper" {
         let config = AppState::faster_whisper_config(settings);
-        let selected_ready =
-            faster_whisper::health_check(&config).is_ok() && faster_whisper::model_storage_exists(&config);
+        let selected_ready = faster_whisper::health_check(&config).is_ok()
+            && faster_whisper::model_storage_exists(&config);
 
         if selected_ready {
             return SttStatusPayload {
@@ -591,8 +640,7 @@ fn resolve_stt_status(app: &AppHandle, settings: &AppSettings) -> SttStatusPaylo
     if selected_provider == "omni-asr" {
         let config = AppState::omni_asr_config(settings);
         let selected_ready =
-            omni_asr::health_check(&config).is_ok()
-                && omni_asr::model_storage_exists(&config);
+            omni_asr::health_check(&config).is_ok() && omni_asr::model_storage_exists(&config);
 
         if selected_ready {
             return SttStatusPayload {
@@ -691,11 +739,7 @@ fn resolve_stt_backend(
 fn resolve_transcription_language(settings: &AppSettings, model: &str) -> String {
     let locale = settings.transcription_locale.trim().to_ascii_lowercase();
     if !locale.is_empty() && locale != "auto" {
-        return locale
-            .split('-')
-            .next()
-            .unwrap_or("en")
-            .to_string();
+        return locale.split('-').next().unwrap_or("en").to_string();
     }
 
     if model.ends_with("-en") {
@@ -813,7 +857,9 @@ fn normalize_for_echo(text: &str) -> String {
 /// Returns true if any sliding window of `n` consecutive words from `them_words`
 /// appears verbatim as a substring in `mic_text`.
 fn has_shared_ngram(them_words: &[&str], mic_text: &str, n: usize) -> bool {
-    them_words.windows(n).any(|w| mic_text.contains(&w.join(" ")))
+    them_words
+        .windows(n)
+        .any(|w| mic_text.contains(&w.join(" ")))
 }
 
 /// Jaccard similarity over word sets of two normalized strings.
@@ -984,10 +1030,12 @@ pub fn save_settings(
     s.save();
     let hide_from_screen_share = s.hide_from_screen_share;
     drop(s);
-    // Drop any pre-warmed Parakeet workers so they don't carry stale config
+    // Drop any pre-warmed workers so they don't carry stale config
     // (e.g. old language) into the next recording session.
     *state.warmed_parakeet_mic.lock().unwrap() = None;
     *state.warmed_parakeet_sys.lock().unwrap() = None;
+    *state.warmed_omni_asr_mic.lock().unwrap() = None;
+    *state.warmed_omni_asr_sys.lock().unwrap() = None;
     set_content_protection(app, hide_from_screen_share)?;
     Ok(())
 }
@@ -1018,12 +1066,19 @@ pub fn start_transcription(
             "Parakeet engine is still loading — please wait a moment and try again.".into(),
         );
     }
+    if selected_stt_provider(&settings) == "omni-asr"
+        && state.omni_asr_warming.load(Ordering::Relaxed)
+    {
+        return Err("OmniASR engine is still loading — please wait a moment and try again.".into());
+    }
 
     let (backend, language, stt_status) = resolve_stt_backend(&app, &settings)?;
 
-    // Take any pre-warmed Parakeet workers so they can be handed to the transcribers.
+    // Take any pre-warmed workers so they can be handed to the transcribers.
     let warmed_mic = state.warmed_parakeet_mic.lock().unwrap().take();
     let warmed_sys = state.warmed_parakeet_sys.lock().unwrap().take();
+    let warmed_omni_mic = state.warmed_omni_asr_mic.lock().unwrap().take();
+    let warmed_omni_sys = state.warmed_omni_asr_sys.lock().unwrap().take();
 
     let mut running = state.is_running.lock().unwrap();
     if *running {
@@ -1223,13 +1278,16 @@ pub fn start_transcription(
             });
             let mut transcriber =
                 StreamingTranscriber::new(them_backend, them_lang, Box::new(on_them))
-                .with_volatile(Box::new(on_them_vol))
-                .with_progress(on_them_progress)
-                .with_stop_signal(Arc::clone(&them_state.stop_requested))
-                .with_diarization(settings.diarization_enabled)
-                .with_clear_speakers_on_start(true);
+                    .with_volatile(Box::new(on_them_vol))
+                    .with_progress(on_them_progress)
+                    .with_stop_signal(Arc::clone(&them_state.stop_requested))
+                    .with_diarization(settings.diarization_enabled)
+                    .with_clear_speakers_on_start(true);
             if let Some(worker) = warmed_sys {
                 transcriber = transcriber.with_parakeet_worker(worker);
+            }
+            if let Some(worker) = warmed_omni_sys {
+                transcriber = transcriber.with_omni_asr_worker(worker);
             }
             transcriber.run(them_stream_leveled).await;
         });
@@ -1250,8 +1308,8 @@ pub fn start_transcription(
                     break;
                 }
 
-                let cutoff = chrono::Utc::now()
-                    - chrono::Duration::seconds(suggestion_context_window_secs);
+                let cutoff =
+                    chrono::Utc::now() - chrono::Duration::seconds(suggestion_context_window_secs);
                 let recent_buf = suggestion_recent_utterances
                     .lock()
                     .unwrap()
@@ -1294,8 +1352,10 @@ pub fn start_transcription(
                 {
                     let mut engine = suggestion_state.suggestion_engine.lock().await;
                     engine.kb_surfacing_system_prompt = settings.kb_surfacing_system_prompt.clone();
-                    engine.suggestion_synthesis_system_prompt = settings.suggestion_synthesis_system_prompt.clone();
-                    engine.smart_question_system_prompt = settings.smart_question_system_prompt.clone();
+                    engine.suggestion_synthesis_system_prompt =
+                        settings.suggestion_synthesis_system_prompt.clone();
+                    engine.smart_question_system_prompt =
+                        settings.smart_question_system_prompt.clone();
                     engine.response_language = settings.transcription_locale.clone();
                 }
                 let (embed_url, embed_key, embed_model) = embed_config(&settings);
@@ -1417,14 +1477,14 @@ pub fn start_transcription(
         // Share stop_requested as the mic's finished signal so that when stop
         // is clicked the CPAL callback drops its sender, closing the channel
         // and letting the transcriber drain every buffered chunk before halting.
-        let mic = CpalMicCapture::new()
-            .with_stop_signal(Arc::clone(&state_clone.stop_requested));
+        let mic = CpalMicCapture::new().with_stop_signal(Arc::clone(&state_clone.stop_requested));
         let mic_stream = mic.buffer_stream_for_device(device_name.as_deref());
         use futures::StreamExt;
         let mic_level_w = Arc::clone(&state_clone.mic_level);
         let mut echo_processor = MicEchoProcessor::new(echo_reference.clone());
         echo_processor.set_enabled(settings.echo_cancellation_enabled);
-        let mic_gate_threshold = settings.mic_calibration_rms.unwrap_or(0.0) * settings.mic_threshold_multiplier;
+        let mic_gate_threshold =
+            settings.mic_calibration_rms.unwrap_or(0.0) * settings.mic_threshold_multiplier;
         echo_processor.set_threshold(mic_gate_threshold);
         let mic_stream_leveled = mic_stream.map(move |chunk: Vec<f32>| {
             let cleaned = echo_processor.process_chunk(&chunk);
@@ -1532,6 +1592,9 @@ pub fn start_transcription(
             .with_clear_speakers_on_start(false);
         if let Some(worker) = warmed_mic {
             transcriber = transcriber.with_parakeet_worker(worker);
+        }
+        if let Some(worker) = warmed_omni_mic {
+            transcriber = transcriber.with_omni_asr_worker(worker);
         }
         transcriber.run(mic_stream_leveled).await;
     });
@@ -1644,7 +1707,10 @@ pub async fn download_stt_model(
             "stt-setup-status",
             &SttSetupStatusPayload {
                 stage: "model".into(),
-                message: format!("Downloading or loading faster-whisper model {}...", config.model),
+                message: format!(
+                    "Downloading or loading faster-whisper model {}...",
+                    config.model
+                ),
             },
         )
         .ok();
@@ -1680,7 +1746,8 @@ pub async fn download_stt_model(
             "stt-setup-status",
             &SttSetupStatusPayload {
                 stage: "venv".into(),
-                message: "Creating and updating the Python environment (this may take a while)...".into(),
+                message: "Creating and updating the Python environment (this may take a while)..."
+                    .into(),
             },
         )
         .ok();
@@ -1971,10 +2038,7 @@ pub fn show_overlay_preview(
 }
 
 #[tauri::command]
-pub fn hide_overlay(
-    app: AppHandle,
-    state: tauri::State<'_, Arc<AppState>>,
-) -> Result<(), String> {
+pub fn hide_overlay(app: AppHandle, state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
     *state.overlay_suggestion.lock().unwrap() = None;
     if let Some(w) = app.get_webview_window(OVERLAY_LABEL) {
         w.hide().map_err(|e| e.to_string())?;
@@ -1983,9 +2047,7 @@ pub fn hide_overlay(
 }
 
 #[tauri::command]
-pub fn get_overlay_suggestion(
-    state: tauri::State<'_, Arc<AppState>>,
-) -> Option<SuggestionPayload> {
+pub fn get_overlay_suggestion(state: tauri::State<'_, Arc<AppState>>) -> Option<SuggestionPayload> {
     state.overlay_suggestion.lock().unwrap().clone()
 }
 
@@ -2043,10 +2105,7 @@ pub fn list_sessions(
 }
 
 #[tauri::command]
-pub fn load_session(
-    id: String,
-    state: tauri::State<'_, Arc<AppState>>,
-) -> SessionDetailsPayload {
+pub fn load_session(id: String, state: tauri::State<'_, Arc<AppState>>) -> SessionDetailsPayload {
     let store = state.session_store.lock().unwrap();
     SessionDetailsPayload {
         transcript: store.load_transcript(&id),
@@ -2102,7 +2161,7 @@ pub async fn save_transcript(
     default_name: String,
 ) -> Result<(), String> {
     use tauri_plugin_dialog::DialogExt;
-    
+
     let file_path = tokio::task::spawn_blocking(move || {
         app.dialog()
             .file()
@@ -2115,9 +2174,11 @@ pub async fn save_transcript(
     .await
     .map_err(|e| e.to_string())?
     .ok_or("No file selected")?;
-    
+
     let path = file_path.into_path().map_err(|e| e.to_string())?;
-    tokio::fs::write(&path, content).await.map_err(|e| e.to_string())?;
+    tokio::fs::write(&path, content)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -2217,10 +2278,7 @@ pub async fn calibrate_mic_threshold(
                 stop2.store(true, Ordering::Relaxed);
                 break;
             }
-            match tokio::time::timeout(
-                std::time::Duration::from_millis(500),
-                stream.next(),
-            ).await {
+            match tokio::time::timeout(std::time::Duration::from_millis(500), stream.next()).await {
                 Ok(Some(chunk)) => {
                     accum.extend_from_slice(&chunk);
                     while accum.len() >= 256 {
@@ -2232,7 +2290,9 @@ pub async fn calibrate_mic_threshold(
             }
         }
         rmses
-    }).await.map_err(|e| format!("Capture task failed: {e}"))?;
+    })
+    .await
+    .map_err(|e| format!("Capture task failed: {e}"))?;
 
     if block_rmses.is_empty() {
         return Err("No audio captured — check your microphone".into());
@@ -2296,7 +2356,11 @@ mod tests {
         let vals = vec![0.1f32, 0.5, 0.3, 0.8, 0.2];
         // top 30% of 5 = ceil(1.5) = 2 items → sorted desc [0.8, 0.5] → mean = 0.65
         let result = top_percentile_mean(&vals, 0.30);
-        assert!((result - 0.65).abs() < 1e-5, "expected 0.65, got {}", result);
+        assert!(
+            (result - 0.65).abs() < 1e-5,
+            "expected 0.65, got {}",
+            result
+        );
     }
 
     #[test]
@@ -2308,7 +2372,11 @@ mod tests {
     fn top_percentile_mean_all_items_when_percentile_is_one() {
         let vals = vec![0.2f32, 0.4, 0.6];
         let result = top_percentile_mean(&vals, 1.0);
-        assert!((result - (0.2 + 0.4 + 0.6) / 3.0).abs() < 1e-5, "got {}", result);
+        assert!(
+            (result - (0.2 + 0.4 + 0.6) / 3.0).abs() < 1e-5,
+            "got {}",
+            result
+        );
     }
 }
 

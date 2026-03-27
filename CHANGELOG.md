@@ -76,6 +76,10 @@ series of cascading installation and runtime issues discovered during testing.
   short/noisy clips), the result is silently dropped instead of surfaced as
   garbage text.
 
+- **Recommendation updated** - Omni-ASR remains available, but it is not the
+  recommended engine for this release. Parakeet is the preferred STT backend
+  and our current recommendation for day-to-day use.
+
 ### Bug fixes
 
 - **UTF-8 panic in log pump** — `pump_stderr` panicked when a Unicode progress-bar

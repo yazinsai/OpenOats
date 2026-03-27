@@ -20,11 +20,8 @@ mod macos_impl {
         output::{CMSampleBuffer, CMSampleBufferRef},
         shareable_content::SCShareableContent,
         stream::{
-            configuration::SCStreamConfiguration,
-            content_filter::SCContentFilter,
-            output_trait::SCStreamOutputTrait,
-            output_type::SCStreamOutputType,
-            SCStream,
+            configuration::SCStreamConfiguration, content_filter::SCContentFilter,
+            output_trait::SCStreamOutputTrait, output_type::SCStreamOutputType, SCStream,
         },
     };
     use std::sync::{
@@ -206,8 +203,7 @@ mod macos_impl {
                 .next()
                 .ok_or("No display found for ScreenCaptureKit audio")?;
 
-            let filter =
-                SCContentFilter::new().with_display_excluding_windows(&display, &[]);
+            let filter = SCContentFilter::new().with_display_excluding_windows(&display, &[]);
 
             let config = SCStreamConfiguration::new()
                 .set_captures_audio(true)
