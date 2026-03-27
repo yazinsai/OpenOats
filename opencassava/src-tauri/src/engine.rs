@@ -308,10 +308,55 @@ impl AppState {
             runtime_root,
             model: settings.omni_asr_model.clone(),
             device: settings.omni_asr_device.clone(),
+            lang: locale_to_omni_asr_lang(&settings.transcription_locale),
             use_wsl,
             wsl_venv_linux_path,
         }
     }
+}
+
+/// Map the app's transcription_locale (ISO 639 / BCP-47 short code) to a
+/// fairseq2 lang code accepted by omnilingual-asr LLM models.
+/// Returns an empty string for "auto" so the pipeline auto-detects.
+fn locale_to_omni_asr_lang(locale: &str) -> String {
+    let l = locale.trim().to_ascii_lowercase();
+    let code = match l.as_str() {
+        "" | "auto"   => return String::new(),
+        "en" | "eng"  => "eng_Latn",
+        "es" | "spa"  => "spa_Latn",
+        "fr" | "fra"  => "fra_Latn",
+        "de" | "deu"  => "deu_Latn",
+        "it" | "ita"  => "ita_Latn",
+        "pt" | "por"  => "por_Latn",
+        "nl" | "nld"  => "nld_Latn",
+        "pl" | "pol"  => "pol_Latn",
+        "ru" | "rus"  => "rus_Cyrl",
+        "zh" | "zho"  => "zho_Hans",
+        "ja" | "jpn"  => "jpn_Jpan",
+        "ko" | "kor"  => "kor_Hang",
+        "ar" | "ara"  => "ara_Arab",
+        "hi" | "hin"  => "hin_Deva",
+        "tr" | "tur"  => "tur_Latn",
+        "vi" | "vie"  => "vie_Latn",
+        "id" | "ind"  => "ind_Latn",
+        "sv" | "swe"  => "swe_Latn",
+        "da" | "dan"  => "dan_Latn",
+        "fi" | "fin"  => "fin_Latn",
+        "nb" | "nor"  => "nob_Latn",
+        "uk" | "ukr"  => "ukr_Cyrl",
+        "cs" | "ces"  => "ces_Latn",
+        "sk" | "slk"  => "slk_Latn",
+        "ro" | "ron"  => "ron_Latn",
+        "hu" | "hun"  => "hun_Latn",
+        "el" | "ell"  => "ell_Grek",
+        "he" | "heb"  => "heb_Hebr",
+        "th" | "tha"  => "tha_Thai",
+        // Pass through if it already looks like a fairseq2 code (e.g. "eng_Latn")
+        other if other.contains('_') => return locale.trim().to_string(),
+        // Unknown locale — fall back to auto-detect
+        _ => return String::new(),
+    };
+    code.to_string()
 }
 
 fn resolve_whisper_model(settings: &AppSettings) -> &'static str {

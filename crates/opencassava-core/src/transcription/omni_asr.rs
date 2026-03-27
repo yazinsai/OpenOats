@@ -25,6 +25,9 @@ pub struct OmniAsrConfig {
     pub models_dir: PathBuf,
     pub model: String,
     pub device: String,
+    /// fairseq2 language code for LLM models (e.g. "eng_Latn").
+    /// "auto" or empty string means no language conditioning (model auto-detects).
+    pub lang: String,
     /// If true, all Python commands are routed through WSL2 (`wsl python3 ...`).
     /// Set automatically to `true` on Windows builds.
     pub use_wsl: bool,
@@ -657,10 +660,17 @@ impl OmniAsrWorker {
     }
 
     pub fn transcribe(&mut self, samples: &[f32]) -> Result<String, String> {
+        let lang = self.config.lang.trim();
+        let lang_value = if lang.is_empty() || lang == "auto" {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::String(lang.to_string())
+        };
         let response = self.send_request(json!({
             "command": "transcribe",
             "model": self.config.model.clone(),
             "device": self.config.device.clone(),
+            "lang": lang_value,
             "samples": samples,
         }))?;
         Ok(response["text"].as_str().unwrap_or_default().to_string())

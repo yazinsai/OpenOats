@@ -38,7 +38,9 @@ def handle_transcribe(payload):
     # Pass as a pre-decoded audio dict — no temp file needed.
     # The pipeline resamples, normalises, and processes from here.
     audio_input = {"waveform": samples, "sample_rate": 16000}
-    results = pipeline.transcribe([audio_input])
+    lang = payload.get("lang")  # fairseq2 code e.g. "eng_Latn", or None for auto
+    lang_list = [lang] if lang else None
+    results = pipeline.transcribe([audio_input], lang=lang_list)
     text = results[0].strip() if results else ""
     emit({"ok": True, "result": {"text": text}})
 
