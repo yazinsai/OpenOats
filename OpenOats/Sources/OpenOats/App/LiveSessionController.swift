@@ -345,6 +345,15 @@ final class LiveSessionController {
             engine: engineName
         )
 
+        // 5b. Fire webhook if configured
+        if let settings {
+            WebhookService.fireIfEnabled(
+                settings: settings,
+                sessionIndex: index,
+                utterances: utterancesSnapshot
+            )
+        }
+
         // 6. Handle audio recording
         if let settings, let recorder = coordinator.audioRecorder {
             let wantsBatch = settings.enableBatchRefinement

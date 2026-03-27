@@ -428,6 +428,41 @@ final class SettingsStore {
         }
     }
 
+    // MARK: - Webhook Settings
+
+    @ObservationIgnored nonisolated(unsafe) private var _webhookEnabled: Bool
+    var webhookEnabled: Bool {
+        get { access(keyPath: \.webhookEnabled); return _webhookEnabled }
+        set {
+            withMutation(keyPath: \.webhookEnabled) {
+                _webhookEnabled = newValue
+                defaults.set(newValue, forKey: "webhookEnabled")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _webhookURL: String
+    var webhookURL: String {
+        get { access(keyPath: \.webhookURL); return _webhookURL }
+        set {
+            withMutation(keyPath: \.webhookURL) {
+                _webhookURL = newValue
+                defaults.set(newValue, forKey: "webhookURL")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _webhookSecret: String
+    var webhookSecret: String {
+        get { access(keyPath: \.webhookSecret); return _webhookSecret }
+        set {
+            withMutation(keyPath: \.webhookSecret) {
+                _webhookSecret = newValue
+                secretStore.save(key: "webhookSecret", value: newValue)
+            }
+        }
+    }
+
     // MARK: - UI Settings
 
     @ObservationIgnored nonisolated(unsafe) private var _showLiveTranscript: Bool
@@ -560,6 +595,11 @@ final class SettingsStore {
 
         // Import Settings
         self._granolaApiKey = storage.secretStore.load(key: "granolaApiKey") ?? ""
+
+        // Webhook Settings
+        self._webhookEnabled = defaults.bool(forKey: "webhookEnabled")
+        self._webhookURL = defaults.string(forKey: "webhookURL") ?? ""
+        self._webhookSecret = storage.secretStore.load(key: "webhookSecret") ?? ""
 
         // UI Settings
         if defaults.object(forKey: "showLiveTranscript") == nil {

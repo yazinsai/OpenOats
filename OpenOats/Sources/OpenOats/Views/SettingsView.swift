@@ -301,6 +301,25 @@ struct SettingsView: View {
                 GranolaImportButton(apiKey: settings.granolaApiKey)
             }
 
+            Section("Webhook") {
+                Toggle("Send webhook when meeting ends", isOn: $settings.webhookEnabled)
+                    .font(.system(size: 12))
+                Text("POST a JSON payload to a URL after each meeting with session metadata and transcript.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                if settings.webhookEnabled {
+                    TextField("URL", text: $settings.webhookURL, prompt: Text("https://example.com/webhook"))
+                        .font(.system(size: 12, design: .monospaced))
+
+                    SecureField("Signing Secret (optional)", text: $settings.webhookSecret)
+                        .font(.system(size: 12, design: .monospaced))
+                    Text("If set, each request includes an X-OpenOats-Signature header (HMAC-SHA256) for payload verification.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Meeting Detection") {
                 Toggle("Auto-detect meetings", isOn: $settings.meetingAutoDetectEnabled)
                     .font(.system(size: 12))
