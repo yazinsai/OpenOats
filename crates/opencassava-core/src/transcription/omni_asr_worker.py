@@ -35,7 +35,8 @@ def _clean_fairseq2_stale_tmp():
                 except OSError:
                     pass
     if removed:
-        print(f"[omni-asr] Removed stale fairseq2 cache tmp file(s): {', '.join(removed)}", flush=True)
+        sys.stderr.write(f"[omni-asr] Removed stale fairseq2 cache tmp file(s): {', '.join(removed)}\n")
+        sys.stderr.flush()
 
 
 def _load_pipeline(model_name, device):
