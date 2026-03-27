@@ -677,6 +677,15 @@ actor SessionRepository {
         writeSessionMetadata(meta, sessionID: sessionID)
     }
 
+    /// Update source and tags for an imported session.
+    func updateSessionSource(sessionID: String, source: String, tags: [String]) {
+        guard var meta = loadSessionMetadataFile(sessionID: sessionID) else { return }
+        meta.source = source
+        let existing = meta.tags ?? []
+        meta.tags = Self.normalizeTags(existing + tags)
+        writeSessionMetadata(meta, sessionID: sessionID)
+    }
+
     /// Collect all unique tags across all sessions for autocomplete.
     func allTags() -> [String] {
         let sessions = listSessions()
