@@ -9,6 +9,9 @@ use std::thread;
 
 const WORKER_SCRIPT: &str = include_str!("omni_asr_worker.py");
 const REQUIREMENTS: &str = include_str!("omni_asr_requirements.txt");
+const TORCH_VERSION: &str = "2.6.0";
+const FAIRSEQ2_CPU_INDEX: &str = "https://fair.pkg.atmeta.com/fairseq2/whl/pt2.6.0/cpu";
+const FAIRSEQ2_CUDA_INDEX: &str = "https://fair.pkg.atmeta.com/fairseq2/whl/pt2.6.0/cu124";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -27,6 +30,18 @@ pub struct OmniAsrConfig {
 }
 
 impl OmniAsrConfig {
+    fn install_variant(&self) -> &'static str {
+        if self.device.trim().eq_ignore_ascii_case("cuda") {
+            "cu124"
+        } else {
+            "cpu"
+        }
+    }
+
+    fn install_stamp_contents(&self) -> String {
+        format!("{REQUIREMENTS}\n# variant={}", self.install_variant())
+    }
+
     /// The stamp file used on native (non-WSL) installs.
     pub fn install_stamp_path(&self) -> PathBuf {
         self.runtime_root.join("install.stamp")
@@ -66,19 +81,88 @@ impl OmniAsrConfig {
     }
 
     pub fn is_installed(&self) -> bool {
+        let stamp_contents = self.install_stamp_contents();
         if self.use_wsl {
             self.wsl_install_stamp_path().exists()
                 && fs::read_to_string(self.wsl_install_stamp_path())
-                    .map(|c| c == REQUIREMENTS)
+                    .map(|c| c == stamp_contents)
                     .unwrap_or(false)
         } else {
             self.native_python_path().exists()
                 && self.install_stamp_path().exists()
                 && fs::read_to_string(self.install_stamp_path())
-                    .map(|c| c == REQUIREMENTS)
+                    .map(|c| c == stamp_contents)
                     .unwrap_or(false)
         }
     }
+}
+
+fn install_wsl_runtime_packages<F>(
+    venv_wsl: &str,
+    variant: &str,
+    on_line: F,
+) -> Result<(), String>
+where
+    F: Fn(&str) + Send + Clone + 'static,
+{
+    let fairseq2_index = if variant == "cu124" {
+        FAIRSEQ2_CUDA_INDEX
+    } else {
+        FAIRSEQ2_CPU_INDEX
+    };
+    let install_script = format!(
+        "{venv_wsl}/bin/python3 -m pip install torch=={TORCH_VERSION} && \
+         {venv_wsl}/bin/python3 -m pip install fairseq2 --extra-index-url {fairseq2_index}"
+    );
+    run_wsl_command(
+        &install_script,
+        &format!("install torch/fairseq2 runtime ({variant}, WSL)"),
+        on_line,
+    )
+}
+
+fn install_native_runtime_packages<F>(
+    python_path: &Path,
+    variant: &str,
+    on_line: F,
+) -> Result<(), String>
+where
+    F: Fn(&str) + Send + Clone + 'static,
+{
+    run_command(
+        Command::new(python_path)
+            .arg("-m")
+            .arg("pip")
+            .arg("install")
+            .arg(format!("torch=={TORCH_VERSION}")),
+        &format!("install torch runtime ({variant})"),
+        on_line.clone(),
+    )?;
+
+    #[cfg(target_os = "linux")]
+    {
+        let fairseq2_index = if variant == "cu124" {
+            FAIRSEQ2_CUDA_INDEX
+        } else {
+            FAIRSEQ2_CPU_INDEX
+        };
+        run_command(
+            Command::new(python_path)
+                .arg("-m")
+                .arg("pip")
+                .arg("install")
+                .arg("fairseq2")
+                .arg("--extra-index-url")
+                .arg(fairseq2_index),
+            &format!("install fairseq2 runtime ({variant})"),
+            on_line,
+        )?;
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    let _ = (variant, on_line);
+
+    Ok(())
 }
 
 // ── Path helpers for WSL2 ────────────────────────────────────────────────────
@@ -209,12 +293,20 @@ where
     config.ensure_files()?;
     let _lock = SetupLock::acquire(config)?;
 
+    if config.venv_path.exists() && !config.is_installed() {
+        on_line("[omni-asr] Removing stale virtual environment...");
+        fs::remove_dir_all(&config.venv_path)
+            .map_err(|e| format!("Failed to remove stale omni-asr environment: {e}"))?;
+    }
+
     if config.use_wsl {
         install_runtime_wsl(config, on_line)?;
-        fs::write(config.wsl_install_stamp_path(), REQUIREMENTS).map_err(|e| e.to_string())?;
+        fs::write(config.wsl_install_stamp_path(), config.install_stamp_contents())
+            .map_err(|e| e.to_string())?;
     } else {
         install_runtime_native(config, on_line)?;
-        fs::write(config.install_stamp_path(), REQUIREMENTS).map_err(|e| e.to_string())?;
+        fs::write(config.install_stamp_path(), config.install_stamp_contents())
+            .map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -245,6 +337,7 @@ where
         "upgrade pip for omni-asr",
         on_line.clone(),
     )?;
+    install_native_runtime_packages(&python_path, config.install_variant(), on_line.clone())?;
     run_command(
         Command::new(&python_path)
             .arg("-m").arg("pip").arg("install").arg("-r").arg(&config.requirements_path),
@@ -261,6 +354,7 @@ where
 {
     let venv_wsl = to_wsl_path(&config.venv_path);
     let req_wsl = to_wsl_path(&config.requirements_path);
+    let install_variant = config.install_variant();
 
     // 0. Pre-flight: verify python3-venv is available before doing anything.
     //    On Debian/Ubuntu python3-venv is a separate package from python3.
@@ -299,7 +393,10 @@ where
     );
     run_wsl_command(&upgrade_pip_script, "upgrade pip for omni-asr (WSL)", on_line.clone())?;
 
-    // 3. Install requirements
+    // 3. Install the torch/fairseq2 pair that matches the requested runtime.
+    install_wsl_runtime_packages(&venv_wsl, install_variant, on_line.clone())?;
+
+    // 4. Install requirements
     let install_req_script = format!(
         "{venv_wsl}/bin/python3 -m pip install -r {req_wsl}"
     );
@@ -323,6 +420,13 @@ where
 // ── Health check ─────────────────────────────────────────────────────────────
 
 pub fn health_check(config: &OmniAsrConfig) -> Result<(), String> {
+    health_check_with_log(config, |_| {})
+}
+
+pub fn health_check_with_log<F>(config: &OmniAsrConfig, on_line: F) -> Result<(), String>
+where
+    F: Fn(&str) + Send + 'static,
+{
     if config.use_wsl {
         check_wsl2_available()?;
     }
@@ -332,7 +436,7 @@ pub fn health_check(config: &OmniAsrConfig) -> Result<(), String> {
     if !config.is_installed() {
         return Err("omni-asr runtime is not installed.".into());
     }
-    let mut worker = OmniAsrWorker::spawn(config)?;
+    let mut worker = OmniAsrWorker::spawn_with_log(config, on_line)?;
     worker.health()?;
     let _ = worker.shutdown();
     Ok(())

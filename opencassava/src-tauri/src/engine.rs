@@ -1703,7 +1703,10 @@ pub async fn download_stt_model(
             },
         )
         .ok();
-        omni_asr::health_check(&config)?;
+        let app_log_health = app.clone();
+        omni_asr::health_check_with_log(&config, move |line| {
+            app_log_health.emit("stt-install-log", line).ok();
+        })?;
         app.emit("model-download-progress", 60).ok();
         app.emit(
             "stt-setup-status",
