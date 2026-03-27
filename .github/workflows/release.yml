@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing tag to build and publish (for example: v1.2.3)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -19,6 +25,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.release_tag || github.ref_name }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -62,6 +70,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.inputs.release_tag || github.ref_name }}
           submodules: recursive
 
       - name: Set up Node.js
@@ -120,6 +129,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.release_tag || github.ref_name }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -185,4 +196,5 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
           files: artifacts/**/*
