@@ -18,7 +18,16 @@ final class SmokeTests: XCTestCase {
         app.activate()
         app.typeKey(",", modifierFlags: .command)
 
+        // Settings window opens on General tab — verify the tab view exists
+        let tabView = element(in: app, identifier: "settings.tabView")
+        XCTAssertTrue(tabView.waitForExistence(timeout: 5))
+
+        // Navigate to Intelligence tab and verify LLM picker
+        app.toolbars.buttons["Intelligence"].click()
         XCTAssertTrue(element(in: app, identifier: "settings.llmProviderPicker").waitForExistence(timeout: 5))
+
+        // Navigate to Transcription tab and verify model picker
+        app.toolbars.buttons["Transcription"].click()
         XCTAssertTrue(element(in: app, identifier: "settings.transcriptionModelPicker").waitForExistence(timeout: 5))
     }
 
