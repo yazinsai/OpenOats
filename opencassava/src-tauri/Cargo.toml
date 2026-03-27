@@ -31,6 +31,7 @@ uuid = { version = "1", features = ["v4"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 screencapturekit = "0.3"
 coreaudio-sys = { version = "0.2", features = ["audio_unit"] }
+core-foundation = "0.10"
 objc2 = "0.5"
 objc2-foundation = "0.2"
 dispatch = "0.2"

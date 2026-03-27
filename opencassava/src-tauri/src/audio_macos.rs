@@ -15,13 +15,17 @@ use std::error::Error;
 #[cfg(target_os = "macos")]
 mod macos_impl {
     use super::*;
+    use core_foundation::base::TCFType;
     use screencapturekit::{
-        sc_content_filter::{InitParams, SCContentFilter},
-        sc_shareable_content::SCShareableContent,
-        sc_stream::SCStream,
-        sc_stream_configuration::SCStreamConfiguration,
-        sc_stream_handler::SCStreamOutputHandler,
-        sc_stream_output_type::SCStreamOutputType,
+        output::{CMSampleBuffer, CMSampleBufferRef},
+        shareable_content::SCShareableContent,
+        stream::{
+            configuration::SCStreamConfiguration,
+            content_filter::SCContentFilter,
+            output_trait::SCStreamOutputTrait,
+            output_type::SCStreamOutputType,
+            SCStream,
+        },
     };
     use std::sync::{
         atomic::{AtomicBool, Ordering},
@@ -32,6 +36,31 @@ mod macos_impl {
     const TARGET_RATE: f64 = 16_000.0;
     const TARGET_CHANNELS: u32 = 1;
 
+    // ── CoreMedia FFI ─────────────────────────────────────────────────────────
+
+    type CMBlockBufferRef = *mut std::ffi::c_void;
+
+    #[link(name = "CoreMedia", kind = "framework")]
+    extern "C" {
+        fn CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sbuf: CMSampleBufferRef,
+            size_needed_out: *mut usize,
+            buffer_list_out: *mut coreaudio_sys::AudioBufferList,
+            buffer_list_size: usize,
+            block_buffer_structure_allocator: *const std::ffi::c_void,
+            block_buffer_block_allocator: *const std::ffi::c_void,
+            flags: u32,
+            block_buffer_out: *mut CMBlockBufferRef,
+        ) -> i32;
+
+        static kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment: u32;
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFRelease(cf: *const std::ffi::c_void);
+    }
+
     // ── Audio buffer extraction ───────────────────────────────────────────────
 
     /// Extract f32 mono samples from a ScreenCaptureKit CMSampleBuffer.
@@ -39,15 +68,8 @@ mod macos_impl {
     /// SCKit delivers Float32 PCM at the configured sample rate. We call
     /// the CoreMedia C function to get the raw AudioBufferList, then
     /// downmix to mono if needed.
-    fn extract_samples(
-        buffer: &screencapturekit::cm_sample_buffer::CMSampleBuffer,
-        channels: u32,
-    ) -> Vec<f32> {
-        use coreaudio_sys::{
-            kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, AudioBufferList,
-            CMBlockBufferRef, CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer,
-            CMSampleBufferRef,
-        };
+    fn extract_samples(buffer: &CMSampleBuffer, channels: u32) -> Vec<f32> {
+        use coreaudio_sys::AudioBufferList;
 
         unsafe {
             let sample_buf_ref: CMSampleBufferRef = buffer.as_concrete_TypeRef();
@@ -88,7 +110,7 @@ mod macos_impl {
             }
 
             // Release the retained block buffer.
-            coreaudio_sys::CFRelease(block_buf as *const _);
+            CFRelease(block_buf);
 
             // Downmix to mono.
             if channels > 1 {
@@ -102,7 +124,7 @@ mod macos_impl {
         }
     }
 
-    // ── SCStreamOutputHandler ─────────────────────────────────────────────────
+    // ── SCStreamOutputTrait ───────────────────────────────────────────────────
 
     struct AudioSampleHandler {
         tx: mpsc::Sender<Vec<f32>>,
@@ -111,10 +133,10 @@ mod macos_impl {
         channels: u32,
     }
 
-    impl SCStreamOutputHandler for AudioSampleHandler {
+    impl SCStreamOutputTrait for AudioSampleHandler {
         fn did_output_sample_buffer(
             &self,
-            buffer: screencapturekit::cm_sample_buffer::CMSampleBuffer,
+            sample_buffer: CMSampleBuffer,
             of_type: SCStreamOutputType,
         ) {
             if of_type != SCStreamOutputType::Audio {
@@ -124,7 +146,7 @@ mod macos_impl {
                 return;
             }
 
-            let samples = extract_samples(&buffer, self.channels);
+            let samples = extract_samples(&sample_buffer, self.channels);
             if samples.is_empty() {
                 return;
             }
@@ -175,15 +197,20 @@ mod macos_impl {
                 .next()
                 .ok_or("No display found for ScreenCaptureKit audio")?;
 
-            let filter = SCContentFilter::new(InitParams::Display(display));
+            let filter =
+                SCContentFilter::new().with_display_excluding_windows(&display, &[]);
 
-            let config = SCStreamConfiguration::new();
-            config.set_captures_audio(true);
-            config.set_sample_rate(TARGET_RATE);
-            config.set_channel_count(TARGET_CHANNELS);
-            // ScreenCaptureKit requires non-zero video dimensions even for audio-only.
-            config.set_width(2);
-            config.set_height(2);
+            let config = SCStreamConfiguration::new()
+                .set_captures_audio(true)
+                .map_err(|e| format!("set_captures_audio: {:?}", e))?
+                .set_sample_rate(TARGET_RATE)
+                .map_err(|e| format!("set_sample_rate: {:?}", e))?
+                .set_channel_count(TARGET_CHANNELS)
+                .map_err(|e| format!("set_channel_count: {:?}", e))?
+                .set_width(2)
+                .map_err(|e| format!("set_width: {:?}", e))?
+                .set_height(2)
+                .map_err(|e| format!("set_height: {:?}", e))?;
 
             let (tx, rx) = mpsc::channel::<Vec<f32>>(200);
 
@@ -194,13 +221,13 @@ mod macos_impl {
                 channels: TARGET_CHANNELS,
             };
 
-            let stream = SCStream::new(filter, config, handler);
-            stream.add_output(SCStreamOutputType::Audio);
+            let mut stream = SCStream::new(&filter, &config);
+            stream.add_output_handler(handler, SCStreamOutputType::Audio);
             stream
                 .start_capture()
                 .map_err(|e| format!("SCStream start_capture: {:?}", e))?;
 
-            // Leak the stream to keep the capture running.
+            // Forget the stream to keep the capture running.
             // finish_stream() sets the finished flag; the handler stops sending.
             std::mem::forget(stream);
 
