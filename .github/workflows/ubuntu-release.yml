@@ -2,9 +2,6 @@ name: Build Ubuntu App
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: write
@@ -71,8 +68,3 @@ jobs:
           path: target/release/bundle/deb/*.deb
           if-no-files-found: error
 
-      - name: Publish GitHub release assets
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: target/release/bundle/deb/*.deb
