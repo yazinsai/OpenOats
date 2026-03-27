@@ -1,29 +1,69 @@
 # Due Diligence Red Flags
 
-## Founder Red Flags
+---
 
-- **"We have no competition"**: Always false. Check the relevant market map for funded competitors before the meeting. For example, prior authorization AI alone has $180M+ in funding across Cohere Health, Infinitus, Rhyme, and Valer.
-- **Solo technical founder with no domain expertise**: Building AI for healthcare without a clinician on the team. Building for construction without someone who's managed a job site.
-- **Founder who won't share data**: If they dodge questions about metrics, unit economics, or customer references, they're hiding something. Always ask for the data behind the headline claim.
-- **"We'll figure out the business model later"**: At seed, having hypotheses is fine. Having no idea how you'll make money is not.
-- **Excessive fundraise relative to traction**: Asking for $5M with $10K MRR and no clear path to PMF. Capital doesn't fix product-market fit.
+## "We have no competition"
+**When they say:** no competition, nobody else doing this, first to market, no competitors
 
-## Financial Red Flags
+- Always false. Check the relevant market map for funded competitors
+- Prior auth AI alone has **$180M+ in funding** across Cohere Health, Infinitus, Rhyme, and Valer
+- Ask: "Who else has raised money in this space?" — if they can't name anyone, they haven't done the work
 
-- **Gross margin below 60%**: For software companies, anything below 60% suggests the "software" is really a service.
-- **Revenue concentration >40% from one customer**: One contract cancellation kills the company.
-- **Burn multiple above 3x**: Burning $3 to generate $1 of new ARR is unsustainable.
-- **"ARR" that's actually a one-time contract**: Ask if revenue is recurring or project-based. Construction tech and enterprise companies frequently misrepresent this.
-- **Churn masked by expansion**: Logo churn of 8% monthly but "net retention of 120%" means they're growing inside surviving accounts while losing customers fast.
+---
 
-## Market Red Flags
+## Unverified Accuracy Claims
+**When they say:** 95% accurate, 97% accuracy, our model outperforms, state of the art
 
-- **TAM built bottom-up from wrong assumptions**: "There are 5 million restaurants, each will pay $100/month" — but you're selling to fine dining only (50K restaurants).
-- **"AI" wrapper with no defensibility**: If the product is a prompt + API call, the moat is zero. Look for proprietary data, fine-tuned models, or workflow integration.
-- **Regulated market with no regulatory strategy**: "We'll figure out FDA/HIPAA/SOC2 when we need to" is a company-killer in healthcare and finance.
+- Always ask: at what threshold? on what test set? self-reported or independently validated?
+- **Ask for the confusion matrix** — precision vs recall tradeoff matters
+- Example: NutriScan claimed 97% allergen accuracy in Feb pitch — still hasn't sent supporting data
+- Published peer-reviewed results (like Canopy Health's JAMA study) are the gold standard
 
-## Technical Red Flags
+---
 
-- **Demo-ware**: Looks great in a demo, falls apart at scale. Ask about current production load and error rates.
-- **Accuracy claims without methodology**: "97% accurate" — at what threshold? On what test set? Self-reported or independently validated? Always ask for the confusion matrix.
-- **"We'll switch to our own model"**: Companies that depend on OpenAI/Anthropic APIs claim they'll train their own model "when they have enough data." They almost never do, and the data flywheel theory rarely works in practice.
+## Excessive Valuation vs Traction
+**When they say:** raising at $25M, $30M post-money, pre-revenue
+
+- Pre-revenue acceptable range: **$5-8M post**
+- Seed with $10-50K MRR: **$10-20M post**
+- Never pay >40x ARR at seed
+- $5M raise with $10K MRR and no clear path to PMF = capital won't fix product-market fit
+
+---
+
+## Solo Founder Risk
+**When they say:** it's just me, I'm the solo founder, I don't need a co-founder
+
+- Especially dangerous: solo technical founder with no domain expertise
+- Building AI for healthcare without a clinician on the team
+- Building for construction without someone who's managed a job site
+- Example: Voltera (AI code review) — passed partly due to solo founder who refused co-founder search
+
+---
+
+## Cloud-Only in Regulated Verticals
+**When they say:** we run on AWS, everything in the cloud, HIPAA compliant on cloud
+
+- Cloud AI has a ceiling in healthcare, finance, legal, government
+- "HIPAA compliant" ≠ customers will actually send sensitive data to your cloud
+- Our thesis: local-first AI wins these verticals long-term
+- Ask: what happens when a health system says "nothing leaves our network"?
+
+---
+
+## Revenue That Isn't Recurring
+**When they say:** ARR, annual recurring revenue, pipeline
+
+- Ask if revenue is actually recurring or project-based
+- Construction tech and enterprise companies frequently misrepresent one-time contracts as ARR
+- "Pipeline" is not revenue — committed ARR from pilots that haven't converted is not ARR
+- Logo churn of 8%/month masked by expansion = losing customers fast
+
+---
+
+## Customer Concentration
+**When they say:** our biggest customer, we work with Amazon/Google/Microsoft
+
+- Revenue concentration >40% from one customer = one cancellation kills the company
+- Large customer could build in-house (see: FleetPulse's Amazon risk)
+- Ask: what % of revenue comes from your top customer?
