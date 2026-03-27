@@ -4,14 +4,17 @@
   <img src="assets/opencassava_logo.png" width="128" alt="OpenCassava Logo" />
 </p>
 
-**A meeting note-taker that talks back — now on Windows and Mac.**
+**A meeting note-taker that talks back - now on Windows and Mac.**
 
 > **Disclaimer & Acknowledgement:** OpenCassava is a descendant of the excellent [OpenOats](https://github.com/yazinsai/OpenOats) project created by [yazinsai](https://github.com/yazinsai). A huge thank you to the original creator for laying the groundwork for this application. OpenCassava has now evolved into its own dedicated project with a focus on comprehensive cross-platform support and expanded features.
 
 <p align="center">
-
   <a href="https://github.com/romeroej2/OpenCassava/releases/latest">
     <img src="https://img.shields.io/badge/Download_for_Windows-EXE-black?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" />
+  </a>
+  &nbsp;
+  <a href="https://github.com/romeroej2/OpenCassava/releases/latest">
+    <img src="https://img.shields.io/badge/Download_for_macOS-DMG-silver?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" />
   </a>
   &nbsp;
   <a href="https://github.com/romeroej2/OpenCassava/releases/latest">
@@ -24,31 +27,32 @@ OpenCassava sits next to your call, transcribes both sides of the conversation i
 For first-time setup with LM Studio, start here: [LM Studio Setup Guide](docs/lm-studio-setup.md)
 
 <p align="center">
-  <img src="assets/image.png" width="360" alt="OpenCassava during a call — suggestions drawn from your own notes appear at the top, live transcript below" />
+  <img src="assets/image.png" width="360" alt="OpenCassava during a call - suggestions drawn from your own notes appear at the top, live transcript below" />
 </p>
 
 ---
 
 ## Features
 
-- **Invisible to the other side** — the overlay window is hidden from screen sharing by default, so no one knows you're using it.
-- **Multi-language transcription** — supports both `whisper-rs` and [NVIDIA Parakeet](https://github.com/NVIDIA/NeMo) (25+ languages) for local, offline speech recognition; no audio ever leaves your device.
-- **Runs 100% locally** — tested primarily with LM Studio for LLM suggestions and local embeddings. It may also work with other local providers like [Ollama](https://ollama.com/), ensuring nothing touches the network at all.
-- **Flexible AI Integration** — pick any LLM. Use [OpenRouter](https://openrouter.ai/) for cloud models (GPT-4o, Claude, Gemini). *(Note: The Cloud AI version is currently untested, but will be reviewed at a later time).*
-- **Live transcript & Search** — see both sides of the conversation as it happens, search the active transcript in real-time, and copy or export the whole thing with one click.
-- **Session History** — automatically saves every session. Access your past sessions directly from the **History Sidebar**.
-- **Auto-summarize during calls** — enable periodic meeting summary generation with live diff highlighting showing what's new. Configure the interval (30s to 10m), review summary history, and manually regenerate at any time.
-- **Customizable note & suggestion prompts** — create and edit custom note templates beyond the built-in presets. Fine-tune the system prompts used for knowledge base surfacing, suggestion synthesis, and smart question generation.
-- **Formatted Notes generation** — after each session, produce structured markdown notes from the transcript using your custom or built-in templates.
-- **Knowledge base search** — point it at a folder of notes and it retrieves what's relevant using Voyage AI embeddings, local Ollama embeddings, or any OpenAI-compatible endpoint.
+- **Invisible to the other side** - the overlay window is hidden from screen sharing by default, so no one knows you're using it.
+- **Multi-language transcription** - supports both `whisper-rs` and [NVIDIA Parakeet](https://github.com/NVIDIA/NeMo) (25+ languages) for local, offline speech recognition; no audio ever leaves your device.
+- **Cleaner call audio capture** - built-in echo cancellation helps suppress speaker playback leaking back into your mic, and a configurable mic voice threshold reduces low-level background noise when you are not speaking.
+- **Runs 100% locally** - tested primarily with LM Studio for LLM suggestions and local embeddings. It may also work with other local providers like [Ollama](https://ollama.com/), ensuring nothing touches the network at all.
+- **Flexible AI Integration** - pick any LLM. Use [OpenRouter](https://openrouter.ai/) for cloud models (GPT-4o, Claude, Gemini). *(Note: The Cloud AI version is currently untested, but will be reviewed at a later time).*
+- **Live transcript & Search** - see both sides of the conversation as it happens, search the active transcript in real-time, and copy or export the whole thing with one click.
+- **Session History** - automatically saves every session. Access your past sessions directly from the **History Sidebar**.
+- **Auto-summarize during calls** - enable periodic meeting summary generation with live diff highlighting showing what's new. Configure the interval (30s to 10m), review summary history, and manually regenerate at any time.
+- **Customizable note & suggestion prompts** - create and edit custom note templates beyond the built-in presets. Fine-tune the system prompts used for knowledge base surfacing, suggestion synthesis, and smart question generation.
+- **Formatted Notes generation** - after each session, produce structured markdown notes from the transcript using your custom or built-in templates.
+- **Knowledge base search** - point it at a folder of notes and it retrieves what's relevant using Voyage AI embeddings, local Ollama embeddings, or any OpenAI-compatible endpoint.
 
 ---
 
 ## How it works
 
 1. You start a call and click **Start Session**.
-2. OpenCassava captures your microphone and (on Windows & Mac) system audio — the other side's voice is captured as "them".
-3. When the conversation hits a moment that matters — a question, a decision point, a claim worth backing up — it searches your notes and surfaces relevant talking points.
+2. OpenCassava captures your microphone and (on Windows & Mac) system audio - the other side's voice is captured as "them".
+3. When the conversation hits a moment that matters - a question, a decision point, a claim worth backing up - it searches your notes and surfaces relevant talking points.
 4. After the session, use the **Export** menu to save your transcript, or generate structured markdown notes using a meeting template.
 5. Review your past transcripts securely using your Session History.
 
@@ -58,7 +62,11 @@ For first-time setup with LM Studio, start here: [LM Studio Setup Guide](docs/lm
 
 Grab the latest release for your platform from the [Releases page](https://github.com/romeroej2/OpenCassava/releases/latest).
 
-Windows releases are built automatically by GitHub Actions from `.github/workflows/windows-release.yml`. On every tag push, the pipeline publishes installers (EXE/MSI).
+On every tag push, GitHub Actions publishes installers for all supported desktop platforms:
+
+- Windows: EXE and MSI
+- macOS: DMG
+- Linux: DEB
 
 ### Build from source
 
@@ -97,7 +105,7 @@ The installers are output to `opencassava/src-tauri/target/release/bundle/`.
 
 1. Open the app and grant microphone permissions (and system audio recording on Windows).
 2. Open Settings (`Cmd+,` or `Ctrl+,`) and configure your chosen Cloud or Local providers. *(Note: Cloud mode is currently untested).*
-3. Point it at a folder of `.md` or `.txt` files — that's your knowledge base.
+3. Point it at a folder of `.md` or `.txt` files - that's your knowledge base.
 4. Click **Start Session** to go live. *(The first run downloads the required local Whisper speech model).*
 
 ---
@@ -121,7 +129,7 @@ OpenCassava is built on a cross-platform Rust core with a shared React frontend.
 
 ## Recording Consent & Legal Disclaimer
 
-**Important:** OpenCassava records and transcribes audio from your microphone and system audio. Many jurisdictions have laws requiring consent from some or all participants before a conversation may be recorded. 
+**Important:** OpenCassava records and transcribes audio from your microphone and system audio. Many jurisdictions have laws requiring consent from some or all participants before a conversation may be recorded.
 
 **By using this software, you acknowledge and agree that:**
 - **You are solely responsible** for determining whether recording is lawful in your jurisdiction and for obtaining any required consent.
