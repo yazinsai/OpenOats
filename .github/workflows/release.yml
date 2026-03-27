@@ -94,6 +94,15 @@ jobs:
 
       - name: Build macOS DMG
         run: npm run tauri -- build --bundles dmg
+        env:
+          # Apple Clang 17 on M-series sets __ARM_FEATURE_MATMUL_INT8 based on
+          # native CPU capabilities even when -mcpu=...+noi8mm disables i8mm at
+          # the code-generation level. This causes always_inline vmmlaq_s32 calls
+          # in ggml-cpu-quants.c to fail because the surrounding function is
+          # compiled without i8mm support. Force-undefine the macro so ggml
+          # falls back to its non-i8mm code path.
+          CFLAGS: "-U__ARM_FEATURE_MATMUL_INT8"
+          CXXFLAGS: "-U__ARM_FEATURE_MATMUL_INT8"
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
