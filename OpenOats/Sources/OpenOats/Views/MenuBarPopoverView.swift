@@ -52,6 +52,18 @@ struct MenuBarPopoverView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
 
+            Button(action: {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            }) {
+                HStack {
+                    Text("Settings…")
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+
             Divider()
 
             Button(action: onQuit) {

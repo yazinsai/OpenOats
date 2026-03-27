@@ -59,6 +59,16 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .help("View past meeting notes")
                 .accessibilityIdentifier("app.pastMeetingsButton")
+
+                SettingsLink {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 12))
+                        .padding(4)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Settings")
+                .accessibilityIdentifier("app.settingsButton")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
