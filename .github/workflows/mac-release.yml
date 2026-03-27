@@ -63,6 +63,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: opencassava-mac-dmg
-          path: target/release/bundle/dmg/*.dmg
+          path: src-tauri/target/release/bundle/dmg/*.dmg
           if-no-files-found: error
-
