@@ -53,23 +53,20 @@ actor PreFetchCache {
 
     private func evictStale() {
         let cutoff = Date.now.addingTimeInterval(-ttlSeconds)
-        entries = entries.filter { $0.value.createdAt > cutoff }
-        // Cap size
+        for key in entries.keys where entries[key]!.createdAt <= cutoff {
+            entries.removeValue(forKey: key)
+        }
         if entries.count > maxEntries {
             let sorted = entries.sorted { $0.value.createdAt < $1.value.createdAt }
-            let toRemove = sorted.prefix(entries.count - maxEntries)
-            for (key, _) in toRemove { entries.removeValue(forKey: key) }
+            for (key, _) in sorted.prefix(entries.count - maxEntries) {
+                entries.removeValue(forKey: key)
+            }
         }
     }
 
     /// Normalize text into a fingerprint for cache keying.
-    /// Lowercases, strips punctuation, and takes the last ~50 words.
+    /// Lowercases, strips non-alphanumerics, and takes the last ~50 words.
     static func fingerprint(_ text: String) -> String {
-        let words = text
-            .lowercased()
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .suffix(50)
-        return words.joined(separator: " ")
+        TextSimilarity.normalizedWords(in: text).suffix(50).joined(separator: " ")
     }
 }

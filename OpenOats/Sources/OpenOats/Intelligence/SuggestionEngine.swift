@@ -47,9 +47,6 @@ final class SuggestionEngine {
     /// Alias for existing polling code.
     var isGenerating: Bool { isStreaming }
 
-    /// Compatibility: last decision (not used in new pipeline, but kept for logging).
-    var lastDecision: SuggestionDecision? { nil }
-
     // MARK: - Dependencies
 
     private let client = OpenRouterClient()
@@ -83,6 +80,7 @@ final class SuggestionEngine {
         let lifecycle: SuggestionLifecycle
         let surfacedText: String
         let kbHitPaths: [String]
+        let createdAt: Date
     }
 
     init(transcriptStore: TranscriptStore, knowledgeBase: KnowledgeBase, settings: AppSettings) {
@@ -149,8 +147,8 @@ final class SuggestionEngine {
 
         backgroundStateTask = Task { [weak self] in
             guard let self else { return }
+            defer { self.backgroundStateTask = nil }
             await self.updateConversationState()
-            self.backgroundStateTask = nil
         }
     }
 
@@ -251,11 +249,6 @@ final class SuggestionEngine {
         }
     }
 
-    /// Legacy compatibility: called by old code that only sends remote utterances.
-    func onThemUtterance(_ utterance: Utterance) {
-        onUtterance(utterance)
-    }
-
     private func tryGateAndSurface(
         text: String,
         speaker: Speaker?,
@@ -333,11 +326,11 @@ final class SuggestionEngine {
                 triggerUtteranceID: triggerID,
                 lifecycle: .raw,
                 surfacedText: suggestion.rawSnippet,
-                kbHitPaths: candidate.contextPacks.map(\.relativePath)
+                kbHitPaths: candidate.contextPacks.map(\.relativePath),
+                createdAt: .now
             )
-            // Prune old snapshots
             if logSnapshots.count > 10 {
-                let oldest = logSnapshots.sorted { $0.value.suggestionID.uuidString < $1.value.suggestionID.uuidString }
+                let oldest = logSnapshots.sorted { $0.value.createdAt < $1.value.createdAt }
                 for entry in oldest.prefix(logSnapshots.count - 10) {
                     logSnapshots.removeValue(forKey: entry.key)
                 }
@@ -400,9 +393,7 @@ final class SuggestionEngine {
 
             if let idx = activeSuggestions.firstIndex(where: { $0.id == suggestionID }) {
                 if Task.isCancelled {
-                    if activeSuggestions[idx].lifecycle != .superseded {
-                        activeSuggestions[idx].lifecycle = .superseded
-                    }
+                    markSuperseded(suggestionID)
                 } else {
                     activeSuggestions[idx].lifecycle = .completed
                     // Update log snapshot with final text
@@ -412,23 +403,29 @@ final class SuggestionEngine {
                             triggerUtteranceID: triggerID,
                             lifecycle: .completed,
                             surfacedText: accumulated,
-                            kbHitPaths: contextPacks.map(\.relativePath)
+                            kbHitPaths: contextPacks.map(\.relativePath),
+                            createdAt: .now
                         )
                     }
                 }
             }
         } catch is CancellationError {
-            if let idx = activeSuggestions.firstIndex(where: { $0.id == suggestionID }),
-               activeSuggestions[idx].lifecycle != .superseded {
-                activeSuggestions[idx].lifecycle = .superseded
-            }
+            markSuperseded(suggestionID)
         } catch {
             print("[SuggestionEngine] Synthesis stream error: \(error)")
-            if !Task.isCancelled,
-               let idx = activeSuggestions.firstIndex(where: { $0.id == suggestionID }),
-               activeSuggestions[idx].lifecycle != .superseded {
-                activeSuggestions[idx].lifecycle = .failed
+            if !Task.isCancelled {
+                if let idx = activeSuggestions.firstIndex(where: { $0.id == suggestionID }),
+                   activeSuggestions[idx].lifecycle != .superseded {
+                    activeSuggestions[idx].lifecycle = .failed
+                }
             }
+        }
+    }
+
+    private func markSuperseded(_ suggestionID: UUID) {
+        if let idx = activeSuggestions.firstIndex(where: { $0.id == suggestionID }),
+           activeSuggestions[idx].lifecycle != .superseded {
+            activeSuggestions[idx].lifecycle = .superseded
         }
     }
 
@@ -516,7 +513,7 @@ final class SuggestionEngine {
 
         var conversationText = ""
         for u in recentUtterances {
-            let label = u.speaker == .you ? "You" : "Them"
+            let label = u.speaker.displayLabel
             conversationText += "\(label): \(u.text)\n"
         }
 
@@ -539,7 +536,7 @@ final class SuggestionEngine {
 
         Recent conversation:
         \(conversationText)
-        Latest utterance (\(latestUtterance.speaker == .you ? "You" : "Them")): \(latestUtterance.text)
+        Latest utterance (\(latestUtterance.speaker.displayLabel)): \(latestUtterance.text)
 
         Output the updated conversation state as JSON:
         """

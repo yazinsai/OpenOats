@@ -150,8 +150,10 @@ struct RealtimeSuggestion: Identifiable, Sendable {
     let candidateScore: Double
     let createdAt: Date
     var lifecycle: SuggestionLifecycle
-    var synthesizedText: String  // empty in .raw, streams in during .streaming
-    var rawSnippet: String       // first context pack's matched text
+    var synthesizedText: String
+
+    /// First context pack's matched text.
+    var rawSnippet: String { contextPacks.first?.matchedText ?? "" }
 
     init(
         triggerKind: RealtimeTriggerKind,
@@ -169,7 +171,6 @@ struct RealtimeSuggestion: Identifiable, Sendable {
         self.createdAt = .now
         self.lifecycle = .raw
         self.synthesizedText = ""
-        self.rawSnippet = contextPacks.first?.matchedText ?? ""
     }
 
     /// The best available text for display.
@@ -187,14 +188,12 @@ struct RealtimeSuggestion: Identifiable, Sendable {
 
 /// Output of the local heuristic gate — passed to Layer 3 for synthesis.
 struct RealtimeSuggestionCandidate: Sendable {
-    let candidateID: UUID
     let triggerKind: RealtimeTriggerKind
     let triggerExcerpt: String
     let triggerUtteranceID: UUID?
     let triggerFingerprint: String?
     let contextPacks: [KBContextPack]
     let score: Double
-    let createdAt: Date
 
     init(
         triggerKind: RealtimeTriggerKind,
@@ -204,14 +203,12 @@ struct RealtimeSuggestionCandidate: Sendable {
         contextPacks: [KBContextPack],
         score: Double
     ) {
-        self.candidateID = UUID()
         self.triggerKind = triggerKind
         self.triggerExcerpt = triggerExcerpt
         self.triggerUtteranceID = triggerUtteranceID
         self.triggerFingerprint = triggerFingerprint
         self.contextPacks = contextPacks
         self.score = score
-        self.createdAt = .now
     }
 }
 

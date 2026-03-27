@@ -25,7 +25,7 @@ struct RealtimeGate: Sendable {
         // Duplicate suppression: Jaccard similarity against recent suggestions
         let candidateText = contextPacks.first?.matchedText ?? ""
         for recent in recentSuggestionTexts.suffix(3) {
-            if jaccardSimilarity(candidateText, recent) > 0.7 {
+            if TextSimilarity.jaccard(candidateText, recent) > 0.7 {
                 return GateResult(shouldSurface: false, triggerKind: triggerKind, score: topScore, reason: "Duplicate of recent suggestion")
             }
         }
@@ -81,14 +81,4 @@ struct RealtimeGate: Sendable {
         return .general
     }
 
-    // MARK: - Similarity
-
-    private func jaccardSimilarity(_ a: String, _ b: String) -> Double {
-        let setA = Set(a.lowercased().split(separator: " ").map(String.init))
-        let setB = Set(b.lowercased().split(separator: " ").map(String.init))
-        guard !setA.isEmpty || !setB.isEmpty else { return 0 }
-        let intersection = setA.intersection(setB).count
-        let union = setA.union(setB).count
-        return Double(intersection) / Double(union)
-    }
 }

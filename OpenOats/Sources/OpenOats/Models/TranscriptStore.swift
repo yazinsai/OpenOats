@@ -46,7 +46,6 @@ final class TranscriptStore {
 
     /// Ratio of question-bearing utterances in the rolling 60-second window.
     var questionDensity: Double {
-        pruneTimestamps()
         guard !recentUtteranceTimestamps.isEmpty else { return 0 }
         return Double(recentQuestionTimestamps.count) / Double(recentUtteranceTimestamps.count)
     }
@@ -66,7 +65,7 @@ final class TranscriptStore {
         guard !shouldSuppressAcousticEcho(utterance) else { return false }
         utterances.append(utterance)
 
-        // Track question density for all speakers
+        pruneTimestamps()
         recentUtteranceTimestamps.append(utterance.timestamp)
         if isQuestion(utterance.text) {
             recentQuestionTimestamps.append(utterance.timestamp)

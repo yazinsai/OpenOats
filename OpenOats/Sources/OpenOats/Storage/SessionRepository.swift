@@ -261,8 +261,13 @@ actor SessionRepository {
 
             guard let self else { return }
 
-            let snapshot = await suggestionEngine?.logSnapshot(forTriggerUtteranceID: utteranceID ?? UUID())
-            let latestSuggestion = await suggestionEngine?.suggestions.first
+            let snapshot: SuggestionEngine.LogSnapshot?
+            if let utteranceID {
+                snapshot = await suggestionEngine?.logSnapshot(forTriggerUtteranceID: utteranceID)
+            } else {
+                snapshot = nil
+            }
+            let latestSuggestion = await suggestionEngine?.activeSuggestions.first
             let summary = await transcriptStore?.conversationState.shortSummary
 
             let refinedText: String?
@@ -276,10 +281,10 @@ actor SessionRepository {
                 speaker: baseRecord.speaker,
                 text: baseRecord.text,
                 timestamp: baseRecord.timestamp,
-                suggestions: snapshot.map { [$0.surfacedText] } ?? latestSuggestion.map { [$0.text] },
-                kbHits: snapshot?.kbHitPaths ?? latestSuggestion?.kbHits.map { $0.sourceFile },
-                suggestionDecision: nil,  // No longer used in new pipeline
-                surfacedSuggestionText: snapshot?.surfacedText ?? (latestSuggestion?.text),
+                suggestions: snapshot.map { [$0.surfacedText] } ?? latestSuggestion.map { [$0.displayText] },
+                kbHits: snapshot?.kbHitPaths ?? latestSuggestion?.contextPacks.map(\.relativePath),
+                suggestionDecision: nil,
+                surfacedSuggestionText: snapshot?.surfacedText ?? latestSuggestion?.displayText,
                 conversationStateSummary: summary?.isEmpty == false ? summary : nil,
                 refinedText: refinedText,
                 suggestionID: snapshot?.suggestionID,
