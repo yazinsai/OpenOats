@@ -14,6 +14,7 @@ enum AppRuntimeMode {
 struct AppServices {
     let knowledgeBase: KnowledgeBase
     let suggestionEngine: SuggestionEngine
+    let sidecastEngine: SidecastEngine
     let transcriptionEngine: TranscriptionEngine
     let refinementEngine: TranscriptRefinementEngine
     let audioRecorder: AudioRecorder

@@ -30,10 +30,14 @@ final class AppUpdaterController {
     }
 
     private func presentStartupError() {
+        #if DEBUG
+        print("[AppUpdaterController] Sparkle updater failed to start (expected in debug builds)")
+        #else
         let alert = NSAlert()
         alert.messageText = "Unable to Check For Updates"
         alert.informativeText = "The updater failed to start. Please verify you have the latest version of OpenOats and contact the developer if the issue persists."
         alert.runModal()
+        #endif
     }
 
     func checkForUpdatesFromMenuBar() {

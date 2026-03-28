@@ -35,11 +35,20 @@ final class OverlayPanel: NSPanel {
 @MainActor
 final class OverlayManager: ObservableObject {
     private var panel: OverlayPanel?
+    private var sidecastPanel: OverlayPanel?
     private var hostingView: NSHostingView<AnyView>?
+    private var sidecastHostingView: NSHostingView<AnyView>?
     var defaults: UserDefaults = .standard
-    private static let panelWidth: CGFloat = 250
-    private static let panelMinHeight: CGFloat = 100
-    private static let panelMaxHeight: CGFloat = 400
+
+    // Classic suggestions panel dimensions
+    private static let classicWidth: CGFloat = 250
+    private static let classicMinHeight: CGFloat = 100
+    private static let classicMaxHeight: CGFloat = 400
+
+    // Sidecast sidebar dimensions
+    private static let sidecastDefaultWidth: CGFloat = 380
+    private static let sidecastMinWidth: CGFloat = 300
+    private static let sidecastMaxWidth: CGFloat = 550
 
     func showSidePanel<Content: View>(content: Content) {
         let erased = AnyView(content)
@@ -48,16 +57,15 @@ final class OverlayManager: ObservableObject {
             let screen = NSScreen.main ?? NSScreen.screens.first
             let screenFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
 
-            // Dock to right edge of screen
             let rect = NSRect(
-                x: screenFrame.maxX - Self.panelWidth - 12,
-                y: screenFrame.midY - Self.panelMaxHeight / 2,
-                width: Self.panelWidth,
-                height: Self.panelMaxHeight
+                x: screenFrame.maxX - Self.classicWidth - 12,
+                y: screenFrame.midY - Self.classicMaxHeight / 2,
+                width: Self.classicWidth,
+                height: Self.classicMaxHeight
             )
             let newPanel = OverlayPanel(contentRect: rect, defaults: defaults)
-            newPanel.minSize = NSSize(width: Self.panelWidth, height: Self.panelMinHeight)
-            newPanel.maxSize = NSSize(width: Self.panelWidth + 100, height: Self.panelMaxHeight)
+            newPanel.minSize = NSSize(width: Self.classicWidth, height: Self.classicMinHeight)
+            newPanel.maxSize = NSSize(width: Self.classicWidth + 100, height: Self.classicMaxHeight)
             newPanel.setFrameAutosaveName("SuggestionSidePanel")
             panel = newPanel
         }
@@ -72,8 +80,41 @@ final class OverlayManager: ObservableObject {
         panel?.orderFront(nil)
     }
 
+    /// Show the full-height sidecast sidebar docked to the right edge.
+    func showSidecastSidebar<Content: View>(content: Content) {
+        let erased = AnyView(content)
+
+        if sidecastPanel == nil {
+            let screen = NSScreen.main ?? NSScreen.screens.first
+            let screenFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+
+            // Full height, docked to right edge
+            let rect = NSRect(
+                x: screenFrame.maxX - Self.sidecastDefaultWidth,
+                y: screenFrame.minY,
+                width: Self.sidecastDefaultWidth,
+                height: screenFrame.height
+            )
+            let newPanel = OverlayPanel(contentRect: rect, defaults: defaults)
+            newPanel.minSize = NSSize(width: Self.sidecastMinWidth, height: 300)
+            newPanel.maxSize = NSSize(width: Self.sidecastMaxWidth, height: screenFrame.height)
+            newPanel.setFrameAutosaveName("SidecastSidebar")
+            sidecastPanel = newPanel
+        }
+
+        if let sidecastHostingView {
+            sidecastHostingView.rootView = erased
+        } else {
+            let newHostingView = NSHostingView(rootView: erased)
+            sidecastHostingView = newHostingView
+            sidecastPanel?.contentView = newHostingView
+        }
+        sidecastPanel?.orderFront(nil)
+    }
+
     func hide() {
         panel?.orderOut(nil)
+        sidecastPanel?.orderOut(nil)
     }
 
     func toggle<Content: View>(content: Content) {
@@ -84,8 +125,16 @@ final class OverlayManager: ObservableObject {
         }
     }
 
+    func toggleSidecast<Content: View>(content: Content) {
+        if sidecastPanel?.isVisible == true {
+            sidecastPanel?.orderOut(nil)
+        } else {
+            showSidecastSidebar(content: content)
+        }
+    }
+
     var isVisible: Bool {
-        panel?.isVisible == true
+        panel?.isVisible == true || sidecastPanel?.isVisible == true
     }
 
     /// Hide after a delay (used for session end).

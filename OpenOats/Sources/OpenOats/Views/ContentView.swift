@@ -164,12 +164,12 @@ struct ContentView: View {
             }
 
             // Suggestion panel status
-            if controllerState.isRunning {
+            if controllerState.isRunning || settings.sidebarMode == .sidecast {
                 HStack(spacing: 6) {
                     Circle()
                         .fill(controllerState.isGeneratingSuggestions ? Color.orange : Color.green)
                         .frame(width: 6, height: 6)
-                    Text("Suggestions \(overlayManager.isVisible ? "visible" : "hidden")")
+                    Text("\(settings.sidebarMode == .sidecast ? "Sidecast" : "Suggestions") \(overlayManager.isVisible ? "visible" : "hidden")")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -325,15 +325,16 @@ struct ContentView: View {
                         }
                     }
                     showMiniBar(controller: controller, miniBarManager: miniBarManager)
-                    // Start pre-fetching and show suggestion panel
-                    coordinator.suggestionEngine?.startPreFetching()
+                    // Start the selected realtime sidebar and show the overlay.
+                    if settings.sidebarMode == .classicSuggestions {
+                        coordinator.suggestionEngine?.startPreFetching()
+                    }
                     if settings.suggestionPanelEnabled {
-                        let panelContent = SuggestionPanelContent(engine: coordinator.suggestionEngine)
-                        overlayManager?.showSidePanel(content: panelContent)
+                        showSidebarContent()
                     }
                 } else {
                     miniBarManager?.hide()
-                    // Stop pre-fetching and hide panel after delay
+                    // Stop the classic pre-fetcher and hide the panel after delay.
                     coordinator.suggestionEngine?.stopPreFetching()
                     overlayManager?.hideAfterDelay(seconds: 2)
                 }
@@ -375,6 +376,15 @@ struct ContentView: View {
             } else {
                 container.disableDetection(coordinator: coordinator)
             }
+        }
+        .onChange(of: settings.sidebarMode) {
+            if settings.sidebarMode == .classicSuggestions {
+                coordinator.suggestionEngine?.startPreFetching()
+            } else {
+                coordinator.suggestionEngine?.stopPreFetching()
+            }
+            guard liveSessionController?.state.isRunning == true, settings.suggestionPanelEnabled else { return }
+            showSidebarContent()
         }
     }
 
@@ -421,8 +431,30 @@ struct ContentView: View {
     }
 
     private func toggleOverlay() {
-        let content = SuggestionPanelContent(engine: coordinator.suggestionEngine)
-        overlayManager.toggle(content: content)
+        switch settings.sidebarMode {
+        case .classicSuggestions:
+            overlayManager.toggle(content: SuggestionPanelContent(engine: coordinator.suggestionEngine))
+        case .sidecast:
+            // Inject demo data if engine has no messages yet (for preview)
+            if let engine = coordinator.sidecastEngine,
+               engine.messages.isEmpty {
+                engine.injectDemoMessages(personas: settings.enabledSidecastPersonas)
+            }
+            overlayManager.toggleSidecast(content: sidecastContent())
+        }
+    }
+
+    private func showSidebarContent() {
+        switch settings.sidebarMode {
+        case .classicSuggestions:
+            overlayManager.showSidePanel(content: SuggestionPanelContent(engine: coordinator.suggestionEngine))
+        case .sidecast:
+            overlayManager.showSidecastSidebar(content: sidecastContent())
+        }
+    }
+
+    private func sidecastContent() -> SidecastPanelContent {
+        SidecastPanelContent(settings: settings, engine: coordinator.sidecastEngine)
     }
 
     private func copyTranscript() {
