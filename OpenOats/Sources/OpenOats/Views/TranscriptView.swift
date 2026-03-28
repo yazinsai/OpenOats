@@ -33,18 +33,19 @@ struct TranscriptView: View {
     private var searchBar: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             TextField("Search transcript…", text: $searchText)
+.accessibilityLabel(String(localized: "textfield_search_transcript…_label"))
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .font(.footnote)
             if !searchText.isEmpty {
                 Button {
                     searchText = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .help(String(localized: "clear_search"))
@@ -57,7 +58,7 @@ struct TranscriptView: View {
                 autoScrollEnabled.toggle()
             } label: {
                 Image(systemName: "arrow.down.to.line")
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(autoScrollEnabled ? Color.secondary : Color.red)
             }
             .buttonStyle(.plain)
@@ -74,8 +75,8 @@ struct TranscriptView: View {
                 let visible = filteredUtterances
                 if visible.isEmpty && isSearching {
                     Text(String(localized: "no_matches"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 60)
                 } else {
                     LazyVStack(alignment: .leading, spacing: 8) {
@@ -134,7 +135,7 @@ struct TranscriptView: View {
                         }
                     } label: {
                         Image(systemName: "arrow.down.circle.fill")
-                            .font(.system(size: 20))
+                            .font(.title3)
                             .foregroundStyle(.white, Color.accentTeal)
                             .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
                     }
@@ -171,8 +172,8 @@ private struct UtteranceBubble: View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             if showTimestamp {
                 Text(timestampFormatter.string(from: utterance.timestamp))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.tertiary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                     .frame(width: 34, alignment: .trailing)
             } else {
                 Spacer()
@@ -180,12 +181,12 @@ private struct UtteranceBubble: View {
             }
 
             Text(utterance.speaker.displayLabel)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.caption)
                 .foregroundStyle(utterance.speaker.color)
                 .frame(minWidth: 36, alignment: .trailing)
 
             Text(utterance.displayText)
-                .font(.system(size: 13))
+                .font(.subheadline)
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
         }
@@ -202,13 +203,13 @@ private struct VolatileIndicator: View {
                 .frame(width: 34)
 
             Text(speaker.displayLabel)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.caption)
                 .foregroundStyle(speaker.color)
                 .frame(minWidth: 36, alignment: .trailing)
 
             HStack(spacing: 4) {
                 Text(text)
-                    .font(.system(size: 13))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Circle()
                     .fill(speaker.color)

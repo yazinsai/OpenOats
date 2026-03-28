@@ -74,16 +74,22 @@ public struct OpenOatsRootApp: App {
                 Button(String(localized: "toggle_meeting")) {
                     appDelegate.toggleMeeting()
                 }
+.accessibilityLabel(String(localized: "toggle_meeting"))
+.accessibilityHint(String(localized: "toggle_meeting_hint"))
                 .keyboardShortcut("l", modifiers: [.command, .shift])
 
                 Button(String(localized: "past_meetings")) {
                     openNotesWindow()
                 }
+.accessibilityLabel(String(localized: "past_meetings"))
+.accessibilityHint(String(localized: "past_meetings_hint"))
                 .keyboardShortcut("m", modifiers: [.command, .shift])
 
                 Button(String(localized: "import_meeting_recording")) {
                     importMeetingRecording()
                 }
+.accessibilityLabel(String(localized: "import_meeting_recording"))
+.accessibilityHint(String(localized: "import_recording_hint"))
                 .keyboardShortcut("i", modifiers: [.command, .shift])
                 .disabled(coordinator.isRecording || isBatchEngineBusy)
 
@@ -91,6 +97,8 @@ public struct OpenOatsRootApp: App {
                     if let url = URL(string: "https://github.com/yazinsai/OpenOats") {
                         NSWorkspace.shared.open(url)
                     }
+.accessibilityLabel(String(localized: "github_repository"))
+.accessibilityHint(String(localized: "github_repository_hint"))
                 }
             }
         }

@@ -12,14 +12,14 @@ struct RecordingConsentView: View {
             Spacer()
 
             Image(systemName: "exclamationmark.shield")
-                .font(.system(size: 40, weight: .light))
+                .font(.title)
                 .foregroundStyle(.orange)
                 .frame(height: 52)
 
             Spacer().frame(height: 20)
 
             Text(String(localized: "recording_consent_notice"))
-                .font(.system(size: 16, weight: .semibold))
+                .font(.body)
                 .multilineTextAlignment(.center)
 
             Spacer().frame(height: 10)
@@ -31,7 +31,7 @@ struct RecordingConsentView: View {
 
             By using this app, you acknowledge that:
             """)
-                .font(.system(size: 13))
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
@@ -48,9 +48,10 @@ struct RecordingConsentView: View {
 
             Spacer().frame(height: 16)
 
-            Toggle(isOn: $acknowledged) {
+            Toggle(isOn: $acknowledged)
+.accessibilityHint(String(localized: "toggle_accessibility_hint")) {
                 Text(String(localized: "i_understand_and_accept_these_obligations"))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.footnote)
             }
             .toggleStyle(.checkbox)
 
@@ -61,9 +62,11 @@ struct RecordingConsentView: View {
                     withAnimation(.easeOut(duration: 0.2)) {
                         isPresented = false
                     }
+.accessibilityLabel(String(localized: "cancel"))
+.accessibilityHint(String(localized: "cancel_action_hint"))
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
 
                 Spacer()
@@ -75,7 +78,7 @@ struct RecordingConsentView: View {
                     }
                 } label: {
                     Text(String(localized: "i_agree"))
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.subheadline)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 8)
@@ -96,10 +99,10 @@ struct RecordingConsentView: View {
     private func consentBullet(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Text(String(localized: "u2022"))
-                .font(.system(size: 13))
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
             Text(text)
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)

@@ -84,7 +84,8 @@ struct NotesView: View {
                     Button(String(localized: "select_all")) {
                         bulkDeleteSelection = Set(controller.filteredSessions.map(\.id))
                     }
-                    .font(.system(size: 11))
+.accessibilityLabel(String(localized: "select_all"))
+                    .font(.caption)
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
                     Spacer()
@@ -92,15 +93,18 @@ struct NotesView: View {
                         Button(String(localized: "delete_bulkdeleteselectioncount")) {
                             showBulkDeleteConfirmation = true
                         }
-                        .font(.system(size: 11, weight: .medium))
+.accessibilityLabel(String(localized: "delete_bulkdeleteselectioncount"))
+                        .font(.caption)
                         .buttonStyle(.plain)
                         .foregroundStyle(.red)
+.accessibilityAddTraits(.updatesFrequently)
                     }
                     Button(String(localized: "done")) {
                         bulkDeleteMode = false
                         bulkDeleteSelection = []
                     }
-                    .font(.system(size: 11))
+.accessibilityLabel(String(localized: "done"))
+                    .font(.caption)
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
                 }
@@ -126,6 +130,7 @@ struct NotesView: View {
                                 renameText = session.title ?? ""
                                 renamingSessionID = session.id
                             }
+.accessibilityLabel(String(localized: "rename"))
                             Button(String(localized: "edit_tags")) {
                                 editingTags = session.tags ?? []
                                 newTagText = ""
@@ -133,12 +138,14 @@ struct NotesView: View {
                                 Task {
                                     availableTags = await controller.allTags()
                                 }
+.accessibilityLabel(String(localized: "edit_tags"))
                             }
                             Divider()
                             Button(String(localized: "select_multiple")) {
                                 bulkDeleteMode = true
                                 bulkDeleteSelection = [session.id]
                             }
+.accessibilityLabel(String(localized: "select_multiple"))
                             Divider()
                             Button("Delete", role: .destructive) {
                                 sessionToDelete = session.id
@@ -184,28 +191,29 @@ struct NotesView: View {
             HStack(spacing: 6) {
                 if let snap = session.templateSnapshot {
                     Image(systemName: snap.icon)
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 if renamingSessionID == session.id {
                     TextField("Title", text: $renameText, onCommit: {
                         controller.renameSession(sessionID: session.id, newTitle: renameText)
+.accessibilityLabel(String(localized: "textfield_title_label"))
                         renamingSessionID = nil
                     })
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.subheadline)
                     .textFieldStyle(.plain)
                     .onExitCommand {
                         renamingSessionID = nil
                     }
                 } else {
                     Text(session.title ?? "Untitled")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.subheadline)
                         .lineLimit(1)
                 }
                 Spacer()
                 if session.hasNotes {
                     Image(systemName: "doc.text.fill")
-                        .font(.system(size: 10))
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -216,14 +224,14 @@ struct NotesView: View {
                 Spacer()
                 Text(String(localized: "sessionutterancecount_utterances"))
             }
-            .font(.system(size: 11))
-            .foregroundStyle(.tertiary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
 
             if let tags = session.tags, !tags.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(tags, id: \.self) { tag in
                         Text(tag)
-                            .font(.system(size: 10))
+                            .font(.caption2)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
                             .background(.quaternary)
@@ -251,7 +259,7 @@ struct NotesView: View {
                             controller.setTagFilter(isActive ? nil : tag)
                         } label: {
                             Text(tag)
-                                .font(.system(size: 11))
+                                .font(.caption)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
                                 .background(isActive ? Color.accentColor.opacity(0.2) : Color.clear)
@@ -300,13 +308,13 @@ struct NotesView: View {
                     ForEach(editingTags, id: \.self) { tag in
                         HStack(spacing: 3) {
                             Text(tag)
-                                .font(.system(size: 12))
+                                .font(.footnote)
                             Button {
                                 editingTags.removeAll { $0.localizedCaseInsensitiveCompare(tag) == .orderedSame }
                                 controller.updateSessionTags(sessionID: sessionID, tags: editingTags)
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 10))
+                                    .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
@@ -322,14 +330,17 @@ struct NotesView: View {
             if editingTags.count < 5 {
                 HStack(spacing: 6) {
                     TextField("Add tag...", text: $newTagText)
+.accessibilityLabel(String(localized: "textfield_add_tag..._label"))
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12))
+                        .font(.footnote)
                         .onSubmit {
                             commitNewTag(controller: controller, sessionID: sessionID)
                         }
                     Button(String(localized: "add")) {
                         commitNewTag(controller: controller, sessionID: sessionID)
                     }
+.accessibilityLabel(String(localized: "add"))
+.accessibilityHint(String(localized: "add_item_hint"))
                     .disabled(newTagText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
 
@@ -349,7 +360,7 @@ struct NotesView: View {
                                 controller.updateSessionTags(sessionID: sessionID, tags: editingTags)
                             } label: {
                                 Text(suggestion)
-                                    .font(.system(size: 12))
+                                    .font(.footnote)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.vertical, 2)
                                     .padding(.horizontal, 4)
@@ -451,7 +462,7 @@ struct NotesView: View {
                 copyCurrentContent(state: state)
             } label: {
                 Label(String(localized: "copy"), systemImage: "doc.on.doc")
-                    .font(.system(size: 12))
+                    .font(.footnote)
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.bordered)
@@ -471,7 +482,7 @@ struct NotesView: View {
                 controller.cleanUpTranscript(settings: settings)
             } label: {
                 Label(String(localized: "clean_up"), systemImage: "sparkles")
-                    .font(.system(size: 12))
+                    .font(.footnote)
             }
             .buttonStyle(.borderedProminent)
             .disabled(state.loadedTranscript.isEmpty)
@@ -481,13 +492,15 @@ struct NotesView: View {
             if case .inProgress(let completed, let total) = state.cleanupStatus {
                 HStack(spacing: 6) {
                     Text(String(localized: "completedtotal_cleaning"))
-                        .font(.system(size: 12))
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                     Button(String(localized: "cancel")) {
                         controller.cancelCleanup()
                     }
+.accessibilityLabel(String(localized: "cancel"))
+.accessibilityHint(String(localized: "cancel_action_hint"))
                     .buttonStyle(.bordered)
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .controlSize(.small)
                 }
             }
@@ -497,7 +510,7 @@ struct NotesView: View {
                 controller.cleanUpTranscript(settings: settings)
             } label: {
                 Label(String(localized: "clean_up"), systemImage: "sparkles")
-                    .font(.system(size: 12))
+                    .font(.footnote)
             }
             .buttonStyle(.borderedProminent)
             .help(String(localized: "clean_up_remaining_utterances"))
@@ -515,7 +528,7 @@ struct NotesView: View {
             controller.toggleShowingOriginal()
         } label: {
             Label(String(localized: "show_original"), systemImage: state.showingOriginal ? "text.badge.checkmark" : "text.badge.minus")
-                .font(.system(size: 12))
+                .font(.footnote)
         }
         .buttonStyle(.bordered)
         .tint(state.showingOriginal ? .accentColor : nil)
@@ -536,7 +549,7 @@ struct NotesView: View {
                 }
             } label: {
                 Label(notes.template.name, systemImage: notes.template.icon)
-                    .font(.system(size: 12))
+                    .font(.footnote)
             } primaryAction: {
                 controller.regenerateNotes(settings: settings)
             }
@@ -570,7 +583,7 @@ struct NotesView: View {
             }
         } label: {
             Label(String(localized: "insert_image"), systemImage: "photo.badge.plus")
-                .font(.system(size: 12))
+                .font(.footnote)
         }
         .menuStyle(.button)
         .buttonStyle(.bordered)
@@ -659,15 +672,17 @@ struct NotesView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(String(localized: "generating_notes"))
-                        .font(.system(size: 12))
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("notes.generating")
                     Spacer()
                     Button(String(localized: "cancel")) {
                         controller.cancelGeneration()
                     }
+.accessibilityLabel(String(localized: "cancel"))
+.accessibilityHint(String(localized: "cancel_action_hint"))
                     .buttonStyle(.bordered)
-                    .font(.system(size: 11))
+                    .font(.caption)
                 }
 
                 markdownContent(state.streamingMarkdown)
@@ -693,7 +708,8 @@ struct NotesView: View {
             if case .error(let error) = state.notesGenerationStatus {
                 Text(error)
                     .foregroundStyle(.red)
-                    .font(.system(size: 12))
+.accessibilityAddTraits(.updatesFrequently)
+                    .font(.footnote)
             }
 
             Button {
@@ -720,8 +736,9 @@ struct NotesView: View {
                 }
                 if case .error(let cleanupError) = state.cleanupStatus {
                     Text(cleanupError)
-                        .font(.system(size: 12))
+                        .font(.footnote)
                         .foregroundStyle(.red)
+.accessibilityAddTraits(.updatesFrequently)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 4)
@@ -745,15 +762,17 @@ struct NotesView: View {
             ProgressView()
                 .controlSize(.small)
             Text(String(localized: "cleaning_up_transcript_completedtotal_sections"))
-                .font(.system(size: 12))
+                .font(.footnote)
                 .lineLimit(1)
                 .foregroundStyle(.secondary)
             Spacer()
             Button(String(localized: "cancel")) {
                 controller.cancelCleanup()
             }
+.accessibilityLabel(String(localized: "cancel"))
+.accessibilityHint(String(localized: "cancel_action_hint"))
             .buttonStyle(.bordered)
-            .font(.system(size: 11))
+            .font(.caption)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -764,13 +783,13 @@ struct NotesView: View {
     private func transcriptRow(record: SessionRecord, isCleaning: Bool, showingOriginal: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(record.speaker.displayLabel)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.caption)
                 .foregroundStyle(record.speaker.color)
                 .frame(minWidth: 36, alignment: .trailing)
 
             let displayText = showingOriginal ? record.text : (record.refinedText ?? record.text)
             Text(displayText)
-                .font(.system(size: 13))
+                .font(.subheadline)
                 .foregroundStyle(
                     isCleaning && record.refinedText == nil ? .secondary : .primary
                 )
@@ -814,12 +833,12 @@ struct NotesView: View {
             case .text(let text):
                 if let attributed = try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
                     Text(attributed)
-                        .font(.system(size: 13))
+                        .font(.subheadline)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     Text(text)
-                        .font(.system(size: 13))
+                        .font(.subheadline)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -833,7 +852,7 @@ struct NotesView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                 } else {
                     Label(String(localized: "image_not_found"), systemImage: "photo")
-                        .font(.system(size: 12))
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }

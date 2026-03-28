@@ -8,14 +8,14 @@ struct TranscriptWindowView: View {
         VStack(spacing: 0) {
             HStack {
                 Text(String(localized: "live_transcript"))
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.subheadline)
                 Spacer()
                 if !store.utterances.isEmpty {
                     Button {
                         copyTranscript(store.utterances)
                     } label: {
                         Label(String(localized: "copy"), systemImage: "doc.on.doc")
-                            .font(.system(size: 11))
+                            .font(.caption)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)

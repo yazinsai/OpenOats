@@ -12,6 +12,8 @@ struct CheckForUpdatesView: View {
         Button(String(localized: "check_for_updates")) {
             checkForUpdatesViewModel.updater.checkForUpdates()
         }
+.accessibilityLabel(String(localized: "check_for_updates"))
+.accessibilityHint(String(localized: "check_updates_hint"))
         .disabled(!checkForUpdatesViewModel.canCheckForUpdates)
     }
 }

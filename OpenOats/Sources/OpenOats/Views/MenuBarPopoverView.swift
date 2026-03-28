@@ -91,20 +91,20 @@ struct MenuBarPopoverView: View {
                     .fill(.red)
                     .frame(width: 8, height: 8)
                 Text(String(localized: "recording_formattedtime"))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.subheadline)
             } else if settings.meetingAutoDetectEnabled {
                 Circle()
                     .fill(.secondary)
                     .frame(width: 8, height: 8)
                 Text(String(localized: "listening_for_meetings"))
-                    .font(.system(size: 13))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
                 Circle()
                     .fill(.secondary.opacity(0.5))
                     .frame(width: 8, height: 8)
                 Text(String(localized: "idle"))
-                    .font(.system(size: 13))
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -116,9 +116,10 @@ struct MenuBarPopoverView: View {
         if coordinator.isRecording {
             Button(action: {
                 coordinator.handle(.userStopped, settings: settings)
-            }) {
+            }
+.accessibilityIdentifier("meeting_control_button")) {
                 Text(String(localized: "stop_recording"))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.subheadline)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -133,7 +134,7 @@ struct MenuBarPopoverView: View {
                 coordinator.handle(.userStarted(.manual()), settings: settings)
             }) {
                 Text(String(localized: "start_recording"))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.subheadline)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)

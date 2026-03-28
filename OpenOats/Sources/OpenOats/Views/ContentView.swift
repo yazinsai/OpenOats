@@ -30,14 +30,14 @@ struct ContentView: View {
             // Compact header
             HStack {
                 Text(String(localized: "openoats"))
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.subheadline)
 
                 Spacer()
 
                 // KB indexing status (subtle, read-only)
                 if !controllerState.kbIndexingProgress.isEmpty {
                     Text(controllerState.kbIndexingProgress)
-                        .font(.system(size: 10))
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -47,9 +47,9 @@ struct ContentView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "note.text")
-                            .font(.system(size: 11))
+                            .font(.caption)
                         Text(String(localized: "past_meetings"))
-                            .font(.system(size: 11))
+                            .font(.caption)
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
@@ -69,7 +69,7 @@ struct ContentView: View {
             if let lastSession = controllerState.lastEndedSession, lastSession.utteranceCount > 0 {
                 HStack {
                     Text(String(localized: "session_ended_u00b7_lastsessionutterancecount_utte"))
-                        .font(.system(size: 12))
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("app.sessionEndedBanner")
                     Spacer()
@@ -78,7 +78,7 @@ struct ContentView: View {
                             openWindow(id: "notes")
                         } label: {
                             Label(String(localized: "view_notes"), systemImage: "doc.text")
-                                .font(.system(size: 12))
+                                .font(.footnote)
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -88,7 +88,7 @@ struct ContentView: View {
                             openWindow(id: "notes")
                         } label: {
                             Label(String(localized: "generate_notes"), systemImage: "sparkles")
-                                .font(.system(size: 12))
+                                .font(.footnote)
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
@@ -111,7 +111,7 @@ struct ContentView: View {
                     Text(controllerState.batchIsImporting
                          ? "Importing meeting recording… \(Int(progress * 100))%"
                          : "Enhancing transcript... \(Int(progress * 100))%")
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -127,7 +127,7 @@ struct ContentView: View {
                     Text(controllerState.batchIsImporting
                          ? "Preparing to import…"
                          : "Loading batch model...")
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 16)
@@ -139,11 +139,11 @@ struct ContentView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
-                        .font(.system(size: 12))
+                        .font(.footnote)
                     Text(controllerState.batchIsImporting
                          ? "Meeting recording imported"
                          : "Transcript enhanced")
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 16)
@@ -156,8 +156,8 @@ struct ContentView: View {
             // Main content: Suggestions
             VStack(alignment: .leading, spacing: 0) {
                 Text("SUGGESTIONS")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.tertiary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                     .tracking(1.5)
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
@@ -182,11 +182,11 @@ struct ContentView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Text(String(localized: "transcript"))
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.footnote)
                         if !controllerState.liveTranscript.isEmpty {
                             Text(String(localized: "controllerstatelivetranscriptcount"))
-                                .font(.system(size: 11))
-                                .foregroundStyle(.tertiary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                         Spacer()
                         if isTranscriptExpanded && !controllerState.liveTranscript.isEmpty {
@@ -194,7 +194,7 @@ struct ContentView: View {
                                 openWindow(id: "transcript")
                             } label: {
                                 Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                    .font(.system(size: 11))
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .padding(4)
                                     .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -206,7 +206,7 @@ struct ContentView: View {
                                 copyTranscript()
                             } label: {
                                 Image(systemName: "doc.on.doc")
-                                    .font(.system(size: 11))
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .padding(4)
                                     .clipShape(RoundedRectangle(cornerRadius: 4))

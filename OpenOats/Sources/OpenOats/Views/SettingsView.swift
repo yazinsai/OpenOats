@@ -25,12 +25,12 @@ struct SettingsView: View {
         Form {
             Section("Meeting Notes") {
                 Text(String(localized: "where_meeting_transcripts_are_saved_as_plain_text_"))
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 HStack {
                     Text(settings.notesFolderPath)
-                        .font(.system(size: 12))
+                        .font(.footnote)
                         .lineLimit(1)
                         .truncationMode(.middle)
 
@@ -39,17 +39,19 @@ struct SettingsView: View {
                     Button(String(localized: "choose")) {
                         chooseNotesFolder()
                     }
+.accessibilityLabel(String(localized: "choose"))
+.accessibilityHint(String(localized: "choose_folder_hint"))
                 }
             }
 
             Section("Knowledge Base") {
                 Text(String(localized: "optional_point_this_to_a_folder_of_notes_docs_or_r"))
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 HStack {
                     Text(settings.kbFolderPath.isEmpty ? "Not set" : settings.kbFolderPath)
-                        .font(.system(size: 12))
+                        .font(.footnote)
                         .foregroundStyle(settings.kbFolderPath.isEmpty ? .tertiary : .primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -60,12 +62,16 @@ struct SettingsView: View {
                         Button(String(localized: "clear")) {
                             settings.kbFolderPath = ""
                         }
-                        .font(.system(size: 12))
+.accessibilityLabel(String(localized: "clear"))
+.accessibilityHint(String(localized: "clear_field_hint"))
+                        .font(.footnote)
                     }
 
                     Button(String(localized: "choose")) {
                         chooseKBFolder()
                     }
+.accessibilityLabel(String(localized: "choose"))
+.accessibilityHint(String(localized: "choose_folder_hint"))
                 }
             }
 
@@ -74,38 +80,39 @@ struct SettingsView: View {
                     ForEach(LLMProvider.allCases) { provider in
                         Text(provider.displayName).tag(provider)
                     }
+.accessibilityIdentifier("llm_provider_picker")
                 }
-                .font(.system(size: 12))
+                .font(.footnote)
                 .accessibilityIdentifier("settings.llmProviderPicker")
 
                 switch settings.llmProvider {
                 case .openRouter:
                     SecureField("API Key", text: $settings.openRouterApiKey)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
 
                     TextField("Model", text: $settings.selectedModel, prompt: Text("e.g. google/gemini-3-flash-preview"))
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
                 case .ollama:
                     TextField("Ollama URL", text: $settings.ollamaBaseURL, prompt: Text("http://localhost:11434"))
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
 
                     TextField("Model", text: $settings.ollamaLLMModel, prompt: Text("e.g. qwen3:8b"))
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
                 case .mlx:
                     TextField("MLX Server URL", text: $settings.mlxBaseURL, prompt: Text("http://localhost:8080"))
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
 
                     TextField("Model", text: $settings.mlxModel, prompt: Text("e.g. mlx-community/Llama-3.2-3B-Instruct-4bit"))
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
                 case .openAICompatible:
                     TextField("Endpoint URL", text: $settings.openAILLMBaseURL, prompt: Text("http://localhost:4000"))
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
 
                     SecureField("API Key (optional)", text: $settings.openAILLMApiKey)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
 
                     TextField("Model", text: $settings.openAILLMModel, prompt: Text("e.g. gpt-4o-mini"))
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
                 }
             }
 
@@ -114,30 +121,31 @@ struct SettingsView: View {
                     ForEach(EmbeddingProvider.allCases) { provider in
                         Text(provider.displayName).tag(provider)
                     }
+.accessibilityIdentifier("llm_provider_picker")
                 }
-                .font(.system(size: 12))
+                .font(.footnote)
 
                 switch settings.embeddingProvider {
                 case .voyageAI:
                     SecureField("API Key", text: $settings.voyageApiKey)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
                 case .ollama:
                     TextField("Embedding Model", text: $settings.ollamaEmbedModel, prompt: Text("e.g. nomic-embed-text"))
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
 
                     if settings.llmProvider != .ollama && settings.llmProvider != .mlx {
                         TextField("Ollama URL", text: $settings.ollamaBaseURL, prompt: Text("http://localhost:11434"))
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(.footnote)
                     }
                 case .openAICompatible:
                     TextField("Endpoint URL", text: $settings.openAIEmbedBaseURL, prompt: Text("http://localhost:8080"))
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
 
                     SecureField("API Key (optional)", text: $settings.openAIEmbedApiKey)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
 
                     TextField("Model", text: $settings.openAIEmbedModel, prompt: Text("e.g. text-embedding-3-small"))
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.footnote)
                 }
             }
 
@@ -147,10 +155,10 @@ struct SettingsView: View {
                         Text(level.displayName).tag(level)
                     }
                 }
-                .font(.system(size: 12))
+                .font(.footnote)
 
                 Text(settings.suggestionVerbosity.description)
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -161,21 +169,23 @@ struct SettingsView: View {
                         Text(device.name).tag(device.id)
                     }
                 }
-                .font(.system(size: 12))
+                .font(.footnote)
                 .accessibilityIdentifier("settings.microphonePicker")
             }
 
             Section("Recording") {
                 Toggle("Save audio recording", isOn: $settings.saveAudioRecording)
-                    .font(.system(size: 12))
+.accessibilityHint(String(localized: "toggle_accessibility_hint"))
+                    .font(.footnote)
                 Text(String(localized: "save_a_local_audio_file_m4a_alongside_each_transcr"))
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Toggle("Echo cancellation", isOn: $settings.enableEchoCancellation)
-                    .font(.system(size: 12))
+.accessibilityHint(String(localized: "toggle_accessibility_hint"))
+                    .font(.footnote)
                 Text(String(localized: "reduces_duplicate_transcription_when_using_speaker"))
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -184,50 +194,53 @@ struct SettingsView: View {
                     ForEach(TranscriptionModel.allCases) { model in
                         Text(model.displayName).tag(model)
                     }
+.accessibilityIdentifier("model_picker")
                 }
-                .font(.system(size: 12))
+                .font(.footnote)
                 .accessibilityIdentifier("settings.transcriptionModelPicker")
 
                 TextField(
                     "\(settings.transcriptionModel.localeFieldTitle) (e.g. en-US)",
                     text: $settings.transcriptionLocale
                 )
-                .font(.system(size: 12, design: .monospaced))
+                .font(.footnote)
 
                 Text(settings.transcriptionModel.localeHelpText)
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Toggle("Show live transcript", isOn: $settings.showLiveTranscript)
-                    .font(.system(size: 12))
+.accessibilityHint(String(localized: "toggle_accessibility_hint"))
+                    .font(.footnote)
                 Text(String(localized: "when_disabled_the_transcript_panel_is_hidden_durin"))
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Toggle("Clean up transcript during recording", isOn: $settings.enableTranscriptRefinement)
-                    .font(.system(size: 12))
+.accessibilityHint(String(localized: "toggle_accessibility_hint"))
+                    .font(.footnote)
                 Text(String(localized: "automatically_removes_filler_words_and_fixes_punct"))
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(String(localized: "custom_keywords"))
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
 
                     ZStack(alignment: .topLeading) {
                         if settings.transcriptionCustomVocabulary.isEmpty {
                             Text(String(localized: "one_term_per_line_optional_aliases_openoats_open_o"))
-                                .font(.system(size: 11))
-                                .foregroundStyle(.quaternary)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
                                 .padding(.top, 6)
                                 .padding(.leading, 4)
                                 .allowsHitTesting(false)
                         }
 
                         TextEditor(text: $settings.transcriptionCustomVocabulary)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.caption)
                             .frame(height: 90)
                             .frame(maxWidth: .infinity)
                             .scrollContentBackground(.hidden)
@@ -240,7 +253,7 @@ struct SettingsView: View {
                     Text(
                         "Optional. Boost meeting-specific jargon, names, and product terms for Parakeet TDT v2/v3. Enter one term per line, or use `Preferred Term: alias one, alias two`."
                     )
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 }
@@ -248,9 +261,10 @@ struct SettingsView: View {
 
             Section("Batch Refinement") {
                 Toggle("Enhance transcript after meeting", isOn: $settings.enableBatchRefinement)
-                    .font(.system(size: 12))
+.accessibilityHint(String(localized: "toggle_accessibility_hint"))
+                    .font(.footnote)
                 Text(String(localized: "retranscribes_audio_with_a_higherquality_model_aft"))
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 if settings.enableBatchRefinement {
@@ -259,15 +273,16 @@ struct SettingsView: View {
                             Text(model.displayName).tag(model)
                         }
                     }
-                    .font(.system(size: 12))
+                    .font(.footnote)
                 }
             }
 
             Section("Speaker Diarization") {
                 Toggle("Identify multiple remote speakers", isOn: $settings.enableDiarization)
-                    .font(.system(size: 12))
+.accessibilityHint(String(localized: "toggle_accessibility_hint"))
+                    .font(.footnote)
                 Text(String(localized: "uses_lseend_to_distinguish_different_speakers_on_s"))
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 if settings.enableDiarization {
@@ -276,21 +291,23 @@ struct SettingsView: View {
                             Text(variant.displayName).tag(variant)
                         }
                     }
-                    .font(.system(size: 12))
+                    .font(.footnote)
                 }
             }
 
             Section("Privacy") {
                 Toggle("Hide from screen sharing", isOn: $settings.hideFromScreenShare)
-                    .font(.system(size: 12))
+.accessibilityHint(String(localized: "toggle_accessibility_hint"))
+                    .font(.footnote)
                 Text(String(localized: "when_enabled_the_app_is_invisible_during_screen_sh"))
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Section("Meeting Detection") {
                 Toggle("Auto-detect meetings", isOn: $settings.meetingAutoDetectEnabled)
-                    .font(.system(size: 12))
+.accessibilityHint(String(localized: "toggle_accessibility_hint"))
+                    .font(.footnote)
                     .onChange(of: settings.meetingAutoDetectEnabled) {
                         if settings.meetingAutoDetectEnabled && !settings.hasShownAutoDetectExplanation {
                             settings.meetingAutoDetectEnabled = false
@@ -299,16 +316,17 @@ struct SettingsView: View {
                     }
 
                 Text(String(localized: "when_enabled_openoats_monitors_microphone_activati"))
-                    .font(.system(size: 11))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 LaunchAtLogin.Toggle("Launch at login")
-                    .font(.system(size: 12))
+.accessibilityHint(String(localized: "toggle_accessibility_hint"))
+                    .font(.footnote)
             }
             .sheet(isPresented: $showAutoDetectExplanation) {
                 VStack(spacing: 16) {
                     Image(systemName: "waveform.badge.magnifyingglass")
-                        .font(.system(size: 40))
+                        .font(.title)
                         .foregroundStyle(.tint)
 
                     Text(String(localized: "how_meeting_detection_works"))
@@ -320,13 +338,15 @@ struct SettingsView: View {
                         Label(String(localized: "when_a_meeting_is_detected_you_get_a_macos_notific"), systemImage: "bell")
                         Label("You can always dismiss the notification or mark it as \"not a meeting\".", systemImage: "hand.raised")
                     }
-                    .font(.system(size: 12))
+                    .font(.footnote)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack {
                         Button(String(localized: "cancel")) {
                             showAutoDetectExplanation = false
                         }
+.accessibilityLabel(String(localized: "cancel"))
+.accessibilityHint(String(localized: "cancel_action_hint"))
                         .keyboardShortcut(.cancelAction)
 
                         Button(String(localized: "enable_detection")) {
@@ -334,6 +354,8 @@ struct SettingsView: View {
                             settings.meetingAutoDetectEnabled = true
                             showAutoDetectExplanation = false
                         }
+.accessibilityLabel(String(localized: "enable_detection"))
+.accessibilityHint(String(localized: "enable_detection_hint"))
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
                     }
@@ -346,32 +368,34 @@ struct SettingsView: View {
                 DisclosureGroup("Advanced Detection Settings") {
                     HStack {
                         Text(String(localized: "silence_timeout"))
-                            .font(.system(size: 12))
+                            .font(.footnote)
                         Spacer()
                         TextField("", value: $settings.silenceTimeoutMinutes, format: .number)
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(.footnote)
                             .frame(width: 50)
                             .multilineTextAlignment(.trailing)
                         Text(String(localized: "min"))
-                            .font(.system(size: 12))
+                            .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
                     Text(String(localized: "autodetected_sessions_stop_after_this_many_minutes"))
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
 
                     Toggle("Detection log", isOn: $settings.detectionLogEnabled)
-                        .font(.system(size: 12))
+.accessibilityHint(String(localized: "toggle_accessibility_hint"))
+                        .font(.footnote)
                     Text(String(localized: "print_detection_events_to_the_system_console_for_d"))
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .font(.system(size: 12))
+                .font(.footnote)
             }
 
             Section("Updates") {
                 Toggle("Automatically check for updates", isOn: $automaticallyChecksForUpdates)
-                .font(.system(size: 12))
+.accessibilityHint(String(localized: "toggle_accessibility_hint"))
+                .font(.footnote)
                 .onChange(of: automaticallyChecksForUpdates) { _, newValue in
                     syncAutomaticUpdateChecks(to: newValue)
                 }
@@ -384,16 +408,17 @@ struct SettingsView: View {
                             .frame(width: 20)
                             .foregroundStyle(.secondary)
                         Text(template.name)
-                            .font(.system(size: 12))
+                            .font(.footnote)
                         Spacer()
                         if template.isBuiltIn {
                             Image(systemName: "lock")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.tertiary)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                             Button(String(localized: "reset")) {
                                 resetTemplate(id: template.id)
                             }
-                            .font(.system(size: 11))
+.accessibilityLabel(String(localized: "reset"))
+                            .font(.caption)
                             .buttonStyle(.plain)
                             .foregroundStyle(.blue)
                         } else {
@@ -401,8 +426,9 @@ struct SettingsView: View {
                                 deleteTemplate(id: template.id)
                             } label: {
                                 Image(systemName: "trash")
-                                    .font(.system(size: 11))
+                                    .font(.caption)
                                     .foregroundStyle(.red)
+.accessibilityAddTraits(.updatesFrequently)
                             }
                             .buttonStyle(.plain)
                         }
@@ -414,10 +440,11 @@ struct SettingsView: View {
                         // Name
                         VStack(alignment: .leading, spacing: 3) {
                             Text(String(localized: "name"))
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                             TextField("e.g. Sprint Planning", text: $newTemplateName)
-                                .font(.system(size: 12))
+.accessibilityLabel(String(localized: "textfield_e.g._sprint_planning_label"))
+                                .font(.footnote)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(maxWidth: .infinity)
                                 .focused($focusedTemplateField, equals: .name)
@@ -426,7 +453,7 @@ struct SettingsView: View {
                         // Icon picker
                         VStack(alignment: .leading, spacing: 3) {
                             Text(String(localized: "icon"))
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                             IconPickerGrid(selected: $newTemplateIcon)
                         }
@@ -434,22 +461,22 @@ struct SettingsView: View {
                         // System prompt
                         VStack(alignment: .leading, spacing: 3) {
                             Text(String(localized: "notes_prompt"))
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                             Text(String(localized: "instructions_for_how_the_ai_should_format_notes_fo"))
-                                .font(.system(size: 10))
-                                .foregroundStyle(.tertiary)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                             ZStack(alignment: .topLeading) {
                                 if newTemplatePrompt.isEmpty {
                                     Text("e.g. You are a meeting notes assistant. Given a transcript, produce structured notes with sections for...")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.quaternary)
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
                                         .padding(.top, 6)
                                         .padding(.leading, 4)
                                         .allowsHitTesting(false)
                                 }
                                 TextEditor(text: $newTemplatePrompt)
-                                    .font(.system(size: 11, design: .monospaced))
+                                    .font(.caption)
                                     .frame(height: 100)
                                     .frame(maxWidth: .infinity)
                                     .scrollContentBackground(.hidden)
@@ -464,6 +491,8 @@ struct SettingsView: View {
                             Button(String(localized: "cancel")) {
                                 resetNewTemplateForm()
                             }
+.accessibilityLabel(String(localized: "cancel"))
+.accessibilityHint(String(localized: "cancel_action_hint"))
                             .buttonStyle(.plain)
                             Button(String(localized: "save")) {
                                 let template = MeetingTemplate(
@@ -476,6 +505,8 @@ struct SettingsView: View {
                                 addTemplate(template)
                                 resetNewTemplateForm()
                             }
+.accessibilityLabel(String(localized: "save"))
+.accessibilityHint(String(localized: "save_changes_hint"))
                             .buttonStyle(.borderedProminent)
                             .disabled(!canSaveNewTemplate)
                         }
@@ -487,8 +518,9 @@ struct SettingsView: View {
                         Task { @MainActor in
                             focusedTemplateField = .name
                         }
+.accessibilityLabel(String(localized: "new_template"))
                     }
-                    .font(.system(size: 12))
+                    .font(.footnote)
                 }
             }
         }
@@ -604,7 +636,7 @@ private struct IconPickerGrid: View {
                     selected = icon
                 } label: {
                     Image(systemName: icon)
-                        .font(.system(size: 13))
+                        .font(.subheadline)
                         .frame(width: 28, height: 28)
                         .background(
                             RoundedRectangle(cornerRadius: 6)

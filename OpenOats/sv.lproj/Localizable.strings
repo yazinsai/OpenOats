@@ -393,3 +393,37 @@
 
 // OpenOats/Sources/OpenOats/Views/TranscriptWindowView.swift:22
 "copy_transcript_to_clipboard" = "Kopiera transkript till urklipp";
+
+
+// Tillgänglighetssträngar (Accessibility strings)
+"add_item_hint" = "Add a new item to the list";
+"delete_item_hint" = "Permanently delete this item";
+"copy_content_hint" = "Copy content to clipboard";
+"start_action_hint" = "Begin the selected operation";
+"stop_action_hint" = "Stop the current operation";
+"quit_app_hint" = "Exit OpenOats application";
+"enable_detection_hint" = "Allow OpenOats to automatically detect when meetings start";
+"textfield_api_key_label" = "API Key Input Field";
+"textfield_model_label" = "Model Name Input Field";
+"textfield_url_label" = "URL Input Field";
+"textfield_locale_label" = "Locale Input Field";
+"textfield_timeout_label" = "Timeout Value Input Field";
+"textfield_template_name_label" = "Template Name Input Field";
+"recording_status" = "Currently recording meeting audio";
+"idle_status" = "Ready to start recording";
+"processing_status" = "Processing audio and generating suggestions";
+"transcript_status" = "Live transcript display";
+"suggestions_status" = "AI-generated meeting suggestions";
+"notes_status" = "Generated meeting notes";
+"toggle_meeting_hint" = "Startar eller stoppar mötesupptagning och transkription";
+"past_meetings_hint" = "Öppnar fönster för att visa tidigare mötesTranskript och anteckningar";
+"import_recording_hint" = "Importera en ljudfil att transkribera som ett möte";
+"github_repository_hint" = "Öppnar OpenOats GitHub-förråd i din webbläsare";
+"view_notes_hint" = "Visa genererade anteckningar för detta möte";
+"generate_notes_hint" = "Generera strukturerade anteckningar från mötesTranskriptet";
+"check_updates_hint" = "Sök efter nya versioner av OpenOats";
+"choose_folder_hint" = "Öppna mappvalsdialog";
+"clear_field_hint" = "Rensa aktuellt fältvärde";
+"save_changes_hint" = "Spara dina ändringar i inställningar";
+"cancel_action_hint" = "Avbryt aktuell operation utan att spara ändringar";
+"toggle_accessibility_hint" = "Dubbelknacka för att växla denna inställning";

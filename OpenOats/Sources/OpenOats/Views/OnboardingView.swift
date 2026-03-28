@@ -33,7 +33,7 @@ struct OnboardingView: View {
 
             // Icon
             Image(systemName: steps[currentStep].icon)
-                .font(.system(size: 40, weight: .light))
+                .font(.title)
                 .foregroundStyle(Color.accentTeal)
                 .frame(height: 52)
                 .id(currentStep) // force transition on change
@@ -42,14 +42,14 @@ struct OnboardingView: View {
 
             // Title
             Text(steps[currentStep].title)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.body)
                 .multilineTextAlignment(.center)
 
             Spacer().frame(height: 10)
 
             // Body
             Text(steps[currentStep].body)
-                .font(.system(size: 13))
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
@@ -72,8 +72,9 @@ struct OnboardingView: View {
                 Button(String(localized: "skip")) {
                     finish()
                 }
+.accessibilityLabel(String(localized: "skip"))
                 .buttonStyle(.plain)
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
 
                 Spacer()
@@ -88,7 +89,7 @@ struct OnboardingView: View {
                     }
                 } label: {
                     Text(currentStep < steps.count - 1 ? "Next" : "Get Started")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.subheadline)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 8)

@@ -13,7 +13,7 @@ struct SuggestionsView: View {
                         ProgressView()
                             .controlSize(.mini)
                         Text(String(localized: "evaluating"))
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                     .padding(12)
@@ -30,11 +30,11 @@ struct SuggestionsView: View {
                 if suggestions.isEmpty && !isGenerating {
                     VStack(spacing: 8) {
                         Text(String(localized: "no_suggestions_yet"))
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
                         Text(String(localized: "suggestions_appear_when_the_conversation_reaches_a"))
-                            .font(.system(size: 12))
-                            .foregroundStyle(.tertiary)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
@@ -112,13 +112,13 @@ private struct BulletRow: View {
             HStack(alignment: .top, spacing: 6) {
                 if bullet.detail != nil {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                         .frame(width: 10, height: 16)
                 }
 
                 Text(bullet.headline)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.subheadline)
                     .foregroundStyle(.primary)
                     .textSelection(.enabled)
             }
@@ -138,7 +138,7 @@ private struct BulletRow: View {
 
             if let detail = bullet.detail, isExpanded {
                 Text(detail)
-                    .font(.system(size: 12))
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .padding(.leading, 16)
@@ -160,7 +160,7 @@ private struct SuggestionCard: View {
 
             if bullets.isEmpty {
                 Text(suggestion.text)
-                    .font(.system(size: 13))
+                    .font(.subheadline)
                     .foregroundStyle(.primary)
                     .textSelection(.enabled)
             } else {
@@ -173,15 +173,15 @@ private struct SuggestionCard: View {
             if !suggestion.kbHits.isEmpty {
                 HStack(spacing: 4) {
                     Image(systemName: "doc.text")
-                        .font(.system(size: 9))
+                        .font(.caption2)
                     let sourceLabels = suggestion.kbHits.prefix(3).map { hit in
                         hit.headerContext.isEmpty ? hit.sourceFile : "\(hit.sourceFile) > \(hit.headerContext)"
                     }
                     Text(sourceLabels.joined(separator: " | "))
-                        .font(.system(size: 10))
+                        .font(.caption2)
                         .lineLimit(1)
                 }
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
                 .padding(.top, 2)
             }
         }
