@@ -69,12 +69,10 @@ const parakeetDeviceOptions = [
 ];
 
 const omniAsrModelOptions = [
-  { value: "omniASR_CTC_300M",  label: "omniASR CTC 300M (Fast)",     description: "300M CTC model — fastest, good for most languages." },
-  { value: "omniASR_CTC_1B",    label: "omniASR CTC 1B",              description: "1B CTC model — better accuracy, 1,600+ languages." },
-  { value: "omniASR_CTC_3B",    label: "omniASR CTC 3B",              description: "3B CTC model — high accuracy." },
-  { value: "omniASR_LLM_300M",  label: "omniASR LLM 300M",            description: "300M LLM model — language-conditioned transcription." },
-  { value: "omniASR_LLM_1B",    label: "omniASR LLM 1B",              description: "1B LLM model — improved multilingual quality." },
-  { value: "omniASR_LLM_7B",    label: "omniASR LLM 7B (Best)",       description: "7B LLM model — highest accuracy, requires more VRAM." },
+  { value: "omniASR_LLM_Unlimited_300M_v2", label: "omniASR LLM Unlimited 300M v2 (Fast)", description: "Fastest unlimited-length model." },
+  { value: "omniASR_LLM_Unlimited_1B_v2",   label: "omniASR LLM Unlimited 1B v2",          description: "Balanced speed and accuracy." },
+  { value: "omniASR_LLM_Unlimited_3B_v2",   label: "omniASR LLM Unlimited 3B v2",          description: "High accuracy." },
+  { value: "omniASR_LLM_Unlimited_7B_v2",   label: "omniASR LLM Unlimited 7B v2 (Best)",   description: "Highest accuracy, requires more VRAM." },
 ];
 
 const omniAsrDeviceOptions = [
