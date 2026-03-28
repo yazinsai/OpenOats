@@ -1451,6 +1451,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "windows"))]
     fn ld_library_path() {
         let venv = PathBuf::from("/tmp/venv");
         assert_eq!(native_ld_library_path(&venv, None), "/tmp/venv/lib");
