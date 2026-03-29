@@ -317,7 +317,7 @@ final class MarkdownMeetingWriterTests: XCTestCase {
             SessionRecord(
                 speaker: .them, text: "raw text",
                 timestamp: start.addingTimeInterval(5),
-                cleanedText: "Refined text here."
+                cleanedText: "Cleaned text here."
             ),
         ]
 
@@ -329,8 +329,8 @@ final class MarkdownMeetingWriterTests: XCTestCase {
         XCTAssertTrue(markdown.contains("# Meeting"))
         XCTAssertTrue(markdown.contains("## Transcript"))
         XCTAssertTrue(markdown.contains("[00:00:00] **You:** Hello world"))
-        XCTAssertTrue(markdown.contains("[00:00:05] **Them:** Refined text here."))
-        // Refined text should be used, not raw
+        XCTAssertTrue(markdown.contains("[00:00:05] **Them:** Cleaned text here."))
+        // Cleaned text should be used, not raw
         XCTAssertFalse(markdown.contains("raw text"))
     }
 
