@@ -126,13 +126,13 @@ final class SettingsStoreTests: XCTestCase {
 
     func testDefaultEnableTranscriptRefinement() {
         let store = makeStore()
-        XCTAssertFalse(store.enableTranscriptRefinement)
+        XCTAssertFalse(store.enableLiveTranscriptCleanup)
     }
 
     func testEnableTranscriptRefinementRoundTrip() {
         let store = makeStore()
-        store.enableTranscriptRefinement = true
-        XCTAssertTrue(store.enableTranscriptRefinement)
+        store.enableLiveTranscriptCleanup = true
+        XCTAssertTrue(store.enableLiveTranscriptCleanup)
     }
 
     // MARK: - Capture Settings Group
@@ -172,7 +172,7 @@ final class SettingsStoreTests: XCTestCase {
     func testDefaultEnableBatchRefinement() {
         let store = makeStore()
         // Defaults to false when key never set
-        XCTAssertFalse(store.enableBatchRefinement)
+        XCTAssertFalse(store.enableBatchRetranscription)
     }
 
     func testDefaultBatchTranscriptionModel() {

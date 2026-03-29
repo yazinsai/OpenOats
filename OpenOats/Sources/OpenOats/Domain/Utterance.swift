@@ -55,9 +55,9 @@ enum Speaker: Codable, Sendable, Hashable {
     }
 }
 
-// MARK: - Refinement Status
+// MARK: - Text Cleanup Status
 
-enum RefinementStatus: String, Codable, Sendable {
+enum TextCleanupStatus: String, Codable, Sendable {
     case pending, completed, failed, skipped
 }
 
@@ -68,42 +68,48 @@ struct Utterance: Identifiable, Codable, Sendable {
     let text: String
     let speaker: Speaker
     let timestamp: Date
-    let refinedText: String?
-    let refinementStatus: RefinementStatus?
+    let cleanedText: String?
+    let cleanupStatus: TextCleanupStatus?
 
-    init(text: String, speaker: Speaker, timestamp: Date = .now, refinedText: String? = nil, refinementStatus: RefinementStatus? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case id, text, speaker, timestamp
+        case cleanedText = "refinedText"
+        case cleanupStatus = "refinementStatus"
+    }
+
+    init(text: String, speaker: Speaker, timestamp: Date = .now, cleanedText: String? = nil, cleanupStatus: TextCleanupStatus? = nil) {
         self.id = UUID()
         self.text = text
         self.speaker = speaker
         self.timestamp = timestamp
-        self.refinedText = refinedText
-        self.refinementStatus = refinementStatus
+        self.cleanedText = cleanedText
+        self.cleanupStatus = cleanupStatus
     }
 
-    /// The best available text: refined if available, otherwise raw.
+    /// The best available text: cleaned if available, otherwise raw.
     var displayText: String {
-        refinedText ?? text
+        cleanedText ?? text
     }
 
-    func withRefinement(text: String?, status: RefinementStatus) -> Utterance {
+    func withCleanup(text: String?, status: TextCleanupStatus) -> Utterance {
         Utterance(
             id: self.id,
             text: self.text,
             speaker: self.speaker,
             timestamp: self.timestamp,
-            refinedText: text,
-            refinementStatus: status
+            cleanedText: text,
+            cleanupStatus: status
         )
     }
 
     /// Private memberwise init that preserves an existing ID.
-    private init(id: UUID, text: String, speaker: Speaker, timestamp: Date, refinedText: String?, refinementStatus: RefinementStatus?) {
+    private init(id: UUID, text: String, speaker: Speaker, timestamp: Date, cleanedText: String?, cleanupStatus: TextCleanupStatus?) {
         self.id = id
         self.text = text
         self.speaker = speaker
         self.timestamp = timestamp
-        self.refinedText = refinedText
-        self.refinementStatus = refinementStatus
+        self.cleanedText = cleanedText
+        self.cleanupStatus = cleanupStatus
     }
 }
 

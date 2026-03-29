@@ -263,11 +263,18 @@ struct SessionRecord: Codable {
     let suggestionDecision: SuggestionDecision?
     let surfacedSuggestionText: String?
     let conversationStateSummary: String?
-    let refinedText: String?
+    let cleanedText: String?
     // Real-time suggestion tracking
     let suggestionID: UUID?
     let triggerUtteranceID: UUID?
     let suggestionLifecycle: SuggestionLifecycle?
+
+    enum CodingKeys: String, CodingKey {
+        case speaker, text, timestamp, suggestions, kbHits
+        case suggestionDecision, surfacedSuggestionText, conversationStateSummary
+        case cleanedText = "refinedText"
+        case suggestionID, triggerUtteranceID, suggestionLifecycle
+    }
 
     init(
         speaker: Speaker,
@@ -278,7 +285,7 @@ struct SessionRecord: Codable {
         suggestionDecision: SuggestionDecision? = nil,
         surfacedSuggestionText: String? = nil,
         conversationStateSummary: String? = nil,
-        refinedText: String? = nil,
+        cleanedText: String? = nil,
         suggestionID: UUID? = nil,
         triggerUtteranceID: UUID? = nil,
         suggestionLifecycle: SuggestionLifecycle? = nil
@@ -291,20 +298,20 @@ struct SessionRecord: Codable {
         self.suggestionDecision = suggestionDecision
         self.surfacedSuggestionText = surfacedSuggestionText
         self.conversationStateSummary = conversationStateSummary
-        self.refinedText = refinedText
+        self.cleanedText = cleanedText
         self.suggestionID = suggestionID
         self.triggerUtteranceID = triggerUtteranceID
         self.suggestionLifecycle = suggestionLifecycle
     }
 
-    func withRefinedText(_ text: String?) -> SessionRecord {
+    func withCleanedText(_ text: String?) -> SessionRecord {
         SessionRecord(
             speaker: speaker, text: self.text, timestamp: timestamp,
             suggestions: suggestions, kbHits: kbHits,
             suggestionDecision: suggestionDecision,
             surfacedSuggestionText: surfacedSuggestionText,
             conversationStateSummary: conversationStateSummary,
-            refinedText: text,
+            cleanedText: text,
             suggestionID: suggestionID,
             triggerUtteranceID: triggerUtteranceID,
             suggestionLifecycle: suggestionLifecycle
@@ -312,7 +319,7 @@ struct SessionRecord: Codable {
     }
 }
 
-// MARK: - Meeting Templates & Enhanced Notes
+// MARK: - Meeting Templates & Generated Notes
 
 struct MeetingTemplate: Identifiable, Codable, Sendable, Hashable {
     let id: UUID
@@ -329,7 +336,7 @@ struct TemplateSnapshot: Codable, Sendable {
     let systemPrompt: String
 }
 
-struct EnhancedNotes: Codable, Sendable {
+struct GeneratedNotes: Codable, Sendable {
     let template: TemplateSnapshot
     let generatedAt: Date
     let markdown: String
@@ -357,5 +364,5 @@ struct SessionIndex: Identifiable, Codable, Sendable {
 
 struct SessionSidecar: Codable, Sendable {
     let index: SessionIndex
-    var notes: EnhancedNotes?
+    var notes: GeneratedNotes?
 }

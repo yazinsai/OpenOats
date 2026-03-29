@@ -139,7 +139,7 @@ final class NotesEngine {
 
         for record in records {
             let label = record.speaker.displayLabel
-            let bestText = record.refinedText ?? record.text
+            let bestText = record.cleanedText ?? record.text
             let line = "[\(timeFmt.string(from: record.timestamp))] \(label): \(bestText)"
             totalChars += line.count
             lines.append(line)

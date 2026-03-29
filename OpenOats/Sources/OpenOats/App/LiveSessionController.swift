@@ -13,7 +13,7 @@ struct LiveSessionState {
     var volatileThemText: String = ""
     var suggestions: [Suggestion] = []
     var isGeneratingSuggestions: Bool = false
-    var batchStatus: BatchTranscriptionEngine.Status = .idle
+    var batchStatus: BatchAudioTranscriber.Status = .idle
     var batchIsImporting: Bool = false
     var lastEndedSession: SessionIndex? = nil
     var lastSessionHasNotes: Bool = false
@@ -79,7 +79,7 @@ final class LiveSessionController {
             try? await Task.sleep(for: .milliseconds(250))
 
             // Poll batch engine status (actor-isolated)
-            if let engine = coordinator.batchEngine {
+            if let engine = coordinator.batchAudioTranscriber {
                 let status = await engine.status
                 let importing = await engine.isImporting
                 if status != .idle || coordinator.batchStatus != .idle {
@@ -174,9 +174,9 @@ final class LiveSessionController {
     private func handleNewUtterance(_ last: Utterance, settings: AppSettings) {
         container.detectionController?.noteUtterance()
 
-        if settings.enableTranscriptRefinement, let engine = coordinator.refinementEngine {
+        if settings.enableLiveTranscriptCleanup, let engine = coordinator.liveTranscriptCleaner {
             Task {
-                await engine.refine(last)
+                await engine.clean(last)
             }
         }
 
@@ -223,8 +223,8 @@ final class LiveSessionController {
     // MARK: - Transcription Lifecycle (migrated from AppCoordinator)
 
     func startTranscription(metadata: MeetingMetadata, settings: AppSettings?) async {
-        if let batchEngine = coordinator.batchEngine {
-            await batchEngine.cancel()
+        if let batchAudioTranscriber = coordinator.batchAudioTranscriber {
+            await batchAudioTranscriber.cancel()
         }
 
         coordinator.lastEndedSession = nil
@@ -262,7 +262,7 @@ final class LiveSessionController {
         _currentSessionID = handle.sessionID
 
         if let settings {
-            if settings.saveAudioRecording || settings.enableBatchRefinement {
+            if settings.saveAudioRecording || settings.enableBatchRetranscription {
                 coordinator.audioRecorder?.startSession()
                 coordinator.transcriptionEngine?.audioRecorder = coordinator.audioRecorder
             } else {
@@ -281,9 +281,9 @@ final class LiveSessionController {
         // 1. Drain audio buffers
         await coordinator.transcriptionEngine?.finalize()
 
-        // 1b. Drain pending refinements
-        if let settings, settings.enableTranscriptRefinement {
-            await coordinator.refinementEngine?.drain(timeout: .seconds(5))
+        // 1b. Drain pending cleanups
+        if let settings, settings.enableLiveTranscriptCleanup {
+            await coordinator.liveTranscriptCleaner?.drain(timeout: .seconds(5))
         }
 
         // 2. Drain delayed JSONL writes
@@ -316,7 +316,7 @@ final class LiveSessionController {
             return locale
         }()
 
-        // 4. Finalize: closes file handle, backfills refined text, writes session.json
+        // 4. Finalize: closes file handle, backfills cleaned text, writes session.json
         await coordinator.sessionRepository.finalizeSession(
             sessionID: sessionID,
             metadata: SessionFinalizeMetadata(
@@ -356,7 +356,7 @@ final class LiveSessionController {
 
         // 6. Handle audio recording
         if let settings, let recorder = coordinator.audioRecorder {
-            let wantsBatch = settings.enableBatchRefinement
+            let wantsBatch = settings.enableBatchRetranscription
             let wantsExport = settings.saveAudioRecording
 
             if wantsBatch && wantsExport {
@@ -422,7 +422,7 @@ final class LiveSessionController {
         await coordinator.loadHistory()
 
         // 8. Kick off batch transcription if enabled
-        if let settings, settings.enableBatchRefinement, let batchEngine = coordinator.batchEngine {
+        if let settings, settings.enableBatchRetranscription, let batchAudioTranscriber = coordinator.batchAudioTranscriber {
             let batchSessionID = sessionID
             let batchModel = settings.batchTranscriptionModel
             let batchLocale = settings.locale
@@ -430,8 +430,8 @@ final class LiveSessionController {
             let repo = coordinator.sessionRepository
             let diarize = settings.enableDiarization
             let diarizeVariant = settings.diarizationVariant
-            Task.detached { [batchEngine] in
-                await batchEngine.process(
+            Task.detached { [batchAudioTranscriber] in
+                await batchAudioTranscriber.process(
                     sessionID: batchSessionID,
                     model: batchModel,
                     locale: batchLocale,

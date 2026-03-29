@@ -6,7 +6,7 @@ private let batchLog = Logger(subsystem: "com.openoats.app", category: "BatchTra
 
 /// Offline two-pass transcription engine that processes recorded CAF files
 /// using a higher-quality model after a meeting ends.
-actor BatchTranscriptionEngine {
+actor BatchAudioTranscriber {
 
     enum Status: Sendable, Equatable {
         case idle

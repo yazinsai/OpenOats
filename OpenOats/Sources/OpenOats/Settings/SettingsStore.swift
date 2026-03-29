@@ -199,13 +199,13 @@ final class SettingsStore {
         }
     }
 
-    @ObservationIgnored nonisolated(unsafe) private var _enableTranscriptRefinement: Bool
-    var enableTranscriptRefinement: Bool {
-        get { access(keyPath: \.enableTranscriptRefinement); return _enableTranscriptRefinement }
+    @ObservationIgnored nonisolated(unsafe) private var _enableLiveTranscriptCleanup: Bool
+    var enableLiveTranscriptCleanup: Bool {
+        get { access(keyPath: \.enableLiveTranscriptCleanup); return _enableLiveTranscriptCleanup }
         set {
-            withMutation(keyPath: \.enableTranscriptRefinement) {
-                _enableTranscriptRefinement = newValue
-                defaults.set(newValue, forKey: "enableTranscriptRefinement")
+            withMutation(keyPath: \.enableLiveTranscriptCleanup) {
+                _enableLiveTranscriptCleanup = newValue
+                defaults.set(newValue, forKey: "enableLiveTranscriptCleanup")
             }
         }
     }
@@ -366,13 +366,13 @@ final class SettingsStore {
         }
     }
 
-    @ObservationIgnored nonisolated(unsafe) private var _enableBatchRefinement: Bool
-    var enableBatchRefinement: Bool {
-        get { access(keyPath: \.enableBatchRefinement); return _enableBatchRefinement }
+    @ObservationIgnored nonisolated(unsafe) private var _enableBatchRetranscription: Bool
+    var enableBatchRetranscription: Bool {
+        get { access(keyPath: \.enableBatchRetranscription); return _enableBatchRetranscription }
         set {
-            withMutation(keyPath: \.enableBatchRefinement) {
-                _enableBatchRefinement = newValue
-                defaults.set(newValue, forKey: "enableBatchRefinement")
+            withMutation(keyPath: \.enableBatchRetranscription) {
+                _enableBatchRetranscription = newValue
+                defaults.set(newValue, forKey: "enableBatchRetranscription")
             }
         }
     }
@@ -612,6 +612,16 @@ final class SettingsStore {
             Self.migrateKeychainServiceIfNeeded(defaults: defaults)
         }
 
+        // Migrate renamed settings keys (old -> new)
+        if defaults.object(forKey: "enableLiveTranscriptCleanup") == nil,
+           let oldValue = defaults.object(forKey: "enableTranscriptRefinement") {
+            defaults.set(oldValue, forKey: "enableLiveTranscriptCleanup")
+        }
+        if defaults.object(forKey: "enableBatchRetranscription") == nil,
+           let oldValue = defaults.object(forKey: "enableBatchRefinement") {
+            defaults.set(oldValue, forKey: "enableBatchRetranscription")
+        }
+
         // AI Settings
         self._llmProvider = LLMProvider(rawValue: defaults.string(forKey: "llmProvider") ?? "") ?? .openRouter
         self._openRouterApiKey = storage.secretStore.load(key: "openRouterApiKey") ?? ""
@@ -632,7 +642,7 @@ final class SettingsStore {
         self._suggestionVerbosity = SuggestionVerbosity(
             rawValue: defaults.string(forKey: "suggestionVerbosity") ?? ""
         ) ?? .quiet
-        self._enableTranscriptRefinement = defaults.bool(forKey: "enableTranscriptRefinement")
+        self._enableLiveTranscriptCleanup = defaults.bool(forKey: "enableLiveTranscriptCleanup")
         self._realtimeModel = defaults.string(forKey: "realtimeModel") ?? "google/gemini-3.1-flash-lite-preview"
         self._realtimeOllamaModel = defaults.string(forKey: "realtimeOllamaModel") ?? ""
         if defaults.object(forKey: "suggestionPanelEnabled") == nil {
@@ -663,10 +673,10 @@ final class SettingsStore {
             self._enableEchoCancellation = defaults.bool(forKey: "enableEchoCancellation")
         }
 
-        if defaults.object(forKey: "enableBatchRefinement") == nil {
-            self._enableBatchRefinement = false
+        if defaults.object(forKey: "enableBatchRetranscription") == nil {
+            self._enableBatchRetranscription = false
         } else {
-            self._enableBatchRefinement = defaults.bool(forKey: "enableBatchRefinement")
+            self._enableBatchRetranscription = defaults.bool(forKey: "enableBatchRetranscription")
         }
         self._batchTranscriptionModel = TranscriptionModel(
             rawValue: defaults.string(forKey: "batchTranscriptionModel") ?? ""

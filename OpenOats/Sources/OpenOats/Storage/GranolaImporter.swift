@@ -250,7 +250,7 @@ actor GranolaImporter {
             )
         }
 
-        // Import notes/summary as EnhancedNotes
+        // Import notes/summary as GeneratedNotes
         if let markdown = note.summary_markdown ?? note.summary_text {
             let importTemplate = TemplateSnapshot(
                 id: UUID(uuidString: "00000000-0000-0000-0000-4772616E6F6C") ?? UUID(),
@@ -258,12 +258,12 @@ actor GranolaImporter {
                 icon: "square.and.arrow.down",
                 systemPrompt: ""
             )
-            let enhancedNotes = EnhancedNotes(
+            let generatedNotes = GeneratedNotes(
                 template: importTemplate,
                 generatedAt: startDate,
                 markdown: markdown
             )
-            await sessionRepository.saveNotes(sessionID: sessionID, notes: enhancedNotes)
+            await sessionRepository.saveNotes(sessionID: sessionID, notes: generatedNotes)
         }
 
         log.info("Imported Granola note \(note.id) as session \(sessionID)")

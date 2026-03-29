@@ -132,6 +132,6 @@ final class NotesContractTests: XCTestCase {
 
     func testCleanupEngineExists() async {
         let coordinator = AppCoordinator()
-        XCTAssertNotNil(coordinator.cleanupEngine)
+        XCTAssertNotNil(coordinator.batchTextCleaner)
     }
 }

@@ -83,7 +83,7 @@ final class AppContainer {
             defaults.set(false, forKey: "hideFromScreenShare")
             defaults.set(true, forKey: "showLiveTranscript")
             defaults.set(false, forKey: "saveAudioRecording")
-            defaults.set(false, forKey: "enableTranscriptRefinement")
+            defaults.set(false, forKey: "enableLiveTranscriptCleanup")
             defaults.set(notesDirectory.path, forKey: "notesFolderPath")
             defaults.set("", forKey: "kbFolderPath")
 
@@ -153,12 +153,12 @@ final class AppContainer {
             suggestionEngine: suggestionEngine,
             sidecastEngine: sidecastEngine,
             transcriptionEngine: transcriptionEngine,
-            refinementEngine: TranscriptRefinementEngine(
+            liveTranscriptCleaner: LiveTranscriptCleaner(
                 settings: settings,
                 transcriptStore: coordinator.transcriptStore
             ),
             audioRecorder: AudioRecorder(outputDirectory: notesDirectory),
-            batchEngine: BatchTranscriptionEngine()
+            batchAudioTranscriber: BatchAudioTranscriber()
         )
     }
 
@@ -168,9 +168,9 @@ final class AppContainer {
 
         let services = makeServices(settings: settings, coordinator: coordinator)
         coordinator.transcriptionEngine = services.transcriptionEngine
-        coordinator.refinementEngine = services.refinementEngine
+        coordinator.liveTranscriptCleaner = services.liveTranscriptCleaner
         coordinator.audioRecorder = services.audioRecorder
-        coordinator.batchEngine = services.batchEngine
+        coordinator.batchAudioTranscriber = services.batchAudioTranscriber
         coordinator.setViewServices(
             knowledgeBase: services.knowledgeBase,
             suggestionEngine: services.suggestionEngine,

@@ -150,7 +150,7 @@ extension OpenOatsRootApp {
 
         guard panel.runModal() == .OK, let fileURL = panel.url else { return }
 
-        guard let batchEngine = coordinator.batchEngine else { return }
+        guard let batchAudioTranscriber = coordinator.batchAudioTranscriber else { return }
 
         let model = settings.transcriptionModel
         let locale = settings.locale
@@ -186,7 +186,7 @@ extension OpenOatsRootApp {
                 )
             )
 
-            await batchEngine.importFile(
+            await batchAudioTranscriber.importFile(
                 url: fileURL,
                 sessionID: sessionID,
                 model: model,
@@ -195,7 +195,7 @@ extension OpenOatsRootApp {
             )
 
             // Check result
-            let status = await batchEngine.status
+            let status = await batchAudioTranscriber.status
             if case .completed = status {
                 coordinator.queueSessionSelection(sessionID)
                 openNotesWindow()

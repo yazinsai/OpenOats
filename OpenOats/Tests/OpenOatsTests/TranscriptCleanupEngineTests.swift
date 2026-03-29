@@ -2,12 +2,12 @@ import XCTest
 @testable import OpenOatsKit
 
 @MainActor
-final class TranscriptCleanupEngineTests: XCTestCase {
+final class BatchTextCleanerTests: XCTestCase {
 
     // MARK: - chunkRecords
 
     func testChunkRecordsEmpty() {
-        let chunks = TranscriptCleanupEngine.chunkRecords([])
+        let chunks = BatchTextCleaner.chunkRecords([])
         XCTAssertTrue(chunks.isEmpty)
     }
 
@@ -16,7 +16,7 @@ final class TranscriptCleanupEngineTests: XCTestCase {
         let records = (0..<5).map { i in
             SessionRecord(speaker: .you, text: "line \(i)", timestamp: base.addingTimeInterval(Double(i) * 10))
         }
-        let chunks = TranscriptCleanupEngine.chunkRecords(records)
+        let chunks = BatchTextCleaner.chunkRecords(records)
         XCTAssertEqual(chunks.count, 1)
         XCTAssertEqual(chunks[0].count, 5)
     }
@@ -27,7 +27,7 @@ final class TranscriptCleanupEngineTests: XCTestCase {
         let records = (0..<10).map { i in
             SessionRecord(speaker: .them, text: "line \(i)", timestamp: base.addingTimeInterval(Double(i) * 20))
         }
-        let chunks = TranscriptCleanupEngine.chunkRecords(records)
+        let chunks = BatchTextCleaner.chunkRecords(records)
         XCTAssertEqual(chunks.count, 2)
         // First chunk: records at 0, 20, 40, 60, 80, 100, 120, 140 (8 records, last at 140s < 150s)
         // Record at 160s triggers split
@@ -41,7 +41,7 @@ final class TranscriptCleanupEngineTests: XCTestCase {
         let records = (0..<20).map { i in
             SessionRecord(speaker: .you, text: "line \(i)", timestamp: base.addingTimeInterval(Double(i) * 20))
         }
-        let chunks = TranscriptCleanupEngine.chunkRecords(records)
+        let chunks = BatchTextCleaner.chunkRecords(records)
         XCTAssertEqual(chunks.count, 3)
     }
 
@@ -55,11 +55,11 @@ final class TranscriptCleanupEngineTests: XCTestCase {
         ]
         let response = "[12:00:00] You: cleaned one\n[12:00:05] Them: cleaned two"
 
-        let result = TranscriptCleanupEngine.parseResponse(response, originalRecords: records)
+        let result = BatchTextCleaner.parseResponse(response, originalRecords: records)
         XCTAssertNotNil(result)
         XCTAssertEqual(result?.count, 2)
-        XCTAssertEqual(result?[0].refinedText, "cleaned one")
-        XCTAssertEqual(result?[1].refinedText, "cleaned two")
+        XCTAssertEqual(result?[0].cleanedText, "cleaned one")
+        XCTAssertEqual(result?[1].cleanedText, "cleaned two")
     }
 
     func testParseResponseMismatchedLineCountReturnsNil() {
@@ -69,7 +69,7 @@ final class TranscriptCleanupEngineTests: XCTestCase {
         ]
         let response = "line one\nline two\nline three"
 
-        let result = TranscriptCleanupEngine.parseResponse(response, originalRecords: records)
+        let result = BatchTextCleaner.parseResponse(response, originalRecords: records)
         XCTAssertNil(result)
     }
 
@@ -80,9 +80,9 @@ final class TranscriptCleanupEngineTests: XCTestCase {
         ]
         let response = "  cleaned text  "
 
-        let result = TranscriptCleanupEngine.parseResponse(response, originalRecords: records)
+        let result = BatchTextCleaner.parseResponse(response, originalRecords: records)
         XCTAssertNotNil(result)
-        XCTAssertEqual(result?[0].refinedText, "cleaned text")
+        XCTAssertEqual(result?[0].cleanedText, "cleaned text")
     }
 
     func testParseResponseEmptyLinePreservesOriginal() {
@@ -93,9 +93,9 @@ final class TranscriptCleanupEngineTests: XCTestCase {
         // After prefix strip, if the result is empty it should fall back to original text
         let response = "[12:00:00] You: "
 
-        let result = TranscriptCleanupEngine.parseResponse(response, originalRecords: records)
+        let result = BatchTextCleaner.parseResponse(response, originalRecords: records)
         XCTAssertNotNil(result)
-        XCTAssertEqual(result?[0].refinedText, "keep this")
+        XCTAssertEqual(result?[0].cleanedText, "keep this")
     }
 
     // MARK: - Failure threshold

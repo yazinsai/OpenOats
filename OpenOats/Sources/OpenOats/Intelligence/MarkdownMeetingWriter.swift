@@ -181,7 +181,7 @@ enum MarkdownMeetingWriter {
                 relativeTo: startedAt
             )
             let speaker = speakerLabel(record.speaker)
-            let text = record.refinedText ?? record.text
+            let text = record.cleanedText ?? record.text
             lines.append("[\(relativeTimestamp)] **\(speaker):** \(text)")
             lines.append("")
         }

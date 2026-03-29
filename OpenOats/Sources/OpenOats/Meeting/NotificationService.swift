@@ -144,7 +144,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         guard await ensurePermission() else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "Transcript Enhanced"
+        content.title = "Re-transcription Complete"
         content.body = "Batch transcription is complete. Your meeting transcript has been updated with higher-quality text."
         content.sound = .default
 

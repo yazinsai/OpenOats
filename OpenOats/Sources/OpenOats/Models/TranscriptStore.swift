@@ -79,10 +79,10 @@ final class TranscriptStore {
         return true
     }
 
-    /// Update an existing utterance's refined text by ID, without triggering suggestion regeneration.
-    func updateRefinedText(id: UUID, refinedText: String?, status: RefinementStatus) {
+    /// Update an existing utterance's cleaned text by ID, without triggering suggestion regeneration.
+    func updateCleanedText(id: UUID, cleanedText: String?, status: TextCleanupStatus) {
         guard let index = utterances.firstIndex(where: { $0.id == id }) else { return }
-        utterances[index] = utterances[index].withRefinement(text: refinedText, status: status)
+        utterances[index] = utterances[index].withCleanup(text: cleanedText, status: status)
     }
 
     func clear() {

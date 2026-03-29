@@ -1,8 +1,8 @@
 import Foundation
 
-/// Refines utterances by cleaning up filler words and fixing punctuation via LLM.
+/// Cleans utterances by removing filler words and fixing punctuation via LLM.
 /// Runs as a background actor with bounded concurrency.
-actor TranscriptRefinementEngine {
+actor LiveTranscriptCleaner {
     private let client = OpenRouterClient()
     private let settings: AppSettings
     private let transcriptStore: TranscriptStore
@@ -12,8 +12,8 @@ actor TranscriptRefinementEngine {
     private var pendingQueue: [Utterance] = []
     private var activeTasks: [UUID: Task<Void, Never>] = [:]
 
-    /// Hardcoded cheap model for refinement (keeps cost low).
-    private let refinementModel = "openai/gpt-4o-mini"
+    /// Hardcoded cheap model for cleanup (keeps cost low).
+    private let cleanupModel = "openai/gpt-4o-mini"
     private let minimumWordCount = 5
 
     private let systemPrompt = """
@@ -26,13 +26,13 @@ actor TranscriptRefinementEngine {
         self.transcriptStore = transcriptStore
     }
 
-    /// Queue an utterance for refinement.
-    func refine(_ utterance: Utterance) {
+    /// Queue an utterance for cleanup.
+    func clean(_ utterance: Utterance) {
         // Skip short utterances unless they look like a question
         let words = utterance.text.split(separator: " ")
         if words.count < minimumWordCount && !utterance.text.contains("?") {
             Task { @MainActor in
-                transcriptStore.updateRefinedText(id: utterance.id, refinedText: nil, status: .skipped)
+                transcriptStore.updateCleanedText(id: utterance.id, cleanedText: nil, status: .skipped)
             }
             return
         }
@@ -41,7 +41,7 @@ actor TranscriptRefinementEngine {
         drainQueue()
     }
 
-    /// Await all pending and in-flight refinements, with a timeout.
+    /// Await all pending and in-flight cleanups, with a timeout.
     func drain(timeout: Duration = .seconds(5)) async {
         guard inFlightCount > 0 || !pendingQueue.isEmpty else { return }
 
@@ -71,12 +71,12 @@ actor TranscriptRefinementEngine {
             // Mark as pending on main actor
             let store = transcriptStore
             Task { @MainActor in
-                store.updateRefinedText(id: utterance.id, refinedText: nil, status: .pending)
+                store.updateCleanedText(id: utterance.id, cleanedText: nil, status: .pending)
             }
 
             let task = Task { [weak self] in
                 guard let self else { return }
-                await self.performRefinement(utterance)
+                await self.performCleanup(utterance)
                 await self.taskCompleted(id: utterance.id)
             }
             activeTasks[utterance.id] = task
@@ -89,7 +89,7 @@ actor TranscriptRefinementEngine {
         drainQueue()
     }
 
-    private func performRefinement(_ utterance: Utterance) async {
+    private func performCleanup(_ utterance: Utterance) async {
         let apiKey: String?
         let baseURL: URL?
         let model: String
@@ -109,7 +109,7 @@ actor TranscriptRefinementEngine {
         case .openRouter:
             apiKey = openRouterKey.isEmpty ? nil : openRouterKey
             baseURL = nil
-            model = refinementModel
+            model = cleanupModel
         case .ollama:
             apiKey = nil
             guard let url = OpenRouterClient.chatCompletionsURL(from: ollamaURL) else {
@@ -142,7 +142,7 @@ actor TranscriptRefinementEngine {
         ]
 
         do {
-            let refined = try await client.complete(
+            let cleaned = try await client.complete(
                 apiKey: apiKey,
                 model: model,
                 messages: messages,
@@ -150,7 +150,7 @@ actor TranscriptRefinementEngine {
                 baseURL: baseURL
             )
 
-            let trimmed = refined.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
                 await markFailed(utterance.id)
                 return
@@ -158,7 +158,7 @@ actor TranscriptRefinementEngine {
 
             let store = transcriptStore
             Task { @MainActor in
-                store.updateRefinedText(id: utterance.id, refinedText: trimmed, status: .completed)
+                store.updateCleanedText(id: utterance.id, cleanedText: trimmed, status: .completed)
             }
         } catch {
             await markFailed(utterance.id)
@@ -168,7 +168,7 @@ actor TranscriptRefinementEngine {
     private func markFailed(_ id: UUID) async {
         let store = transcriptStore
         Task { @MainActor in
-            store.updateRefinedText(id: id, refinedText: nil, status: .failed)
+            store.updateCleanedText(id: id, cleanedText: nil, status: .failed)
         }
     }
 }

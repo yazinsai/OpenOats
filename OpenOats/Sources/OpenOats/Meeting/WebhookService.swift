@@ -47,7 +47,7 @@ enum WebhookService {
             transcript: utterances.map { u in
                 Payload.TranscriptEntry(
                     speaker: u.speaker.displayLabel,
-                    text: u.refinedText ?? u.text,
+                    text: u.cleanedText ?? u.text,
                     timestamp: u.timestamp
                 )
             }

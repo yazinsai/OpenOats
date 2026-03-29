@@ -296,7 +296,7 @@ private struct TranscriptionSettingsTab: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 
-                    Toggle("Clean up transcript during recording", isOn: $settings.enableTranscriptRefinement)
+                    Toggle("Clean up transcript during recording", isOn: $settings.enableLiveTranscriptCleanup)
                         .font(.system(size: 12))
                     Text("Automatically removes filler words and fixes punctuation as you record. You can always clean up past transcripts manually from the Notes window.")
                         .font(.system(size: 11))
@@ -337,14 +337,14 @@ private struct TranscriptionSettingsTab: View {
                     }
                 }
 
-                Section("Batch Refinement") {
-                    Toggle("Enhance transcript after meeting", isOn: $settings.enableBatchRefinement)
+                Section("Transcript Quality") {
+                    Toggle("Re-transcribe with higher accuracy after meeting", isOn: $settings.enableBatchRetranscription)
                         .font(.system(size: 12))
                     Text("Re-transcribes audio with a higher-quality model after each meeting for better accuracy. Runs in the background.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 
-                    if settings.enableBatchRefinement {
+                    if settings.enableBatchRetranscription {
                         Picker("Batch Model", selection: $settings.batchTranscriptionModel) {
                             ForEach(TranscriptionModel.batchSuitableModels) { model in
                                 Text(model.displayName).tag(model)
@@ -560,6 +560,7 @@ private struct TemplatesSettingsTab: View {
             Form {
                 Section("Meeting Templates") {
                     ForEach(templates) { template in
+
                         HStack {
                             Image(systemName: template.icon)
                                 .frame(width: 20)

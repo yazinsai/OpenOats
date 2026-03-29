@@ -120,7 +120,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                     Text(controllerState.batchIsImporting
                          ? "Importing meeting recording… \(Int(progress * 100))%"
-                         : "Enhancing transcript... \(Int(progress * 100))%")
+                         : "Re-transcribing... \(Int(progress * 100))%")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -152,7 +152,7 @@ struct ContentView: View {
                         .font(.system(size: 12))
                     Text(controllerState.batchIsImporting
                          ? "Meeting recording imported"
-                         : "Transcript enhanced")
+                         : "Re-transcription complete")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }

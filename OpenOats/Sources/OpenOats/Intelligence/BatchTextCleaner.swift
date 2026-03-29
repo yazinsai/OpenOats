@@ -2,11 +2,11 @@ import Foundation
 import Observation
 import os
 
-/// Batch transcript cleanup engine that sends transcript chunks to an LLM
+/// Batch text cleaner that sends transcript chunks to an LLM
 /// to remove filler words and fix punctuation, preserving meaning.
 @Observable
 @MainActor
-final class TranscriptCleanupEngine {
+final class BatchTextCleaner {
     @ObservationIgnored nonisolated(unsafe) private var _isCleaningUp = false
     private(set) var isCleaningUp: Bool {
         get { access(keyPath: \.isCleaningUp); return _isCleaningUp }
@@ -31,7 +31,7 @@ final class TranscriptCleanupEngine {
         set { withMutation(keyPath: \.error) { _error = newValue } }
     }
 
-    private nonisolated static let logger = Logger(subsystem: "com.openoats.app", category: "TranscriptCleanup")
+    private nonisolated static let logger = Logger(subsystem: "com.openoats.app", category: "BatchTextCleaner")
     private let client = OpenRouterClient()
     private var currentTask: Task<[SessionRecord], Never>?
 
@@ -51,7 +51,7 @@ final class TranscriptCleanupEngine {
         """
 
     /// Chunks records into time-based blocks and sends each to an LLM for cleanup.
-    /// Returns a new array of `SessionRecord` with `refinedText` populated.
+    /// Returns a new array of `SessionRecord` with `cleanedText` populated.
     func cleanup(records: [SessionRecord], settings: AppSettings) async -> [SessionRecord] {
         currentTask?.cancel()
         isCleaningUp = true
@@ -232,7 +232,7 @@ final class TranscriptCleanupEngine {
     ) async -> [SessionRecord]? {
         let lines = records.map { record in
             let label = record.speaker.displayLabel
-            let text = record.refinedText ?? record.text
+            let text = record.cleanedText ?? record.text
             return "[\(timeFormatter.string(from: record.timestamp))] \(label): \(text)"
         }
 
@@ -287,7 +287,7 @@ final class TranscriptCleanupEngine {
                 cleanedText = line.trimmingCharacters(in: .whitespaces)
             }
 
-            updated.append(original.withRefinedText(cleanedText.isEmpty ? original.text : cleanedText))
+            updated.append(original.withCleanedText(cleanedText.isEmpty ? original.text : cleanedText))
         }
 
         return updated

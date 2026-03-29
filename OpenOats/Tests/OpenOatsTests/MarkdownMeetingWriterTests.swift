@@ -133,7 +133,7 @@ final class MarkdownMeetingWriterTests: XCTestCase {
             speaker: .them,
             text: "um uh like hello",
             timestamp: start,
-            refinedText: "Hello."
+            cleanedText: "Hello."
         )
 
         let output = MarkdownMeetingWriter.formatTranscriptLines(records: [record], startedAt: start)
@@ -317,7 +317,7 @@ final class MarkdownMeetingWriterTests: XCTestCase {
             SessionRecord(
                 speaker: .them, text: "raw text",
                 timestamp: start.addingTimeInterval(5),
-                refinedText: "Refined text here."
+                cleanedText: "Refined text here."
             ),
         ]
 

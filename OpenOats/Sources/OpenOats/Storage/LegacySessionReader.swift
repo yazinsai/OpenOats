@@ -136,7 +136,7 @@ enum LegacySessionReader {
         return parseJSONL(content)
     }
 
-    static func loadNotes(sessionID: String, sessionsDirectory: URL) -> EnhancedNotes? {
+    static func loadNotes(sessionID: String, sessionsDirectory: URL) -> GeneratedNotes? {
         let url = sessionsDirectory.appendingPathComponent("\(sessionID).meta.json")
         guard let data = try? Data(contentsOf: url),
               let sidecar = try? decoder.decode(SessionSidecar.self, from: data) else { return nil }

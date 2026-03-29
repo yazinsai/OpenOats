@@ -25,8 +25,8 @@ final class AppCoordinator {
     @ObservationIgnored private let _notesEngine: NotesEngine
     nonisolated var notesEngine: NotesEngine { _notesEngine }
 
-    @ObservationIgnored private let _cleanupEngine = TranscriptCleanupEngine()
-    nonisolated var cleanupEngine: TranscriptCleanupEngine { _cleanupEngine }
+    @ObservationIgnored private let _batchTextCleaner = BatchTextCleaner()
+    nonisolated var batchTextCleaner: BatchTextCleaner { _batchTextCleaner }
 
     @ObservationIgnored private let _transcriptStore: TranscriptStore
     nonisolated var transcriptStore: TranscriptStore { _transcriptStore }
@@ -78,8 +78,8 @@ final class AppCoordinator {
         set { withMutation(keyPath: \.lastStorageError) { _lastStorageError = newValue } }
     }
 
-    @ObservationIgnored nonisolated(unsafe) private var _batchStatus: BatchTranscriptionEngine.Status = .idle
-    var batchStatus: BatchTranscriptionEngine.Status {
+    @ObservationIgnored nonisolated(unsafe) private var _batchStatus: BatchAudioTranscriber.Status = .idle
+    var batchStatus: BatchAudioTranscriber.Status {
         get { access(keyPath: \.batchStatus); return _batchStatus }
         set { withMutation(keyPath: \.batchStatus) { _batchStatus = newValue } }
     }
@@ -91,9 +91,9 @@ final class AppCoordinator {
     }
 
     var transcriptionEngine: TranscriptionEngine?
-    var refinementEngine: TranscriptRefinementEngine?
+    var liveTranscriptCleaner: LiveTranscriptCleaner?
     var audioRecorder: AudioRecorder?
-    var batchEngine: BatchTranscriptionEngine?
+    var batchAudioTranscriber: BatchAudioTranscriber?
 
     @ObservationIgnored nonisolated(unsafe) private var _knowledgeBase: KnowledgeBase?
     nonisolated var knowledgeBase: KnowledgeBase? {

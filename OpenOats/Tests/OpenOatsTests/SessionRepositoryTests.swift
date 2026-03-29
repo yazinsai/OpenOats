@@ -141,7 +141,7 @@ final class SessionRepositoryTests: XCTestCase {
         let template = TemplateSnapshot(
             id: UUID(), name: "Test", icon: "star", systemPrompt: "Be helpful"
         )
-        let notes = EnhancedNotes(
+        let notes = GeneratedNotes(
             template: template,
             generatedAt: Date(),
             markdown: "# Test Notes\n\nContent here."
@@ -212,7 +212,7 @@ final class SessionRepositoryTests: XCTestCase {
         let template = TemplateSnapshot(
             id: UUID(), name: "Generic", icon: "doc", systemPrompt: "Notes"
         )
-        let notes = EnhancedNotes(
+        let notes = GeneratedNotes(
             template: template,
             generatedAt: Date(),
             markdown: "# Notes"
@@ -451,7 +451,7 @@ final class SessionRepositoryTests: XCTestCase {
             timestamp: Date(timeIntervalSince1970: 1_000_000),
             suggestions: ["Try asking about X"],
             kbHits: ["doc.md"],
-            refinedText: "Hello there."
+            cleanedText: "Hello there."
         )
 
         let encoder = JSONEncoder()
@@ -466,6 +466,6 @@ final class SessionRepositoryTests: XCTestCase {
         XCTAssertEqual(decoded.text, "Hello there")
         XCTAssertEqual(decoded.suggestions, ["Try asking about X"])
         XCTAssertEqual(decoded.kbHits, ["doc.md"])
-        XCTAssertEqual(decoded.refinedText, "Hello there.")
+        XCTAssertEqual(decoded.cleanedText, "Hello there.")
     }
 }

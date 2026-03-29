@@ -9,7 +9,7 @@ struct NotesState {
     var sessionHistory: [SessionIndex] = []
     var selectedSessionID: String?
     var loadedTranscript: [SessionRecord] = []
-    var loadedNotes: EnhancedNotes?
+    var loadedNotes: GeneratedNotes?
     var notesGenerationStatus: GenerationStatus = .idle
     var cleanupStatus: CleanupStatus = .idle
     var selectedTemplate: MeetingTemplate?
@@ -122,7 +122,7 @@ final class NotesController {
         state.selectedSessionDirectory = coordinator.sessionRepository.sessionsDirectoryURL
             .appendingPathComponent(sessionID, isDirectory: true)
         state.showingOriginal = false
-        coordinator.cleanupEngine.cancel()
+        coordinator.batchTextCleaner.cancel()
         syncCleanupStatus()
 
         Task {
@@ -206,7 +206,7 @@ final class NotesController {
             )
 
             if !coordinator.notesEngine.generatedMarkdown.isEmpty {
-                let notes = EnhancedNotes(
+                let notes = GeneratedNotes(
                     template: coordinator.templateStore.snapshot(of: template),
                     generatedAt: Date(),
                     markdown: coordinator.notesEngine.generatedMarkdown
@@ -251,7 +251,7 @@ final class NotesController {
             let imageRef = "\n\n![](images/\(filename))\n"
 
             if let existing = state.loadedNotes {
-                let updated = EnhancedNotes(
+                let updated = GeneratedNotes(
                     template: existing.template,
                     generatedAt: existing.generatedAt,
                     markdown: existing.markdown + imageRef
@@ -262,7 +262,7 @@ final class NotesController {
                 let template = state.selectedTemplate
                     ?? coordinator.templateStore.template(for: TemplateStore.genericID)
                     ?? TemplateStore.builtInTemplates.first!
-                let notes = EnhancedNotes(
+                let notes = GeneratedNotes(
                     template: coordinator.templateStore.snapshot(of: template),
                     generatedAt: Date(),
                     markdown: "![](images/\(filename))"
@@ -280,7 +280,7 @@ final class NotesController {
         guard let sessionID = state.selectedSessionID, !state.loadedTranscript.isEmpty else { return }
 
         Task {
-            let updated = await coordinator.cleanupEngine.cleanup(
+            let updated = await coordinator.batchTextCleaner.cleanup(
                 records: state.loadedTranscript,
                 settings: settings
             )
@@ -290,10 +290,10 @@ final class NotesController {
                     text: record.text,
                     speaker: record.speaker,
                     timestamp: record.timestamp,
-                    refinedText: record.refinedText
+                    cleanedText: record.cleanedText
                 )
             }
-            await coordinator.sessionRepository.backfillRefinedText(sessionID: sessionID, from: utterances)
+            await coordinator.sessionRepository.backfillCleanedText(sessionID: sessionID, from: utterances)
 
             guard state.selectedSessionID == sessionID else { return }
             state.loadedTranscript = await coordinator.sessionRepository.loadTranscript(sessionID: sessionID)
@@ -302,7 +302,7 @@ final class NotesController {
     }
 
     func cancelCleanup() {
-        coordinator.cleanupEngine.cancel()
+        coordinator.batchTextCleaner.cancel()
         syncCleanupStatus()
     }
 
@@ -401,7 +401,7 @@ final class NotesController {
     }
 
     private func syncCleanupStatus() {
-        let engine = coordinator.cleanupEngine
+        let engine = coordinator.batchTextCleaner
         if engine.isCleaningUp {
             state.cleanupStatus = .inProgress(
                 completed: engine.chunksCompleted,
@@ -410,7 +410,7 @@ final class NotesController {
         } else if let error = engine.error {
             state.cleanupStatus = .error(error)
         } else if !state.loadedTranscript.isEmpty {
-            let hasAny = state.loadedTranscript.contains { $0.refinedText != nil }
+            let hasAny = state.loadedTranscript.contains { $0.cleanedText != nil }
             if hasAny {
                 state.cleanupStatus = .completed
             } else {
