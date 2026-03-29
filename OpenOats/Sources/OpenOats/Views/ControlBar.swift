@@ -10,6 +10,7 @@ struct ControlBar: View {
     let errorMessage: String?
     let needsDownload: Bool
     let downloadProgress: Double?
+    let downloadDetail: DownloadProgressDetail?
     let onToggle: () -> Void
     let onMuteToggle: () -> Void
     let onConfirmDownload: () -> Void
@@ -61,6 +62,23 @@ struct ControlBar: View {
                         ProgressView(value: progress)
                             .progressViewStyle(.linear)
                             .accessibilityIdentifier("app.controlBar.downloadProgress")
+
+                        if let detail = downloadDetail {
+                            HStack(spacing: 8) {
+                                if let sizeText = detail.sizeText {
+                                    Text(sizeText)
+                                }
+                                if let speedText = detail.speedText {
+                                    Text(speedText)
+                                }
+                                if let etaText = detail.etaText {
+                                    Spacer()
+                                    Text(etaText)
+                                }
+                            }
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -46,6 +46,161 @@ enum SuggestionVerbosity: String, CaseIterable, Identifiable {
     }
 }
 
+enum SidebarMode: String, CaseIterable, Identifiable {
+    case classicSuggestions
+    case sidecast
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .classicSuggestions: "Classic"
+        case .sidecast: "Sidecast"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .classicSuggestions: "Single-stream KB-backed suggestions"
+        case .sidecast: "Multi-persona sidebar with avatar bubbles"
+        }
+    }
+}
+
+enum SidecastIntensity: String, CaseIterable, Identifiable {
+    case quiet
+    case balanced
+    case lively
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .quiet: "Quiet"
+        case .balanced: "Balanced"
+        case .lively: "Lively"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .quiet: "Strict throttling. Only the strongest persona messages appear."
+        case .balanced: "Useful defaults for most host-assist sessions."
+        case .lively: "More reactive, but still capped to avoid spam."
+        }
+    }
+
+    var maxMessagesPerTurn: Int {
+        switch self {
+        case .quiet: 1
+        case .balanced: 2
+        case .lively: 10 // effectively unlimited — show all personas
+        }
+    }
+
+    var generationCooldownSeconds: TimeInterval {
+        switch self {
+        case .quiet: 18
+        case .balanced: 10
+        case .lively: 0 // no cooldown — fire on every utterance
+        }
+    }
+
+    var bubbleLifetimeSeconds: TimeInterval {
+        switch self {
+        case .quiet: 16
+        case .balanced: 20
+        case .lively: 30
+        }
+    }
+
+    /// Whether per-persona cadence cooldowns should be skipped.
+    var skipPersonaCooldowns: Bool {
+        self == .lively
+    }
+}
+
+enum PersonaVerbosity: String, CaseIterable, Identifiable, Codable {
+    case terse
+    case short
+    case medium
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .terse: "Terse"
+        case .short: "Short"
+        case .medium: "Medium"
+        }
+    }
+
+    var characterLimit: Int {
+        switch self {
+        case .terse: 80
+        case .short: 140
+        case .medium: 220
+        }
+    }
+}
+
+enum PersonaCadence: String, CaseIterable, Identifiable, Codable {
+    case rare
+    case normal
+    case active
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .rare: "Rare"
+        case .normal: "Normal"
+        case .active: "Active"
+        }
+    }
+
+    var cooldownSeconds: TimeInterval {
+        switch self {
+        case .rare: 40
+        case .normal: 24
+        case .active: 14
+        }
+    }
+}
+
+enum PersonaEvidencePolicy: String, CaseIterable, Identifiable, Codable {
+    case required
+    case preferred
+    case optional
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .required: "Required"
+        case .preferred: "Preferred"
+        case .optional: "Optional"
+        }
+    }
+}
+
+enum PersonaAvatarTint: String, CaseIterable, Identifiable, Codable {
+    case slate
+    case blue
+    case teal
+    case green
+    case orange
+    case red
+    case pink
+    case indigo
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        rawValue.capitalized
+    }
+}
+
 enum LLMProvider: String, CaseIterable, Identifiable {
     case openRouter
     case ollama
@@ -114,6 +269,17 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
             "Whisper Small requires a one-time model download (~244 MB)."
         case .whisperLargeV3Turbo:
             "Whisper Large v3 Turbo requires a one-time model download (~800 MB)."
+        }
+    }
+
+    /// Approximate total download size in bytes, used for progress display.
+    /// Returns nil when the size is unknown.
+    var estimatedDownloadBytes: Int64? {
+        switch self {
+        case .whisperBase: 142_000_000
+        case .whisperSmall: 244_000_000
+        case .whisperLargeV3Turbo: 800_000_000
+        case .parakeetV2, .parakeetV3, .qwen3ASR06B: nil
         }
     }
 

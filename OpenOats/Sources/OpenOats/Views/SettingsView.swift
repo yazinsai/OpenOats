@@ -10,6 +10,7 @@ private enum SettingsTab: String, CaseIterable {
     case general
     case transcription
     case intelligence
+    case sidecast
     case templates
     case integrations
 }
@@ -34,6 +35,10 @@ struct SettingsView: View {
             IntelligenceSettingsTab(settings: settings)
                 .tabItem { Label("Intelligence", systemImage: "brain") }
                 .tag(SettingsTab.intelligence)
+
+            SidecastSettingsTab(settings: settings)
+                .tabItem { Label("Sidecast", systemImage: "person.3.sequence") }
+                .tag(SettingsTab.sidecast)
 
             TemplatesSettingsTab()
                 .tabItem { Label("Templates", systemImage: "doc.text") }
@@ -452,10 +457,10 @@ private struct IntelligenceSettingsTab: View {
                     }
                 }
 
-                Section("Real-Time Suggestions") {
+                Section("Classic Suggestions") {
                     Toggle("Floating suggestion panel", isOn: $settings.suggestionPanelEnabled)
                         .font(.system(size: 12))
-                    Text("Show a floating side panel with real-time KB-backed suggestions during meetings.")
+                    Text("Configure the original single-stream suggestion panel. The multi-persona sidebar lives in the Sidecast tab.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 

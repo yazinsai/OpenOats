@@ -60,6 +60,49 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.suggestionVerbosity, .quiet)
     }
 
+    func testDefaultSidebarMode() {
+        let store = makeStore()
+        XCTAssertEqual(store.sidebarMode, .classicSuggestions)
+    }
+
+    func testSidebarModeRoundTrip() {
+        let store = makeStore()
+        store.sidebarMode = .sidecast
+        XCTAssertEqual(store.sidebarMode, .sidecast)
+    }
+
+    func testDefaultSidecastIntensity() {
+        let store = makeStore()
+        XCTAssertEqual(store.sidecastIntensity, .balanced)
+    }
+
+    func testDefaultSidecastPersonas() {
+        let store = makeStore()
+        XCTAssertEqual(store.sidecastPersonas.count, 4)
+        XCTAssertEqual(store.enabledSidecastPersonas.count, 4)
+        XCTAssertEqual(store.sidecastPersonas.first?.name, "The Checker")
+    }
+
+    func testSidecastPersonasRoundTrip() {
+        let store = makeStore()
+        store.sidecastPersonas = [
+            SidecastPersona(
+                name: "The Wire",
+                subtitle: "Fresh updates",
+                prompt: "Surface only truly new developments.",
+                avatarSymbol: "dot.radiowaves.left.and.right",
+                avatarTint: .blue,
+                verbosity: .short,
+                cadence: .normal,
+                evidencePolicy: .preferred
+            ),
+        ]
+
+        XCTAssertEqual(store.sidecastPersonas.count, 1)
+        XCTAssertEqual(store.sidecastPersonas.first?.name, "The Wire")
+        XCTAssertEqual(store.sidecastPersonas.first?.avatarSymbol, "dot.radiowaves.left.and.right")
+    }
+
     func testSuggestionVerbosityRoundTrip() {
         let store = makeStore()
         store.suggestionVerbosity = .eager

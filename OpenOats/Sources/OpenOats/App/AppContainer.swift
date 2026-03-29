@@ -127,6 +127,11 @@ final class AppContainer {
             knowledgeBase: knowledgeBase,
             settings: settings
         )
+        let sidecastEngine = SidecastEngine(
+            transcriptStore: coordinator.transcriptStore,
+            knowledgeBase: knowledgeBase,
+            settings: settings
+        )
 
         let transcriptionEngine: TranscriptionEngine
         switch mode {
@@ -146,6 +151,7 @@ final class AppContainer {
         return AppServices(
             knowledgeBase: knowledgeBase,
             suggestionEngine: suggestionEngine,
+            sidecastEngine: sidecastEngine,
             transcriptionEngine: transcriptionEngine,
             refinementEngine: TranscriptRefinementEngine(
                 settings: settings,
@@ -167,7 +173,8 @@ final class AppContainer {
         coordinator.batchEngine = services.batchEngine
         coordinator.setViewServices(
             knowledgeBase: services.knowledgeBase,
-            suggestionEngine: services.suggestionEngine
+            suggestionEngine: services.suggestionEngine,
+            sidecastEngine: services.sidecastEngine
         )
     }
 

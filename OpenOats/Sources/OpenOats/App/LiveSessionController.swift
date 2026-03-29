@@ -22,6 +22,7 @@ struct LiveSessionState {
     var errorMessage: String? = nil
     var needsDownload: Bool = false
     var downloadProgress: Double? = nil
+    var downloadDetail: DownloadProgressDetail? = nil
     var transcriptionPrompt: String = ""
     var modelDisplayName: String = ""
     var showLiveTranscript: Bool = true
@@ -111,6 +112,7 @@ final class LiveSessionController {
 
     func startSession(settings: AppSettings) {
         coordinator.suggestionEngine?.clear()
+        coordinator.sidecastEngine?.clear()
         coordinator.handle(.userStarted(.manual()), settings: settings)
     }
 
@@ -147,7 +149,7 @@ final class LiveSessionController {
         switch request.command {
         case .startSession:
             guard coordinator.transcriptionEngine != nil,
-                  coordinator.suggestionEngine != nil else { return }
+                  (coordinator.suggestionEngine != nil || coordinator.sidecastEngine != nil) else { return }
             if !state.isRunning {
                 startSession(settings: settings)
             }
@@ -180,8 +182,13 @@ final class LiveSessionController {
 
         let sessionID = currentSessionID
 
-        // Trigger suggestions from either speaker
-        coordinator.suggestionEngine?.onUtterance(last)
+        // Trigger the active realtime assistant from either speaker
+        switch settings.sidebarMode {
+        case .classicSuggestions:
+            coordinator.suggestionEngine?.onUtterance(last)
+        case .sidecast:
+            coordinator.sidecastEngine?.onUtterance(last)
+        }
 
         Task {
             await coordinator.sessionRepository.appendLiveUtterance(
@@ -464,14 +471,24 @@ final class LiveSessionController {
         }
 
         var next = LiveSessionState()
+        let sidebarSuggestions: [Suggestion]
+        let sidebarGenerating: Bool
+        switch settings.sidebarMode {
+        case .classicSuggestions:
+            sidebarSuggestions = coordinator.suggestionEngine?.suggestions ?? []
+            sidebarGenerating = coordinator.suggestionEngine?.isGenerating ?? false
+        case .sidecast:
+            sidebarSuggestions = coordinator.sidecastEngine?.suggestions ?? []
+            sidebarGenerating = coordinator.sidecastEngine?.isGenerating ?? false
+        }
         next.isRunning = coordinator.transcriptionEngine?.isRunning ?? false
         next.sessionPhase = coordinator.state
         next.audioLevel = next.isRunning ? (coordinator.transcriptionEngine?.audioLevel ?? 0) : 0
         next.liveTranscript = coordinator.transcriptStore.utterances
         next.volatileYouText = coordinator.transcriptStore.volatileYouText
         next.volatileThemText = coordinator.transcriptStore.volatileThemText
-        next.suggestions = coordinator.suggestionEngine?.suggestions ?? []
-        next.isGeneratingSuggestions = coordinator.suggestionEngine?.isGenerating ?? false
+        next.suggestions = sidebarSuggestions
+        next.isGeneratingSuggestions = sidebarGenerating
         next.batchStatus = coordinator.batchStatus
         next.batchIsImporting = coordinator.batchIsImporting
         next.lastEndedSession = lastEndedSession
@@ -481,6 +498,7 @@ final class LiveSessionController {
         next.errorMessage = coordinator.transcriptionEngine?.lastError
         next.needsDownload = coordinator.transcriptionEngine?.needsModelDownload ?? false
         next.downloadProgress = coordinator.transcriptionEngine?.downloadProgress
+        next.downloadDetail = coordinator.transcriptionEngine?.downloadDetail
         next.transcriptionPrompt = settings.transcriptionModel.downloadPrompt
         next.modelDisplayName = activeModelRaw.split(separator: "/").last.map(String.init) ?? activeModelRaw
         next.showLiveTranscript = settings.showLiveTranscript

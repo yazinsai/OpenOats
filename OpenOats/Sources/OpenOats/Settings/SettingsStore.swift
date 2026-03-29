@@ -243,6 +243,39 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _sidebarMode: SidebarMode
+    var sidebarMode: SidebarMode {
+        get { access(keyPath: \.sidebarMode); return _sidebarMode }
+        set {
+            withMutation(keyPath: \.sidebarMode) {
+                _sidebarMode = newValue
+                defaults.set(newValue.rawValue, forKey: "sidebarMode")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _sidecastIntensity: SidecastIntensity
+    var sidecastIntensity: SidecastIntensity {
+        get { access(keyPath: \.sidecastIntensity); return _sidecastIntensity }
+        set {
+            withMutation(keyPath: \.sidecastIntensity) {
+                _sidecastIntensity = newValue
+                defaults.set(newValue.rawValue, forKey: "sidecastIntensity")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _sidecastPersonas: [SidecastPersona]
+    var sidecastPersonas: [SidecastPersona] {
+        get { access(keyPath: \.sidecastPersonas); return _sidecastPersonas }
+        set {
+            withMutation(keyPath: \.sidecastPersonas) {
+                _sidecastPersonas = newValue
+                defaults.set(Self.encodePersonas(newValue), forKey: "sidecastPersonas")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _preFetchIntervalSeconds: Double
     var preFetchIntervalSeconds: Double {
         get { access(keyPath: \.preFetchIntervalSeconds); return _preFetchIntervalSeconds }
@@ -607,6 +640,9 @@ final class SettingsStore {
         } else {
             self._suggestionPanelEnabled = defaults.bool(forKey: "suggestionPanelEnabled")
         }
+        self._sidebarMode = SidebarMode(rawValue: defaults.string(forKey: "sidebarMode") ?? "") ?? .classicSuggestions
+        self._sidecastIntensity = SidecastIntensity(rawValue: defaults.string(forKey: "sidecastIntensity") ?? "") ?? .balanced
+        self._sidecastPersonas = Self.decodePersonas(defaults.data(forKey: "sidecastPersonas")) ?? SidecastPersona.starterPack
         self._preFetchIntervalSeconds = defaults.object(forKey: "preFetchIntervalSeconds") != nil
             ? defaults.double(forKey: "preFetchIntervalSeconds") : 4.0
         self._kbSimilarityThreshold = defaults.object(forKey: "kbSimilarityThreshold") != nil
@@ -731,6 +767,15 @@ final class SettingsStore {
         return raw.split(separator: "/").last.map(String.init) ?? raw
     }
 
+    var enabledSidecastPersonas: [SidecastPersona] {
+        sidecastPersonas.filter(\.isEnabled)
+    }
+
+    func toggleSidecastPersona(at index: Int) {
+        guard sidecastPersonas.indices.contains(index) else { return }
+        sidecastPersonas[index].isEnabled.toggle()
+    }
+
     // MARK: - Screen Share Visibility
 
     /// Apply current screen-share visibility to all app windows.
@@ -749,6 +794,16 @@ final class SettingsStore {
         if !FileManager.default.fileExists(atPath: sentinel.path) {
             FileManager.default.createFile(atPath: sentinel.path, contents: nil)
         }
+    }
+
+    private static func encodePersonas(_ personas: [SidecastPersona]) -> Data? {
+        let encoder = JSONEncoder()
+        return try? encoder.encode(personas)
+    }
+
+    private static func decodePersonas(_ data: Data?) -> [SidecastPersona]? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode([SidecastPersona].self, from: data)
     }
 }
 
