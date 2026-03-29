@@ -1,8 +1,5 @@
 @preconcurrency import AVFoundation
 import FluidAudio
-import os
-
-private let batchLog = Logger(subsystem: "com.openoats.app", category: "BatchTranscription")
 
 /// Offline two-pass transcription engine that processes recorded CAF files
 /// using a higher-quality model after a meeting ends.
@@ -49,10 +46,10 @@ actor BatchAudioTranscriber {
                 )
             } catch is CancellationError {
                 await self.setStatus(.cancelled)
-                batchLog.info("Batch transcription cancelled for \(sessionID)")
+                Log.batchTranscription.info("Batch transcription cancelled for \(sessionID, privacy: .public)")
             } catch {
                 await self.setStatus(.failed(error.localizedDescription))
-                batchLog.error("Batch transcription failed: \(error.localizedDescription)")
+                Log.batchTranscription.error("Batch transcription failed: \(error, privacy: .public)")
             }
         }
         currentTask = task
@@ -94,11 +91,11 @@ actor BatchAudioTranscriber {
             } catch is CancellationError {
                 await self.setStatus(.cancelled)
                 await self.setIsImporting(false)
-                batchLog.info("Audio import cancelled for \(sessionID)")
+                Log.batchTranscription.info("Audio import cancelled for \(sessionID, privacy: .public)")
             } catch {
                 await self.setStatus(.failed(error.localizedDescription))
                 await self.setIsImporting(false)
-                batchLog.error("Audio import failed: \(error.localizedDescription)")
+                Log.batchTranscription.error("Audio import failed: \(error, privacy: .public)")
             }
         }
         currentTask = task
@@ -112,13 +109,13 @@ actor BatchAudioTranscriber {
         locale: Locale,
         sessionRepository: SessionRepository
     ) async throws {
-        batchLog.info("Starting audio import for \(sessionID) from \(url.lastPathComponent)")
+        Log.batchTranscription.info("Starting audio import for \(sessionID, privacy: .public) from \(url.lastPathComponent, privacy: .public)")
         status = .loading(model: model.displayName)
 
         // Prepare backend and VAD
         let backend = model.makeBackend()
         try await backend.prepare { statusMsg in
-            batchLog.info("Backend: \(statusMsg)")
+            Log.batchTranscription.debug("Backend: \(statusMsg, privacy: .public)")
         }
 
         try Task.checkCancellation()
@@ -157,7 +154,7 @@ actor BatchAudioTranscriber {
         try Task.checkCancellation()
 
         guard !records.isEmpty else {
-            batchLog.warning("Audio import produced no records for \(sessionID)")
+            Log.batchTranscription.warning("Audio import produced no records for \(sessionID, privacy: .public)")
             status = .failed("No speech detected in the audio file")
             isImporting = false
             return
@@ -181,7 +178,7 @@ actor BatchAudioTranscriber {
 
         status = .completed(sessionID: sessionID)
         isImporting = false
-        batchLog.info("Audio import completed for \(sessionID): \(records.count) records")
+        Log.batchTranscription.info("Audio import completed for \(sessionID, privacy: .public): \(records.count, privacy: .public) records")
     }
 
     // MARK: - Private
@@ -203,13 +200,13 @@ actor BatchAudioTranscriber {
         enableDiarization: Bool,
         diarizationVariant: DiarizationVariant
     ) async throws {
-        batchLog.info("Starting batch transcription for \(sessionID) with \(model.rawValue)")
+        Log.batchTranscription.info("Starting batch transcription for \(sessionID, privacy: .public) with \(model.rawValue, privacy: .public)")
         status = .loading(model: model.displayName)
 
         // Load batch metadata
         let urls = await sessionRepository.batchAudioURLs(sessionID: sessionID)
         guard urls.mic != nil || urls.sys != nil else {
-            batchLog.warning("No batch audio found for \(sessionID)")
+            Log.batchTranscription.warning("No batch audio found for \(sessionID, privacy: .public)")
             status = .failed("No audio files found")
             return
         }
@@ -220,7 +217,7 @@ actor BatchAudioTranscriber {
         // Create and prepare backend
         let backend = model.makeBackend()
         try await backend.prepare { statusMsg in
-            batchLog.info("Backend: \(statusMsg)")
+            Log.batchTranscription.debug("Backend: \(statusMsg, privacy: .public)")
         }
 
         try Task.checkCancellation()
@@ -252,7 +249,7 @@ actor BatchAudioTranscriber {
                 progressScale: 1.0 / Double(totalFiles)
             )
             filesProcessed += 1
-            batchLog.info("Mic transcription: \(micRecords.count) records")
+            Log.batchTranscription.debug("Mic transcription: \(micRecords.count, privacy: .public) records")
         }
 
         try Task.checkCancellation()
@@ -261,7 +258,7 @@ actor BatchAudioTranscriber {
             // Optionally run diarization on the full system audio
             var batchDiarizer: DiarizationManager?
             if enableDiarization {
-                batchLog.info("Running LS-EEND diarization on system audio...")
+                Log.batchTranscription.info("Running LS-EEND diarization on system audio...")
                 let dm = DiarizationManager()
                 let variant = LSEENDVariant(rawValue: diarizationVariant.rawValue) ?? .dihard3
                 try await dm.load(variant: variant)
@@ -271,7 +268,7 @@ actor BatchAudioTranscriber {
                 try await dm.feedAudio(samples)
                 await dm.finalize()
                 batchDiarizer = dm
-                batchLog.info("Diarization complete")
+                Log.batchTranscription.info("Diarization complete")
             }
 
             sysRecords = try await transcribeFile(
@@ -286,7 +283,7 @@ actor BatchAudioTranscriber {
                 progressScale: 1.0 / Double(totalFiles),
                 diarizationManager: batchDiarizer
             )
-            batchLog.info("Sys transcription: \(sysRecords.count) records")
+            Log.batchTranscription.debug("Sys transcription: \(sysRecords.count, privacy: .public) records")
         }
 
         try Task.checkCancellation()
@@ -299,7 +296,7 @@ actor BatchAudioTranscriber {
         allRecords.sort { $0.timestamp < $1.timestamp }
 
         guard !allRecords.isEmpty else {
-            batchLog.warning("Batch transcription produced no records for \(sessionID)")
+            Log.batchTranscription.warning("Batch transcription produced no records for \(sessionID, privacy: .public)")
             await sessionRepository.cleanupBatchAudio(sessionID: sessionID)
             status = .completed(sessionID: sessionID)
             return
@@ -312,7 +309,7 @@ actor BatchAudioTranscriber {
         await sessionRepository.cleanupBatchAudio(sessionID: sessionID)
 
         status = .completed(sessionID: sessionID)
-        batchLog.info("Batch transcription completed for \(sessionID): \(allRecords.count) records")
+        Log.batchTranscription.info("Batch transcription completed for \(sessionID, privacy: .public): \(allRecords.count, privacy: .public) records")
     }
 
     // MARK: - File Transcription
@@ -330,7 +327,7 @@ actor BatchAudioTranscriber {
         diarizationManager: DiarizationManager? = nil
     ) async throws -> [SessionRecord] {
         guard let audioFile = try? AVAudioFile(forReading: url) else {
-            batchLog.warning("Cannot open audio file: \(url.lastPathComponent)")
+            Log.batchTranscription.warning("Cannot open audio file: \(url.lastPathComponent, privacy: .public)")
             return []
         }
 

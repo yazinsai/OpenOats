@@ -1,7 +1,4 @@
 import Foundation
-import os
-
-private let writerLogger = Logger(subsystem: "com.openoats.app", category: "MarkdownMeetingWriter")
 
 /// Produces spec-compliant openoats/v1 Markdown files from session data.
 ///
@@ -49,7 +46,7 @@ enum MarkdownMeetingWriter {
         outputDirectory: URL
     ) -> URL? {
         guard !records.isEmpty else {
-            writerLogger.warning("MarkdownMeetingWriter: no records, skipping write")
+            Log.markdownMeetingWriter.warning("MarkdownMeetingWriter: no records, skipping write")
             return nil
         }
 
@@ -70,10 +67,10 @@ enum MarkdownMeetingWriter {
         do {
             try content.write(to: fileURL, atomically: true, encoding: .utf8)
             try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
-            writerLogger.info("Wrote meeting markdown: \(fileURL.lastPathComponent, privacy: .public)")
+            Log.markdownMeetingWriter.info("Wrote meeting markdown: \(fileURL.lastPathComponent, privacy: .public)")
             return fileURL
         } catch {
-            writerLogger.error("Failed to write markdown: \(error.localizedDescription, privacy: .public)")
+            Log.markdownMeetingWriter.error("Failed to write markdown: \(error, privacy: .public)")
             return nil
         }
     }

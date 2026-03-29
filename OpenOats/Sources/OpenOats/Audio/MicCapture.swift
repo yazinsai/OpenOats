@@ -4,7 +4,6 @@ import CoreAudio
 import Foundation
 import os
 
-private let micLog = Logger(subsystem: "com.openoats", category: "MicCapture")
 
 /// Captures microphone audio via AVAudioEngine and streams PCM buffers.
 final class MicCapture: @unchecked Sendable {
@@ -55,21 +54,21 @@ final class MicCapture: @unchecked Sendable {
             errorHolder.value = nil
             self._hasCapturedFrames.value = false
 
-            diagLog("[MIC-1] bufferStream called, deviceID=\(String(describing: deviceID))")
+            Log.mic.info("bufferStream called, deviceID=\(String(describing: deviceID), privacy: .public)")
 
             let engine = self.makeFreshEngine()
-            diagLog("[MIC-1a] fresh engine created")
+            Log.mic.info("Fresh engine created")
 
             let inputNode = engine.inputNode
-            diagLog("[MIC-1b] input node ready")
+            Log.mic.info("Input node ready")
 
             // Enable voice processing (AEC + noise suppression) if requested
             if echoCancellation {
                 do {
                     try inputNode.setVoiceProcessingEnabled(true)
-                    diagLog("[MIC-1c] voice processing (AEC) enabled")
+                    Log.mic.info("Voice processing (AEC) enabled")
                 } catch {
-                    diagLog("[MIC-1c] failed to enable voice processing: \(error.localizedDescription)")
+                    Log.mic.error("Failed to enable voice processing: \(error, privacy: .public)")
                 }
             }
 
@@ -78,7 +77,7 @@ final class MicCapture: @unchecked Sendable {
             if let id = deviceID {
                 guard let inAU = inputNode.audioUnit else {
                     let msg = "inputNode has no audio unit after prepare"
-                    diagLog("[MIC-2-FAIL] \(msg)")
+                    Log.mic.error("\(msg, privacy: .public)")
                     errorHolder.value = msg
                     continuation.finish()
                     return
@@ -92,10 +91,10 @@ final class MicCapture: @unchecked Sendable {
                     &devID,
                     UInt32(MemoryLayout<AudioDeviceID>.size)
                 )
-                diagLog("[MIC-2] setInputDevice status=\(inStatus) (0=ok)")
+                Log.mic.info("setInputDevice status=\(inStatus, privacy: .public) (0=ok)")
                 resolvedDeviceID = id
             } else {
-                diagLog("[MIC-2] no deviceID, using system default")
+                Log.mic.info("No deviceID, using system default")
                 resolvedDeviceID = Self.defaultInputDeviceID()
             }
 
@@ -108,15 +107,15 @@ final class MicCapture: @unchecked Sendable {
             if let devID = resolvedDeviceID,
                let hwRate = Self.deviceNominalSampleRate(for: devID),
                hwRate > 0, hwRate != sampleRate {
-                diagLog("[MIC-3] hardware sr=\(hwRate) differs from inputNode sr=\(sampleRate), using hardware rate")
+                Log.mic.info("Hardware sr=\(hwRate, privacy: .public) differs from inputNode sr=\(sampleRate, privacy: .public), using hardware rate")
                 sampleRate = hwRate
             }
 
-            diagLog("[MIC-3] inputNode format: sr=\(format.sampleRate) ch=\(format.channelCount) interleaved=\(format.isInterleaved) commonFormat=\(format.commonFormat.rawValue), effective sr=\(sampleRate)")
+            Log.mic.info("inputNode format: sr=\(format.sampleRate, privacy: .public) ch=\(format.channelCount, privacy: .public) interleaved=\(format.isInterleaved, privacy: .public) commonFormat=\(format.commonFormat.rawValue, privacy: .public), effective sr=\(sampleRate, privacy: .public)")
 
             guard sampleRate > 0 && format.channelCount > 0 else {
                 let msg = "Invalid audio format: sr=\(sampleRate) ch=\(format.channelCount)"
-                diagLog("[MIC-3-FAIL] \(msg)")
+                Log.mic.error("\(msg, privacy: .public)")
                 errorHolder.value = msg
                 continuation.finish()
                 return
@@ -130,14 +129,14 @@ final class MicCapture: @unchecked Sendable {
                 tapFormat = f
             } else if sampleRate != format.sampleRate,
                       let f = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: format.channelCount) {
-                diagLog("[MIC-4] hardware-rate format failed, using node rate \(format.sampleRate)")
+                Log.mic.info("Hardware-rate format failed, using node rate \(format.sampleRate, privacy: .public)")
                 tapFormat = f
             } else {
-                diagLog("[MIC-4] standard formats failed, using native input format")
+                Log.mic.info("Standard formats failed, using native input format")
                 tapFormat = format
             }
 
-            diagLog("[MIC-4] tapFormat: sr=\(tapFormat.sampleRate) ch=\(tapFormat.channelCount)")
+            Log.mic.info("tapFormat: sr=\(tapFormat.sampleRate, privacy: .public) ch=\(tapFormat.channelCount, privacy: .public)")
 
             let muted = self._muted
             var tapCallCount = 0
@@ -148,7 +147,7 @@ final class MicCapture: @unchecked Sendable {
                 level.value = min(rms * 25, 1.0)
 
                 if tapCallCount <= 5 || tapCallCount % 100 == 0 {
-                    diagLog("[MIC-6] tap #\(tapCallCount): frames=\(buffer.frameLength) rms=\(rms) level=\(level.value)")
+                    Log.mic.debug("tap #\(tapCallCount, privacy: .public): frames=\(buffer.frameLength, privacy: .public) rms=\(rms, privacy: .public) level=\(level.value, privacy: .public)")
                 }
 
                 guard !muted.value else { return }
@@ -156,21 +155,21 @@ final class MicCapture: @unchecked Sendable {
             }
             self.hasTapInstalled = true
 
-            diagLog("[MIC-5] tap installed, preparing engine...")
+            Log.mic.info("Tap installed, preparing engine")
 
             continuation.onTermination = { _ in
-                diagLog("[MIC-TERM] stream terminated")
+                Log.mic.info("Stream terminated")
                 // Audio hardware teardown handled by stop() — not here,
                 // so finishStream() can drain without premature engine shutdown.
             }
 
             do {
-                diagLog("[MIC-7] engine prepared, starting...")
+                Log.mic.info("Engine prepared, starting")
                 try engine.start()
-                diagLog("[MIC-8] engine started successfully, isRunning=\(engine.isRunning)")
+                Log.mic.info("Engine started successfully, isRunning=\(engine.isRunning, privacy: .public)")
             } catch {
                 let msg = "Mic failed: \(error.localizedDescription)"
-                print("[MIC-8-FAIL] \(msg)")
+                Log.mic.error("Mic failed: \(error, privacy: .public)")
                 errorHolder.value = msg
                 self.hasTapInstalled = false
                 continuation.finish()

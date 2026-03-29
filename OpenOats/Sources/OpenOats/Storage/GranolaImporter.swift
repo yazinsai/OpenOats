@@ -1,7 +1,4 @@
 import Foundation
-import os
-
-private let log = Logger(subsystem: "com.openoats.app", category: "GranolaImporter")
 
 // MARK: - Granola API Models
 
@@ -141,7 +138,7 @@ actor GranolaImporter {
         onProgress(.fetching(progress: "Fetching note list from Granola..."))
 
         let notes = try await fetchAllNotes(apiKey: apiKey)
-        log.info("Fetched \(notes.count) notes from Granola")
+        Log.granolaImporter.info("Fetched \(notes.count, privacy: .public) notes from Granola")
 
         if notes.isEmpty {
             onProgress(.completed(imported: 0, skipped: 0))
@@ -174,7 +171,7 @@ actor GranolaImporter {
                 try await importSingleNote(fullNote, sessionRepository: sessionRepository)
                 imported += 1
             } catch {
-                log.error("Failed to import note \(noteSummary.id): \(error.localizedDescription, privacy: .public)")
+                Log.granolaImporter.error("Failed to import note \(noteSummary.id, privacy: .public): \(error, privacy: .public)")
                 // Continue with remaining notes
             }
 
@@ -266,7 +263,7 @@ actor GranolaImporter {
             await sessionRepository.saveNotes(sessionID: sessionID, notes: generatedNotes)
         }
 
-        log.info("Imported Granola note \(note.id) as session \(sessionID)")
+        Log.granolaImporter.debug("Imported Granola note \(note.id, privacy: .public) as session \(sessionID, privacy: .public)")
     }
 }
 

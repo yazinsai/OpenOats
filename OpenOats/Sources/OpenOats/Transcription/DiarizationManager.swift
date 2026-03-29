@@ -1,8 +1,5 @@
 import FluidAudio
 import Foundation
-import os
-
-private let diarizationLog = Logger(subsystem: "com.openoats.app", category: "Diarization")
 
 /// Manages LS-EEND speaker diarization for system audio.
 /// Wraps the FluidAudio LSEENDDiarizer and provides speaker attribution
@@ -13,10 +10,10 @@ actor DiarizationManager {
 
     /// Load the LS-EEND model for the given variant. Must be called before feedAudio/dominantSpeaker.
     func load(variant: LSEENDVariant = .dihard3) async throws {
-        diarizationLog.info("Loading LS-EEND model (variant: \(variant.rawValue))")
+        Log.diarization.info("Loading LS-EEND model (variant: \(variant.rawValue, privacy: .public))")
         try await diarizer.initialize(variant: variant)
         isInitialized = true
-        diarizationLog.info("LS-EEND model loaded")
+        Log.diarization.info("LS-EEND model loaded")
     }
 
     /// Feed audio samples to the diarizer. Samples should be at 16kHz mono Float32.
@@ -77,7 +74,11 @@ actor DiarizationManager {
     /// Finalize the diarization session (flush tentative segments).
     func finalize() {
         guard isInitialized else { return }
-        _ = try? diarizer.finalizeSession()
+        do {
+            try diarizer.finalizeSession()
+        } catch {
+            Log.diarization.error("Failed to finalize LS-EEND session: \(error, privacy: .public)")
+        }
     }
 
     /// Reset the diarizer state for a new session.

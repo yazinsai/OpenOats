@@ -1,7 +1,4 @@
 import Foundation
-import os
-
-private let repoLog = Logger(subsystem: "com.openoats.app", category: "SessionRepository")
 
 // MARK: - Supporting Types
 
@@ -434,7 +431,7 @@ actor SessionRepository {
             }
             try fm.moveItem(at: tempURL, to: finalURL)
         } catch {
-            repoLog.error("Failed to write final transcript: \(error.localizedDescription, privacy: .public)")
+            Log.sessionRepository.error("Failed to write final transcript: \(error, privacy: .public)")
         }
 
         // Mirror to notesFolderPath
@@ -999,7 +996,7 @@ actor SessionRepository {
             try data.write(to: url, options: .atomic)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         } catch {
-            repoLog.error("Failed to write session.json: \(error.localizedDescription, privacy: .public)")
+            Log.sessionRepository.error("Failed to write session.json: \(error, privacy: .public)")
         }
     }
 
@@ -1020,7 +1017,7 @@ actor SessionRepository {
     }
 
     private func reportWriteError(_ message: String) {
-        repoLog.error("\(message, privacy: .public)")
+        Log.sessionRepository.error("\(message, privacy: .public)")
         guard !hasReportedWriteError else { return }
         hasReportedWriteError = true
         onWriteError?(message)
@@ -1166,7 +1163,7 @@ actor SessionRepository {
                 try? fm.removeItem(at: micLegacy)
                 try? fm.removeItem(at: sysLegacy)
                 try? fm.removeItem(at: item.appendingPathComponent("batch-meta.json"))
-                repoLog.info("Cleaned up orphaned batch audio in \(name, privacy: .public)")
+                Log.sessionRepository.info("Cleaned up orphaned batch audio in \(name, privacy: .public)")
             }
         }
     }

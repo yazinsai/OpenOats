@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 @Observable
 @MainActor
@@ -203,11 +204,12 @@ final class TranscriptStore {
 
             guard similarity >= acousticEchoSimilarityThreshold || containsOther else { continue }
 
-            diagLog(
-                "[TRANSCRIPT-ECHO] dropped mic utterance as system-audio echo " +
-                "dt=\(String(format: "%.2f", timeDelta)) " +
-                "similarity=\(String(format: "%.2f", similarity)) " +
-                "you='\(utterance.text.prefix(80))' them='\(candidate.text.prefix(80))'"
+            let dtFormatted = String(format: "%.2f", timeDelta)
+            let simFormatted = String(format: "%.2f", similarity)
+            let youSnippet = String(utterance.text.prefix(80))
+            let themSnippet = String(candidate.text.prefix(80))
+            Log.transcript.info(
+                "Dropped mic utterance as system-audio echo dt=\(dtFormatted, privacy: .public) similarity=\(simFormatted, privacy: .public) you='\(youSnippet, privacy: .private)' them='\(themSnippet, privacy: .private)'"
             )
             return true
         }

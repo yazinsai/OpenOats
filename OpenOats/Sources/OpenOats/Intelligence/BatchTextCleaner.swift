@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import os
 
 /// Batch text cleaner that sends transcript chunks to an LLM
 /// to remove filler words and fix punctuation, preserving meaning.
@@ -31,7 +30,6 @@ final class BatchTextCleaner {
         set { withMutation(keyPath: \.error) { _error = newValue } }
     }
 
-    private nonisolated static let logger = Logger(subsystem: "com.openoats.app", category: "BatchTextCleaner")
     private let client = OpenRouterClient()
     private var currentTask: Task<[SessionRecord], Never>?
 
@@ -254,7 +252,7 @@ final class BatchTextCleaner {
 
             return parseResponse(response, originalRecords: records)
         } catch {
-            logger.error("Cleanup chunk failed: \(error.localizedDescription)")
+            Log.batchTextCleaner.error("Cleanup chunk failed: \(error, privacy: .public)")
             return nil
         }
     }

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Shared acoustic echo suppression logic.
 /// Detects when mic (YOU) utterances are echoes of system (THEM) audio based on
@@ -37,11 +38,12 @@ enum AcousticEchoFilter {
                     normalizedThem.contains(normalizedYou)
 
                 if similarity >= similarityThreshold || containsOther {
-                    diagLog(
-                        "[ECHO-FILTER] suppressed mic record as echo " +
-                        "dt=\(String(format: "%.2f", timeDelta)) " +
-                        "sim=\(String(format: "%.2f", similarity)) " +
-                        "mic='\(micRecord.text.prefix(80))' sys='\(sysRecord.text.prefix(80))'"
+                    let dtFormatted = String(format: "%.2f", timeDelta)
+                    let simFormatted = String(format: "%.2f", similarity)
+                    let micSnippet = String(micRecord.text.prefix(80))
+                    let sysSnippet = String(sysRecord.text.prefix(80))
+                    Log.echo.info(
+                        "Suppressed mic record as echo dt=\(dtFormatted, privacy: .public) sim=\(simFormatted, privacy: .public) mic='\(micSnippet, privacy: .private)' sys='\(sysSnippet, privacy: .private)'"
                     )
                     return true
                 }

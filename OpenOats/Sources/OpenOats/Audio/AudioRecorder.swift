@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+import os
 
 /// Records mic and system audio to temporary CAF files during a session,
 /// then merges and encodes them into a single M4A (AAC) file on finalization.
@@ -67,14 +68,14 @@ final class AudioRecorder: @unchecked Sendable {
                 guard let monoFormat = AVAudioFormat(
                     standardFormatWithSampleRate: buffer.format.sampleRate, channels: 1
                 ) else {
-                    diagLog("[RECORDER] mic file SKIP: cannot create mono format at \(buffer.format.sampleRate)Hz")
+                    Log.recorder.error("Mic file SKIP: cannot create mono format at \(buffer.format.sampleRate, privacy: .public)Hz")
                     return
                 }
                 do {
                     micFile = try AVAudioFile(forWriting: url, settings: monoFormat.settings)
-                    diagLog("[RECORDER] mic file created: \(url.lastPathComponent) mono at \(buffer.format.sampleRate)Hz")
+                    Log.recorder.info("Mic file created: \(url.lastPathComponent, privacy: .private(mask: .hash)) mono at \(buffer.format.sampleRate, privacy: .public)Hz")
                 } catch {
-                    diagLog("[RECORDER] mic file creation FAILED: \(error)")
+                    Log.recorder.error("Mic file creation failed: \(error, privacy: .public)")
                     return
                 }
             }
@@ -156,19 +157,19 @@ final class AudioRecorder: @unchecked Sendable {
                     }
                 }
             } else {
-                diagLog("[RECORDER] mic write SKIP: unsupported buffer format \(buffer.format.commonFormat.rawValue)")
+                Log.recorder.error("Mic write SKIP: unsupported buffer format \(buffer.format.commonFormat.rawValue, privacy: .public)")
                 return
             }
 
             micWriteCount += 1
             if micWriteCount <= 5 || micWriteCount % 100 == 0 {
                 let peak = Self.peakLevel(monoBuf)
-                diagLog("[RECORDER] mic write #\(micWriteCount): frames=\(frames) peak=\(peak)")
+                Log.recorder.debug("Mic write #\(self.micWriteCount, privacy: .public): frames=\(frames, privacy: .public) peak=\(peak, privacy: .public)")
             }
             do {
                 try micFile?.write(from: monoBuf)
             } catch {
-                diagLog("[RECORDER] mic write ERROR: \(error)")
+                Log.recorder.error("Mic write error: \(error, privacy: .public)")
             }
         }
     }
@@ -185,7 +186,7 @@ final class AudioRecorder: @unchecked Sendable {
                         interleaved: buffer.format.isInterleaved
                     )
                 } catch {
-                    diagLog("[RECORDER] sys file creation FAILED: \(error)")
+                    Log.recorder.error("Sys file creation failed: \(error, privacy: .public)")
                     return
                 }
             }
@@ -204,7 +205,7 @@ final class AudioRecorder: @unchecked Sendable {
             do {
                 try sysFile?.write(from: buffer)
             } catch {
-                diagLog("[RECORDER] sys write ERROR: \(error)")
+                Log.recorder.error("Sys write error: \(error, privacy: .public)")
             }
         }
     }
@@ -310,7 +311,7 @@ final class AudioRecorder: @unchecked Sendable {
         }()
 
         guard micReader != nil || sysReader != nil else {
-            diagLog("[RECORDER] No audio data recorded")
+            Log.recorder.info("No audio data recorded")
             return
         }
 
@@ -318,12 +319,12 @@ final class AudioRecorder: @unchecked Sendable {
         guard let targetFormat = AVAudioFormat(standardFormatWithSampleRate: targetRate, channels: 1) else { return }
 
         if let mic = micReader {
-            diagLog("[RECORDER] mic temp: \(mic.length) frames, format=\(mic.processingFormat)")
+            Log.recorder.info("Mic temp: \(mic.length, privacy: .public) frames, format=\(mic.processingFormat, privacy: .public)")
         }
         if let sys = sysReader {
-            diagLog("[RECORDER] sys temp: \(sys.length) frames, format=\(sys.processingFormat)")
+            Log.recorder.info("Sys temp: \(sys.length, privacy: .public) frames, format=\(sys.processingFormat, privacy: .public)")
             if let eff = sysEffectiveRate {
-                diagLog("[RECORDER] sys effective sample rate: \(eff) Hz (declared: \(sys.processingFormat.sampleRate) Hz)")
+                Log.recorder.info("Sys effective sample rate: \(eff, privacy: .public) Hz (declared: \(sys.processingFormat.sampleRate, privacy: .public) Hz)")
             }
         }
 
@@ -334,7 +335,7 @@ final class AudioRecorder: @unchecked Sendable {
            let effectiveRate = sysEffectiveRate,
            abs(effectiveRate - sysReader.processingFormat.sampleRate) > 1000
         {
-            diagLog("[RECORDER] sys rate mismatch: effective=\(effectiveRate) vs declared=\(sysReader.processingFormat.sampleRate), resampling from effective rate")
+            Log.recorder.info("Sys rate mismatch: effective=\(effectiveRate, privacy: .public) vs declared=\(sysReader.processingFormat.sampleRate, privacy: .public), resampling from effective rate")
             sysSamples = Self.readAllMono(
                 file: sysReader,
                 targetRate: targetRate,
@@ -347,7 +348,7 @@ final class AudioRecorder: @unchecked Sendable {
 
         let micPeak = micSamples.reduce(Float(0)) { max($0, abs($1)) }
         let sysPeak = sysSamples.reduce(Float(0)) { max($0, abs($1)) }
-        diagLog("[RECORDER] after readAllMono: micSamples=\(micSamples.count) micPeak=\(micPeak) sysSamples=\(sysSamples.count) sysPeak=\(sysPeak)")
+        Log.recorder.info("After readAllMono: micSamples=\(micSamples.count, privacy: .public) micPeak=\(micPeak, privacy: .public) sysSamples=\(sysSamples.count, privacy: .public) sysPeak=\(sysPeak, privacy: .public)")
 
         let length = max(micSamples.count, sysSamples.count)
         guard length > 0 else { return }
@@ -364,7 +365,7 @@ final class AudioRecorder: @unchecked Sendable {
             commonFormat: .pcmFormatFloat32,
             interleaved: false
         ) else {
-            diagLog("[RECORDER] Failed to create output file")
+            Log.recorder.error("Failed to create output file")
             return
         }
 
@@ -387,7 +388,7 @@ final class AudioRecorder: @unchecked Sendable {
             offset += count
         }
 
-        diagLog("[RECORDER] Saved \(outputURL.lastPathComponent) (\(length) frames)")
+        Log.recorder.info("Saved \(outputURL.lastPathComponent, privacy: .private(mask: .hash)) (\(length, privacy: .public) frames)")
     }
 
     private static func readAllMono(
