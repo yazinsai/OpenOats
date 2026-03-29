@@ -4,17 +4,6 @@ import FluidAudio
 import Observation
 import os
 
-enum TranscriptionEngineError: LocalizedError {
-    case transcriberNotInitialized
-
-    var errorDescription: String? {
-        switch self {
-        case .transcriberNotInitialized:
-            "Transcription engine is not initialized. Please check your audio settings."
-        }
-    }
-}
-
 /// Enriched download progress info computed from fraction changes over time.
 struct DownloadProgressDetail: Sendable {
     let fraction: Double
@@ -24,6 +13,41 @@ struct DownloadProgressDetail: Sendable {
     let speedText: String?
     /// Formatted string like "2m 15s remaining"
     let etaText: String?
+}
+
+/// Session-scoped transcription settings captured at start time.
+struct ActiveTranscriptionSession: Sendable, Equatable {
+    let transcriptionModel: TranscriptionModel
+
+    var flushIntervalSamples: Int {
+        transcriptionModel.flushIntervalSamples
+    }
+
+    func clearModelCache(
+        using makeBackend: (TranscriptionModel) -> any TranscriptionBackend = { $0.makeBackend() }
+    ) {
+        makeBackend(transcriptionModel).clearModelCache()
+    }
+}
+
+/// Stops forwarding diarization samples after the first feed failure.
+struct DiarizationFeedRelay: Sendable {
+    private(set) var hasFailed = false
+
+    mutating func feedAudio(
+        _ samples: [Float],
+        into feedAudio: @Sendable ([Float]) async throws -> Void,
+        onFailure: @Sendable (Error) async -> Void
+    ) async {
+        guard !hasFailed else { return }
+
+        do {
+            try await feedAudio(samples)
+        } catch {
+            hasFailed = true
+            await onFailure(error)
+        }
+    }
 }
 
 /// Orchestrates dual StreamingTranscriber instances for mic (you) and system audio (them).
@@ -134,6 +158,9 @@ final class TranscriptionEngine {
     /// Speaker diarization manager for system audio (nil when diarization is disabled).
     private var diarizationManager: DiarizationManager?
 
+    /// Active transcription model captured for the current session/startup.
+    @ObservationIgnored nonisolated(unsafe) var activeTranscriptionSession: ActiveTranscriptionSession?
+
     /// Tracks the resolved mic device ID currently in use.
     private var currentMicDeviceID: AudioDeviceID = 0
 
@@ -204,7 +231,14 @@ final class TranscriptionEngine {
             return
         }
 
-        guard await ensureMicrophonePermission() else { return }
+        activeTranscriptionSession = ActiveTranscriptionSession(
+            transcriptionModel: transcriptionModel
+        )
+
+        guard await ensureMicrophonePermission() else {
+            activeTranscriptionSession = nil
+            return
+        }
 
         isRunning = true
 
@@ -276,7 +310,7 @@ final class TranscriptionEngine {
             Log.transcription.info("Transcription model loaded")
         } catch {
             let msg = "Failed to load models: \(error.localizedDescription)"
-            Log.transcription.error("Failed to load models: \(msg, privacy: .public)")
+            Log.transcription.error("Failed to load models: \(error, privacy: .public)")
             lastError = msg
             assetStatus = "Ready"
             isRunning = false
@@ -285,14 +319,20 @@ final class TranscriptionEngine {
             downloadStartTime = nil
             downloadTotalBytes = nil
             // Clear corrupt cache so the next attempt triggers a fresh download
-            settings.transcriptionModel.makeBackend().clearModelCache()
-            Log.transcription.info("Cleared model cache for \(self.settings.transcriptionModel.rawValue, privacy: .public)")
+            activeTranscriptionSession?.clearModelCache()
+            Log.transcription.info(
+                "Cleared model cache for \(transcriptionModel.rawValue, privacy: .public)"
+            )
             needsModelDownload = true
             downloadConfirmed = false
+            activeTranscriptionSession = nil
             return
         }
 
-        guard let vadManager else { return }
+        guard let vadManager else {
+            activeTranscriptionSession = nil
+            return
+        }
 
         // 2. Start mic capture
         userSelectedDeviceID = inputDeviceID
@@ -302,6 +342,7 @@ final class TranscriptionEngine {
             lastError = msg
             assetStatus = "Ready"
             isRunning = false
+            activeTranscriptionSession = nil
             return
         }
         currentMicDeviceID = targetMicID
@@ -501,6 +542,7 @@ final class TranscriptionEngine {
             assetStatus = "Ready"
             transcriptStore.volatileYouText = ""
             transcriptStore.volatileThemText = ""
+            activeTranscriptionSession = nil
             return
         }
 
@@ -536,8 +578,10 @@ final class TranscriptionEngine {
 
         micBackend = nil
         systemBackend = nil
+        vadManager = nil
         transcriptStore.volatileYouText = ""
         transcriptStore.volatileThemText = ""
+        activeTranscriptionSession = nil
         isRunning = false
         assetStatus = "Ready"
     }
@@ -570,8 +614,10 @@ final class TranscriptionEngine {
         currentMicDeviceID = 0
         micBackend = nil
         systemBackend = nil
+        vadManager = nil
         transcriptStore.volatileYouText = ""
         transcriptStore.volatileThemText = ""
+        activeTranscriptionSession = nil
         isRunning = false
         assetStatus = "Ready"
     }
@@ -684,6 +730,7 @@ final class TranscriptionEngine {
             lastError = "Failed to create transcriber. Try restarting."
             isRunning = false
             assetStatus = "Ready"
+            activeTranscriptionSession = nil
             return
         }
         micTask = Task.detached {
@@ -704,7 +751,7 @@ final class TranscriptionEngine {
             clearSystemAudioErrorIfPresent()
         } catch {
             let msg = "Failed to start system audio: \(error.localizedDescription)"
-            Log.transcription.error("Failed to start system audio: \(msg, privacy: .public)")
+            Log.transcription.error("Failed to start system audio: \(error, privacy: .public)")
             lastError = msg
             return
         }
@@ -725,7 +772,8 @@ final class TranscriptionEngine {
             let originalSysStream = sysStream
             let (diarTapped, diarContinuation) = AsyncStream<AVAudioPCMBuffer>.makeStream()
             Task {
-                nonisolated(unsafe) let safeDm = dm
+                let safeDm = dm
+                var diarizationRelay = DiarizationFeedRelay()
                 var diarBuf: [Float] = []
                 for await buffer in originalSysStream {
                     nonisolated(unsafe) let b = buffer
@@ -737,12 +785,28 @@ final class TranscriptionEngine {
                     if diarBuf.count >= diarFlushSize {
                         let batch = diarBuf
                         diarBuf.removeAll(keepingCapacity: true)
-                        try? await safeDm.feedAudio(batch)
+                        await diarizationRelay.feedAudio(
+                            batch,
+                            into: { samples in try await safeDm.feedAudio(samples) },
+                            onFailure: { error in
+                                Log.transcription.error(
+                                    "Diarization feed failed: \(error, privacy: .public)"
+                                )
+                            }
+                        )
                     }
                 }
                 // Flush tail
                 if !diarBuf.isEmpty {
-                    try? await safeDm.feedAudio(diarBuf)
+                    await diarizationRelay.feedAudio(
+                        diarBuf,
+                        into: { samples in try await safeDm.feedAudio(samples) },
+                        onFailure: { error in
+                            Log.transcription.error(
+                                "Diarization feed failed: \(error, privacy: .public)"
+                            )
+                        }
+                    )
                 }
                 diarContinuation.finish()
             }
@@ -799,10 +863,14 @@ final class TranscriptionEngine {
             locale: locale,
             vadManager: vadManager,
             speaker: speaker,
-            flushInterval: settings.transcriptionModel.flushIntervalSamples,
+            flushInterval: currentTranscriptionModel().flushIntervalSamples,
             onPartial: onPartial,
             onFinal: onFinal
         )
+    }
+
+    func currentTranscriptionModel() -> TranscriptionModel {
+        activeTranscriptionSession?.transcriptionModel ?? settings.transcriptionModel
     }
 
     private func resolvedMicDeviceID(for inputDeviceID: AudioDeviceID) -> AudioDeviceID? {

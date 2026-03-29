@@ -9,6 +9,8 @@ import Security
 final class SettingsStore {
     private let defaults: UserDefaults
     private let secretStore: AppSecretStore
+    private static let enableLiveTranscriptCleanupLegacyKey = "enableTranscriptRefinement"
+    private static let enableBatchRetranscriptionLegacyKey = "enableBatchRefinement"
 
     // MARK: - AI Settings
 
@@ -206,6 +208,7 @@ final class SettingsStore {
             withMutation(keyPath: \.enableLiveTranscriptCleanup) {
                 _enableLiveTranscriptCleanup = newValue
                 defaults.set(newValue, forKey: "enableLiveTranscriptCleanup")
+                defaults.set(newValue, forKey: Self.enableLiveTranscriptCleanupLegacyKey)
             }
         }
     }
@@ -373,6 +376,7 @@ final class SettingsStore {
             withMutation(keyPath: \.enableBatchRetranscription) {
                 _enableBatchRetranscription = newValue
                 defaults.set(newValue, forKey: "enableBatchRetranscription")
+                defaults.set(newValue, forKey: Self.enableBatchRetranscriptionLegacyKey)
             }
         }
     }
@@ -614,11 +618,11 @@ final class SettingsStore {
 
         // Migrate renamed settings keys (old -> new)
         if defaults.object(forKey: "enableLiveTranscriptCleanup") == nil,
-           let oldValue = defaults.object(forKey: "enableTranscriptRefinement") {
+           let oldValue = defaults.object(forKey: Self.enableLiveTranscriptCleanupLegacyKey) {
             defaults.set(oldValue, forKey: "enableLiveTranscriptCleanup")
         }
         if defaults.object(forKey: "enableBatchRetranscription") == nil,
-           let oldValue = defaults.object(forKey: "enableBatchRefinement") {
+           let oldValue = defaults.object(forKey: Self.enableBatchRetranscriptionLegacyKey) {
             defaults.set(oldValue, forKey: "enableBatchRetranscription")
         }
 

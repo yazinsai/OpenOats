@@ -29,6 +29,8 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     private static let notMeetingAction = "NOT_A_MEETING"
     private static let ignoreAppAction = "IGNORE_APP"
     private static let dismissAction = "DISMISS"
+    static let batchCompletedTitle = "Re-transcription Complete"
+    static let batchCompletedBody = "Re-transcription is complete. Your meeting transcript has been updated with higher-quality text."
 
     override init() {
         super.init()
@@ -144,8 +146,8 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         guard await ensurePermission() else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "Re-transcription Complete"
-        content.body = "Batch transcription is complete. Your meeting transcript has been updated with higher-quality text."
+        content.title = Self.batchCompletedTitle
+        content.body = Self.batchCompletedBody
         content.sound = .default
 
         let request = UNNotificationRequest(

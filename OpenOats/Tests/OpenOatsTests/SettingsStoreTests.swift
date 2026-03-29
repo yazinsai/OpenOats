@@ -135,6 +135,21 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(store.enableLiveTranscriptCleanup)
     }
 
+    func testEnableLiveTranscriptCleanupDualWritesLegacyKey() {
+        let suiteName = "com.openoats.test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = makeStore(defaults: defaults)
+        store.enableLiveTranscriptCleanup = true
+
+        XCTAssertEqual(defaults.bool(forKey: "enableLiveTranscriptCleanup"), true)
+        XCTAssertEqual(defaults.bool(forKey: "enableTranscriptRefinement"), true)
+
+        let reopened = makeStore(defaults: defaults)
+        XCTAssertTrue(reopened.enableLiveTranscriptCleanup)
+    }
+
     // MARK: - Capture Settings Group
 
     func testDefaultInputDeviceID() {
@@ -173,6 +188,21 @@ final class SettingsStoreTests: XCTestCase {
         let store = makeStore()
         // Defaults to false when key never set
         XCTAssertFalse(store.enableBatchRetranscription)
+    }
+
+    func testEnableBatchRetranscriptionDualWritesLegacyKey() {
+        let suiteName = "com.openoats.test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = makeStore(defaults: defaults)
+        store.enableBatchRetranscription = true
+
+        XCTAssertEqual(defaults.bool(forKey: "enableBatchRetranscription"), true)
+        XCTAssertEqual(defaults.bool(forKey: "enableBatchRefinement"), true)
+
+        let reopened = makeStore(defaults: defaults)
+        XCTAssertTrue(reopened.enableBatchRetranscription)
     }
 
     func testDefaultBatchTranscriptionModel() {
