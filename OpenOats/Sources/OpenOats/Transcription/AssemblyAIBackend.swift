@@ -60,6 +60,10 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
         onStatus: @Sendable (String) -> Void,
         onProgress: @escaping @Sendable (Double) -> Void
     ) async throws {
+        guard !apiKey.isEmpty else {
+            throw CloudASRError.invalidAPIKey(backend: "AssemblyAI")
+        }
+
         onStatus("Validating AssemblyAI API key...")
 
         var request = URLRequest(url: URL(string: "https://api.assemblyai.com/v2/transcript?limit=1")!)
@@ -178,6 +182,7 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
         request.setValue(apiKey, forHTTPHeaderField: "Authorization")
 
         for _ in 0 ..< 120 {
+            try Task.checkCancellation()
             try await Task.sleep(for: .milliseconds(500))
 
             let (data, response) = try await session.data(for: request)

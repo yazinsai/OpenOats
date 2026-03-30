@@ -33,6 +33,10 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
         onStatus: @Sendable (String) -> Void,
         onProgress: @escaping @Sendable (Double) -> Void
     ) async throws {
+        guard !apiKey.isEmpty else {
+            throw CloudASRError.invalidAPIKey(backend: "ElevenLabs")
+        }
+
         onStatus("Validating ElevenLabs API key...")
 
         var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/user")!)
@@ -103,7 +107,7 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
         let (responseData, response) = try await session.data(for: request)
 
         if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 {
+            if http.statusCode == 401 || http.statusCode == 403 {
                 throw CloudASRError.invalidAPIKey(backend: "ElevenLabs")
             }
             if !(200 ..< 300).contains(http.statusCode) {
