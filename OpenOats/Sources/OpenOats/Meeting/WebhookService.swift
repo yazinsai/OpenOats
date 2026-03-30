@@ -1,12 +1,9 @@
 import Foundation
 import CryptoKit
-import os.log
 
 /// Sends a POST request to a user-configured webhook URL when a meeting ends.
 /// Uses only data that already exists at session finalization time.
 enum WebhookService {
-    private static let logger = Logger(subsystem: "com.openoats.app", category: "Webhook")
-
     struct Payload: Codable {
         let sessionID: String
         let startedAt: Date
@@ -65,7 +62,7 @@ enum WebhookService {
         encoder.dateEncodingStrategy = .iso8601
 
         guard let body = try? encoder.encode(payload) else {
-            logger.error("Webhook: failed to encode payload")
+            Log.webhook.error("Webhook: failed to encode payload")
             return
         }
 
@@ -85,13 +82,13 @@ enum WebhookService {
             do {
                 let (_, response) = try await URLSession.shared.data(for: request)
                 if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
-                    logger.info("Webhook delivered (attempt \(attempt + 1), status \(http.statusCode))")
+                    Log.webhook.info("Webhook delivered (attempt \(attempt + 1, privacy: .public), status \(http.statusCode, privacy: .public))")
                     return
                 }
                 let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                logger.warning("Webhook attempt \(attempt + 1) returned status \(statusCode)")
+                Log.webhook.warning("Webhook attempt \(attempt + 1, privacy: .public) returned status \(statusCode, privacy: .public)")
             } catch {
-                logger.warning("Webhook attempt \(attempt + 1) failed: \(error.localizedDescription)")
+                Log.webhook.warning("Webhook attempt \(attempt + 1, privacy: .public) failed: \(error, privacy: .public)")
             }
 
             if attempt < 2 {
@@ -100,7 +97,7 @@ enum WebhookService {
             }
         }
 
-        logger.error("Webhook delivery failed after 3 attempts to \(url.absoluteString)")
+        Log.webhook.error("Webhook delivery failed after 3 attempts to \(url.absoluteString, privacy: .private)")
     }
 
     private static func hmacSHA256(data: Data, key: String) -> String {

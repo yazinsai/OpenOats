@@ -1,9 +1,6 @@
 import AppKit
 import Foundation
 import Observation
-import os
-
-private let logger = Logger(subsystem: "com.openoats.app", category: "MeetingDetection")
 
 /// One-shot events emitted by the detection controller for consumption by the coordinator.
 enum DetectionEvent: Sendable {
@@ -173,7 +170,7 @@ final class MeetingDetectionController {
         installSleepObserver()
 
         if settings.detectionLogEnabled {
-            logger.info("Detection system started")
+            Log.meetingDetection.info("Detection system started")
         }
     }
 
@@ -208,7 +205,7 @@ final class MeetingDetectionController {
         detectedApp = nil
         lastUtteranceAt = nil
 
-        logger.info("Detection system stopped")
+        Log.meetingDetection.info("Detection system stopped")
     }
 
     // MARK: - Sleep Observer
@@ -222,7 +219,7 @@ final class MeetingDetectionController {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.activeSettings?.detectionLogEnabled == true {
-                    logger.info("System sleep detected, yielding event")
+                    Log.meetingDetection.info("System sleep detected, yielding event")
                 }
                 self.eventContinuation.yield(.systemSleep)
             }
@@ -248,7 +245,7 @@ final class MeetingDetectionController {
                     let elapsed = Date().timeIntervalSince(lastUtterance)
                     if elapsed >= Double(timeoutMinutes) * 60.0 {
                         if self.activeSettings?.detectionLogEnabled == true {
-                            logger.info("Silence timeout (\(timeoutMinutes)m), stopping")
+                            Log.meetingDetection.info("Silence timeout (\(timeoutMinutes, privacy: .public)m), stopping")
                         }
                         self.eventContinuation.yield(.silenceTimeout)
                         break
@@ -292,7 +289,7 @@ final class MeetingDetectionController {
 
                 if !isRunning {
                     if self.activeSettings?.detectionLogEnabled == true {
-                        logger.info("Meeting app exited (\(bundleID, privacy: .public)), yielding event")
+                        Log.meetingDetection.info("Meeting app exited (\(bundleID, privacy: .public)), yielding event")
                     }
                     self.eventContinuation.yield(.meetingAppExited)
                     break
@@ -340,13 +337,13 @@ final class MeetingDetectionController {
         }
 
         if activeSettings?.detectionLogEnabled == true {
-            logger.info("Detected: \(app?.name ?? "unknown", privacy: .public)")
+            Log.meetingDetection.info("Detected: \(app?.name ?? "unknown", privacy: .public)")
         }
 
         let posted = await notificationService?.postMeetingDetected(appName: app?.name) ?? false
         if !posted {
             if activeSettings?.detectionLogEnabled == true {
-                logger.debug("Failed to post notification (permission denied?)")
+                Log.meetingDetection.debug("Failed to post notification (permission denied?)")
             }
         }
     }
@@ -385,7 +382,7 @@ final class MeetingDetectionController {
         }
 
         if activeSettings?.detectionLogEnabled == true {
-            logger.debug("User dismissed as not a meeting")
+            Log.meetingDetection.debug("User dismissed as not a meeting")
         }
     }
 
@@ -402,7 +399,7 @@ final class MeetingDetectionController {
         }
 
         if activeSettings?.detectionLogEnabled == true {
-            logger.debug("User chose to ignore this app permanently")
+            Log.meetingDetection.debug("User chose to ignore this app permanently")
         }
     }
 
@@ -410,7 +407,7 @@ final class MeetingDetectionController {
         eventContinuation.yield(.dismissed)
 
         if activeSettings?.detectionLogEnabled == true {
-            logger.debug("User dismissed notification")
+            Log.meetingDetection.debug("User dismissed notification")
         }
     }
 
@@ -418,7 +415,7 @@ final class MeetingDetectionController {
         eventContinuation.yield(.timeout)
 
         if activeSettings?.detectionLogEnabled == true {
-            logger.debug("Notification timed out")
+            Log.meetingDetection.debug("Notification timed out")
         }
     }
 }

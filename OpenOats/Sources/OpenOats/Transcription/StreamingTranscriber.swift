@@ -11,7 +11,6 @@ final class StreamingTranscriber: @unchecked Sendable {
     private let speaker: Speaker
     private let onPartial: @Sendable (String) -> Void
     private let onFinal: @Sendable (String) -> Void
-    private let log = Logger(subsystem: "com.openoats", category: "StreamingTranscriber")
 
     /// Resampler from source format to 16kHz mono Float32.
     private var converter: AVAudioConverter?
@@ -68,14 +67,14 @@ final class StreamingTranscriber: @unchecked Sendable {
             bufferCount += 1
             if bufferCount <= 3 {
                 let fmt = buffer.format
-                diagLog("[\(speaker.storageKey)] buffer #\(bufferCount): frames=\(buffer.frameLength) sr=\(fmt.sampleRate) ch=\(fmt.channelCount) interleaved=\(fmt.isInterleaved) common=\(fmt.commonFormat.rawValue)")
+                Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] buffer #\(bufferCount, privacy: .public): frames=\(buffer.frameLength, privacy: .public) sr=\(fmt.sampleRate, privacy: .public) ch=\(fmt.channelCount, privacy: .public) interleaved=\(fmt.isInterleaved, privacy: .public) common=\(fmt.commonFormat.rawValue, privacy: .public)")
             }
 
             guard let samples = extractSamples(buffer) else { continue }
 
             if bufferCount <= 3 {
                 let maxVal = samples.max() ?? 0
-                diagLog("[\(speaker.storageKey)] samples: count=\(samples.count) max=\(maxVal)")
+                Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] samples: count=\(samples.count, privacy: .public) max=\(maxVal, privacy: .public)")
             }
 
             vadBuffer.append(contentsOf: samples)
@@ -110,7 +109,7 @@ final class StreamingTranscriber: @unchecked Sendable {
                                 isSpeaking = true
                                 startedSpeech = true
                                 speechSamples = recentChunks.suffix(Self.prerollChunkCount).flatMap { $0 }
-                                diagLog("[\(self.speaker.storageKey)] speech start")
+                                Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] speech start")
                             }
 
                         case .speechEnd:
@@ -131,7 +130,7 @@ final class StreamingTranscriber: @unchecked Sendable {
                     if endedSpeech {
                         isSpeaking = false
                         isRunningPartial = false
-                        diagLog("[\(self.speaker.storageKey)] speech end, samples=\(speechSamples.count)")
+                        Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] speech end, samples=\(speechSamples.count, privacy: .public)")
                         if speechSamples.count > Self.minimumSpeechSamples {
                             let segment = speechSamples
                             speechSamples.removeAll(keepingCapacity: true)
@@ -170,7 +169,7 @@ final class StreamingTranscriber: @unchecked Sendable {
                         }
                     }
                 } catch {
-                    log.error("VAD error: \(error.localizedDescription)")
+                    Log.streaming.error("VAD error: \(error, privacy: .public)")
                 }
             }
         }
@@ -188,13 +187,13 @@ final class StreamingTranscriber: @unchecked Sendable {
         do {
             let text = try await backend.transcribe(samples, locale: locale, previousContext: previousContext)
             guard !text.isEmpty else { return }
-            log.info("[\(self.speaker.storageKey)] transcribed: \(text.prefix(80))")
+            Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] transcribed: \(text.prefix(80), privacy: .private)")
             // Store trailing words for cross-segment context
             let words = text.split(separator: " ")
             previousContext = words.suffix(Self.contextWordCount).joined(separator: " ")
             onFinal(text)
         } catch {
-            log.error("ASR error: \(error.localizedDescription)")
+            Log.streaming.error("ASR error: \(error, privacy: .public)")
         }
     }
 
@@ -269,7 +268,7 @@ final class StreamingTranscriber: @unchecked Sendable {
         }
 
         if let error {
-            log.error("Resample error: \(error.localizedDescription)")
+            Log.streaming.error("Resample error: \(error, privacy: .public)")
             return nil
         }
 

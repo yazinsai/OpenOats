@@ -1,6 +1,5 @@
 import Foundation
 import WhisperKit
-import os
 
 /// Wraps WhisperKit for use as a transcription backend.
 /// Handles model download, initialization, and transcription of Float32 audio samples.
@@ -26,7 +25,6 @@ final class WhisperKitManager: @unchecked Sendable {
 
     private let variant: Variant
     private var pipe: WhisperKit?
-    private let log = Logger(subsystem: "com.openoats", category: "WhisperKitManager")
 
     init(variant: Variant) {
         self.variant = variant
