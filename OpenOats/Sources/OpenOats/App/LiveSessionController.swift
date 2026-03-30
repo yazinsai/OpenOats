@@ -40,6 +40,8 @@ final class LiveSessionController {
     private let coordinator: AppCoordinator
     private let container: AppContainer
 
+    private var downloadTask: Task<Void, Never>?
+
     // Tracked-change sentinels
     private var observedUtteranceCount = 0
     private var observedIsRunning = false
@@ -123,6 +125,16 @@ final class LiveSessionController {
     func confirmDownloadAndStart(settings: AppSettings) {
         coordinator.transcriptionEngine?.downloadConfirmed = true
         startSession(settings: settings)
+    }
+
+    func downloadModelOnly(settings: AppSettings) {
+        guard downloadTask == nil else { return }
+        downloadTask = Task {
+            await coordinator.transcriptionEngine?.downloadModelOnly(
+                transcriptionModel: settings.transcriptionModel
+            )
+            downloadTask = nil
+        }
     }
 
     func toggleMicMute() {

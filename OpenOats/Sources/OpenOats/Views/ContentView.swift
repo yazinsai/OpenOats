@@ -472,17 +472,11 @@ struct ContentView: View {
         case .toggle:
             if liveSessionController?.state.isRunning ?? false {
                 stopSession()
-            } else {
+            } else if liveSessionController?.state.downloadProgress == nil {
                 startSession()
             }
         case .confirmDownload:
-            guard settings.hasAcknowledgedRecordingConsent else {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    showConsentSheet = true
-                }
-                return
-            }
-            liveSessionController?.confirmDownloadAndStart(settings: settings)
+            liveSessionController?.downloadModelOnly(settings: settings)
         }
     }
 }

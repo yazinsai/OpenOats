@@ -197,13 +197,44 @@ final class TranscriptionEngine {
         }
     }
 
+    /// Download the model without starting a transcription session.
+    func downloadModelOnly(transcriptionModel: TranscriptionModel) async {
+        guard !isRunning, downloadProgress == nil else { return }
+
+        refreshModelAvailability()
+        guard needsModelDownload else { return }
+
+        lastError = nil
+        assetStatus = "Downloading \(transcriptionModel.displayName)..."
+        beginDownloadTracking(for: transcriptionModel)
+
+        let vocab = settings.transcriptionCustomVocabulary
+        let backend = transcriptionModel.makeBackend(customVocabulary: vocab)
+        do {
+            try await prepareBackend(backend)
+            needsModelDownload = false
+            downloadConfirmed = false
+            clearDownloadTracking()
+            assetStatus = "Ready"
+        } catch is CancellationError {
+            clearDownloadTracking()
+            assetStatus = "Ready"
+        } catch {
+            lastError = "Failed to download: \(error.localizedDescription)"
+            assetStatus = "Ready"
+            clearDownloadTracking()
+            transcriptionModel.makeBackend().clearModelCache()
+            needsModelDownload = true
+        }
+    }
+
     func start(
         locale: Locale,
         inputDeviceID: AudioDeviceID = 0,
         transcriptionModel: TranscriptionModel
     ) async {
         Log.transcription.info("start() called, isRunning=\(self.isRunning, privacy: .public)")
-        guard !isRunning else { return }
+        guard !isRunning, downloadProgress == nil else { return }
         lastError = nil
         refreshModelAvailability()
 
@@ -248,28 +279,13 @@ final class TranscriptionEngine {
             ? "Downloading \(transcriptionModel.displayName)..."
             : "Loading \(transcriptionModel.displayName)..."
         if isDownloading {
-            downloadProgress = 0
-            downloadStartTime = Date()
-            downloadTotalBytes = transcriptionModel.estimatedDownloadBytes
-            downloadDetail = DownloadProgressDetail(fraction: 0, sizeText: nil, speedText: nil, etaText: nil)
+            beginDownloadTracking(for: transcriptionModel)
         }
         Log.transcription.info("Loading transcription model \(transcriptionModel.rawValue, privacy: .public)")
         do {
             let vocab = settings.transcriptionCustomVocabulary
             let mic = transcriptionModel.makeBackend(customVocabulary: vocab)
-            try await mic.prepare(
-                onStatus: { [weak self] status in
-                    Task { @MainActor in
-                        self?.assetStatus = status
-                    }
-                },
-                onProgress: { [weak self] fraction in
-                    Task { @MainActor in
-                        self?.downloadProgress = fraction
-                        self?.updateDownloadDetail(fraction: fraction)
-                    }
-                }
-            )
+            try await prepareBackend(mic)
             self.micBackend = mic
 
             // Parakeet needs a separate backend for system audio (mutable decoder state).
@@ -302,10 +318,7 @@ final class TranscriptionEngine {
 
             needsModelDownload = false
             downloadConfirmed = false
-            downloadProgress = nil
-            downloadDetail = nil
-            downloadStartTime = nil
-            downloadTotalBytes = nil
+            clearDownloadTracking()
             assetStatus = "Models ready"
             Log.transcription.info("Transcription model loaded")
         } catch {
@@ -314,11 +327,7 @@ final class TranscriptionEngine {
             lastError = msg
             assetStatus = "Ready"
             isRunning = false
-            downloadProgress = nil
-            downloadDetail = nil
-            downloadStartTime = nil
-            downloadTotalBytes = nil
-            // Clear corrupt cache so the next attempt triggers a fresh download
+            clearDownloadTracking()
             activeTranscriptionSession?.clearModelCache()
             Log.transcription.info(
                 "Cleared model cache for \(transcriptionModel.rawValue, privacy: .public)"
@@ -943,6 +952,36 @@ final class TranscriptionEngine {
             lastError.localizedCaseInsensitiveContains("audio output device") {
             self.lastError = nil
         }
+    }
+
+    // MARK: - Download Helpers
+
+    private func beginDownloadTracking(for model: TranscriptionModel) {
+        downloadProgress = 0
+        downloadStartTime = Date()
+        downloadTotalBytes = model.estimatedDownloadBytes
+        downloadDetail = DownloadProgressDetail(fraction: 0, sizeText: nil, speedText: nil, etaText: nil)
+    }
+
+    private func clearDownloadTracking() {
+        downloadProgress = nil
+        downloadDetail = nil
+        downloadStartTime = nil
+        downloadTotalBytes = nil
+    }
+
+    private func prepareBackend(_ backend: any TranscriptionBackend) async throws {
+        try await backend.prepare(
+            onStatus: { [weak self] status in
+                Task { @MainActor in self?.assetStatus = status }
+            },
+            onProgress: { [weak self] fraction in
+                Task { @MainActor in
+                    self?.downloadProgress = fraction
+                    self?.updateDownloadDetail(fraction: fraction)
+                }
+            }
+        )
     }
 
     // MARK: - Download Progress Detail
