@@ -21,7 +21,7 @@ OpenOats sits next to your call, transcribes both sides of the conversation in r
 - **Invisible to the other side** — the app window is hidden from screen sharing by default, so no one knows you're using it
 - **Fully offline transcription** — speech recognition runs entirely on your Mac; no audio ever leaves the device
 - **Runs 100% locally** — pair with [Ollama](https://ollama.com/) for LLM suggestions and local embeddings, and nothing touches the network at all
-- **Pick any LLM** — use [OpenRouter](https://openrouter.ai/) for cloud models (GPT-4o, Claude, Gemini) or Ollama for local ones (Llama, Qwen, Mistral)
+- **Pick any LLM** — use [OpenRouter](https://openrouter.ai/) for cloud models (GPT-5, Claude, Gemini) or Ollama for local ones (Llama, Qwen, DeepSeek)
 - **Live transcript** — see both sides of the conversation as it happens, copy the whole thing with one click
 - **Auto-saved sessions** — every conversation is automatically saved as a plain-text transcript and a structured session log, no manual export needed
 - **Knowledge base search** — point it at a folder of notes and it pulls in what's relevant using [Voyage AI](https://www.voyageai.com/) embeddings, local Ollama embeddings, or any OpenAI-compatible endpoint (llama.cpp, llamaswap, LiteLLM, vLLM, etc.)
