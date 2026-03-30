@@ -170,6 +170,92 @@ final class TranscriptionBackendTests: XCTestCase {
             BackendStatus.ready
         )
     }
+
+    // MARK: - AssemblyAIBackend
+
+    func testAssemblyAIDisplayName() {
+        let backend = AssemblyAIBackend(apiKey: "test-key")
+        XCTAssertEqual(backend.displayName, "AssemblyAI")
+    }
+
+    func testAssemblyAICheckStatusAlwaysReady() {
+        // checkStatus() must return .ready even with empty key
+        let withKey = AssemblyAIBackend(apiKey: "test-key")
+        XCTAssertEqual(withKey.checkStatus(), .ready)
+
+        let withoutKey = AssemblyAIBackend(apiKey: "")
+        XCTAssertEqual(withoutKey.checkStatus(), .ready)
+    }
+
+    func testAssemblyAITranscribeWithoutPrepareThrows() async {
+        let backend = AssemblyAIBackend(apiKey: "test-key")
+        do {
+            _ = try await backend.transcribe([0.0, 0.1, 0.2], locale: Locale(identifier: "en-US"))
+            XCTFail("Expected error")
+        } catch is TranscriptionBackendError {
+            // Expected: notPrepared
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    // MARK: - ElevenLabsScribeBackend
+
+    func testElevenLabsDisplayName() {
+        let backend = ElevenLabsScribeBackend(apiKey: "test-key")
+        XCTAssertEqual(backend.displayName, "ElevenLabs Scribe")
+    }
+
+    func testElevenLabsCheckStatusAlwaysReady() {
+        let withKey = ElevenLabsScribeBackend(apiKey: "test-key")
+        XCTAssertEqual(withKey.checkStatus(), .ready)
+
+        let withoutKey = ElevenLabsScribeBackend(apiKey: "")
+        XCTAssertEqual(withoutKey.checkStatus(), .ready)
+    }
+
+    func testElevenLabsTranscribeWithoutPrepareThrows() async {
+        let backend = ElevenLabsScribeBackend(apiKey: "test-key")
+        do {
+            _ = try await backend.transcribe([0.0, 0.1, 0.2], locale: Locale(identifier: "en-US"))
+            XCTFail("Expected error")
+        } catch is TranscriptionBackendError {
+            // Expected: notPrepared
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    // MARK: - TranscriptionModel cloud factory
+
+    func testMakeBackendAssemblyAI() {
+        let backend = TranscriptionModel.assemblyAI.makeBackend(apiKey: "test")
+        XCTAssertEqual(backend.displayName, "AssemblyAI")
+    }
+
+    func testMakeBackendElevenLabsScribe() {
+        let backend = TranscriptionModel.elevenLabsScribe.makeBackend(apiKey: "test")
+        XCTAssertEqual(backend.displayName, "ElevenLabs Scribe")
+    }
+
+    func testCloudModelsNotInBatchSuitable() {
+        let batchModels = TranscriptionModel.batchSuitableModels
+        XCTAssertFalse(batchModels.contains(.assemblyAI))
+        XCTAssertFalse(batchModels.contains(.elevenLabsScribe))
+    }
+
+    func testIsCloudProperty() {
+        // Cloud models
+        XCTAssertTrue(TranscriptionModel.assemblyAI.isCloud)
+        XCTAssertTrue(TranscriptionModel.elevenLabsScribe.isCloud)
+        // Local models
+        XCTAssertFalse(TranscriptionModel.parakeetV2.isCloud)
+        XCTAssertFalse(TranscriptionModel.parakeetV3.isCloud)
+        XCTAssertFalse(TranscriptionModel.qwen3ASR06B.isCloud)
+        XCTAssertFalse(TranscriptionModel.whisperBase.isCloud)
+        XCTAssertFalse(TranscriptionModel.whisperSmall.isCloud)
+        XCTAssertFalse(TranscriptionModel.whisperLargeV3Turbo.isCloud)
+    }
 }
 
 // MARK: - Test Helpers

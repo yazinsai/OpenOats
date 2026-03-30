@@ -382,4 +382,43 @@ final class SettingsStoreTests: XCTestCase {
     func testStorageTypealiasCompiles() {
         let _: AppSettingsStorage.Type = SettingsStorage.self
     }
+
+    // MARK: - Cloud ASR API Keys
+
+    func testAssemblyAIApiKeyDefaultsToEmpty() {
+        let store = makeStore()
+        XCTAssertEqual(store.assemblyAIApiKey, "")
+    }
+
+    func testElevenLabsApiKeyDefaultsToEmpty() {
+        let store = makeStore()
+        XCTAssertEqual(store.elevenLabsApiKey, "")
+    }
+
+    func testAssemblyAIApiKeyAutoTrimsWhitespace() {
+        let store = makeStore()
+        store.assemblyAIApiKey = "  sk-test-abc123  \n"
+        XCTAssertEqual(store.assemblyAIApiKey, "sk-test-abc123")
+    }
+
+    func testElevenLabsApiKeyAutoTrimsWhitespace() {
+        let store = makeStore()
+        store.elevenLabsApiKey = "  xi-test-abc123  \n"
+        XCTAssertEqual(store.elevenLabsApiKey, "xi-test-abc123")
+    }
+
+    func testCloudASRApiKeyRoutesCorrectly() {
+        let store = makeStore()
+        store.assemblyAIApiKey = "aai-key"
+        store.elevenLabsApiKey = "el-key"
+
+        store.transcriptionModel = .assemblyAI
+        XCTAssertEqual(store.cloudASRApiKey, "aai-key")
+
+        store.transcriptionModel = .elevenLabsScribe
+        XCTAssertEqual(store.cloudASRApiKey, "el-key")
+
+        store.transcriptionModel = .parakeetV2
+        XCTAssertEqual(store.cloudASRApiKey, "")
+    }
 }
