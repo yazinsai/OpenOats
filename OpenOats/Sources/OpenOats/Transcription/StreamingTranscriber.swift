@@ -24,12 +24,18 @@ final class StreamingTranscriber: @unchecked Sendable {
     /// Flush interval in 16kHz samples. Determined by the transcription model.
     private let flushInterval: Int
 
+    /// When true, skip inline partial hypotheses to avoid blocking the VAD loop.
+    /// Cloud backends (AssemblyAI, ElevenLabs) are too slow for partial transcription
+    /// because each call involves an HTTP upload + polling cycle that stalls audio processing.
+    private let skipPartials: Bool
+
     init(
         backend: any TranscriptionBackend,
         locale: Locale,
         vadManager: VadManager,
         speaker: Speaker,
         flushInterval: Int,
+        skipPartials: Bool = false,
         onPartial: @escaping @Sendable (String) -> Void,
         onFinal: @escaping @Sendable (String) -> Void
     ) {
@@ -38,6 +44,7 @@ final class StreamingTranscriber: @unchecked Sendable {
         self.vadManager = vadManager
         self.speaker = speaker
         self.flushInterval = flushInterval
+        self.skipPartials = skipPartials
         self.onPartial = onPartial
         self.onFinal = onFinal
     }
@@ -142,8 +149,11 @@ final class StreamingTranscriber: @unchecked Sendable {
                         }
                     } else if isSpeaking {
 
-                        // Throttled partial hypothesis every ~400ms
-                        if !isRunningPartial,
+                        // Throttled partial hypothesis every ~400ms.
+                        // Skipped for cloud backends — each call blocks the VAD loop
+                        // for seconds while the HTTP round-trip completes.
+                        if !skipPartials,
+                           !isRunningPartial,
                            speechSamples.count > Self.minimumSpeechSamples,
                            Date.now.timeIntervalSince(lastPartialTime) >= 0.4 {
                             isRunningPartial = true

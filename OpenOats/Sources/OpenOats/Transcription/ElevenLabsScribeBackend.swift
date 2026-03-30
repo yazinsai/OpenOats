@@ -39,7 +39,9 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
 
         onStatus("Validating ElevenLabs API key...")
 
-        var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/user")!)
+        // Validate using /v1/voices — universally accessible with any valid key,
+        // unlike /v1/user which requires elevated account permissions.
+        var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/voices")!)
         request.httpMethod = "GET"
         request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
 

@@ -872,12 +872,14 @@ final class TranscriptionEngine {
             Log.transcription.error("makeTranscriber called without initialized backend for \(speaker.storageKey, privacy: .public)")
             return nil
         }
+        let model = currentTranscriptionModel()
         return StreamingTranscriber(
             backend: backend,
             locale: locale,
             vadManager: vadManager,
             speaker: speaker,
-            flushInterval: currentTranscriptionModel().flushIntervalSamples,
+            flushInterval: model.flushIntervalSamples,
+            skipPartials: model.isCloud,
             onPartial: onPartial,
             onFinal: onFinal
         )
