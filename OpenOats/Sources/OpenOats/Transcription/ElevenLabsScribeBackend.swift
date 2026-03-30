@@ -71,7 +71,7 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
             case 401, 403:
                 throw CloudASRError.invalidAPIKey(backend: "ElevenLabs")
             case 429:
-                throw CloudASRError.rateLimited(backend: "ElevenLabs", retryAfter: nil)
+                throw CloudASRError.rateLimited(backend: "ElevenLabs")
             default:
                 throw CloudASRError.httpError(statusCode: http.statusCode)
             }
@@ -135,7 +135,7 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
                 case 401, 403:
                     throw CloudASRError.invalidAPIKey(backend: "ElevenLabs")
                 case 429:
-                    throw CloudASRError.rateLimited(backend: "ElevenLabs", retryAfter: nil)
+                    throw CloudASRError.rateLimited(backend: "ElevenLabs")
                 default:
                     throw CloudASRError.httpError(statusCode: http.statusCode)
                 }
