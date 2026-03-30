@@ -292,12 +292,40 @@ private struct TranscriptionSettingsTab: View {
 
                 Section("Transcription") {
                     Picker("Model", selection: $settings.transcriptionModel) {
-                        ForEach(TranscriptionModel.allCases) { model in
-                            Text(model.displayName).tag(model)
+                        Section("Local") {
+                            ForEach(TranscriptionModel.allCases.filter { !$0.isCloud }) { model in
+                                Text(model.displayName).tag(model)
+                            }
+                        }
+                        Section("Cloud") {
+                            ForEach(TranscriptionModel.allCases.filter { $0.isCloud }) { model in
+                                Text(model.displayName).tag(model)
+                            }
                         }
                     }
                     .font(.system(size: 12))
                     .accessibilityIdentifier("settings.transcriptionModelPicker")
+
+                    if settings.transcriptionModel.isCloud {
+                        switch settings.transcriptionModel {
+                        case .assemblyAI:
+                            SecureField("AssemblyAI API Key", text: $settings.assemblyAIApiKey)
+                                .font(.system(size: 12, design: .monospaced))
+                            Text("Audio segments are sent to AssemblyAI for transcription. AssemblyAI states audio is deleted after processing. Review their privacy policy at assemblyai.com/security.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        case .elevenLabsScribe:
+                            SecureField("ElevenLabs API Key", text: $settings.elevenLabsApiKey)
+                                .font(.system(size: 12, design: .monospaced))
+                            Text("Audio segments are sent to ElevenLabs for transcription. Review their privacy policy at elevenlabs.io/privacy.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        default:
+                            EmptyView()
+                        }
+                    }
 
                     TextField(
                         "\(settings.transcriptionModel.localeFieldTitle) (e.g. en-US)",
@@ -349,7 +377,7 @@ private struct TranscriptionSettingsTab: View {
                         )
 
                         Text(
-                            "Optional. Boost meeting-specific jargon, names, and product terms for Parakeet TDT v2/v3. Enter one term per line, or use `Preferred Term: alias one, alias two`."
+                            "Boost meeting-specific jargon, names, and product terms. Enter one term per line, or use `Preferred Term: alias one, alias two`. Parakeet: full alias support. AssemblyAI: aliases map to custom spelling. ElevenLabs: terms boost recognition."
                         )
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
