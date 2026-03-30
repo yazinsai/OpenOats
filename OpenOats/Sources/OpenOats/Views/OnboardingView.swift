@@ -8,7 +8,7 @@ struct OnboardingView: View {
         (
             "waveform.circle",
             "Welcome to OpenOats",
-            "A real-time meeting copilot that listens to your conversations and generates smart talking points — all running locally on your Mac."
+            "A real-time meeting copilot that detects your meetings, transcribes conversations, and generates smart talking points — all running locally on your Mac."
         ),
         (
             "text.quote",

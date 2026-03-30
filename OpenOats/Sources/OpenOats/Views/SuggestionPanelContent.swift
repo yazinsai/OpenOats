@@ -54,7 +54,7 @@ struct SuggestionPanelContent: View {
 
     private var idleView: some View {
         VStack(spacing: 6) {
-            Text("Listening...")
+            Text("Processing...")
                 .font(.system(size: 12))
                 .foregroundStyle(.tertiary)
         }

@@ -108,7 +108,7 @@ struct MenuBarPopoverView: View {
                 Circle()
                     .fill(.secondary)
                     .frame(width: 8, height: 8)
-                Text("Listening for meetings...")
+                Text("Meeting detection on")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             } else {

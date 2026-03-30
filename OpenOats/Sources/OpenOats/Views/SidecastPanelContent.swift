@@ -160,7 +160,7 @@ private struct SidecastPersonaCard: View {
                         }
                     }
                 } else {
-                    Text("Listening…")
+                    Text("Processing…")
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.25))
                         .italic()
