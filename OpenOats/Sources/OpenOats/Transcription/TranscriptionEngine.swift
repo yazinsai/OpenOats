@@ -213,7 +213,7 @@ final class TranscriptionEngine {
         beginDownloadTracking(for: transcriptionModel)
 
         let vocab = settings.transcriptionCustomVocabulary
-        let apiKey = settings.cloudASRApiKey
+        let apiKey = settings.cloudASRApiKey(for: transcriptionModel)
         let backend = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey)
         do {
             try await prepareBackend(backend)
@@ -262,7 +262,7 @@ final class TranscriptionEngine {
             return
         }
 
-        if transcriptionModel.isCloud && settings.cloudASRApiKey.isEmpty {
+        if transcriptionModel.isCloud && settings.cloudASRApiKey(for: transcriptionModel).isEmpty {
             lastError = "\(transcriptionModel.displayName) requires an API key. Enter it in Settings > Transcription."
             assetStatus = "Ready"
             isRunning = false
@@ -297,7 +297,7 @@ final class TranscriptionEngine {
         Log.transcription.info("Loading transcription model \(transcriptionModel.rawValue, privacy: .public)")
         do {
             let vocab = settings.transcriptionCustomVocabulary
-            let apiKey = settings.cloudASRApiKey
+            let apiKey = settings.cloudASRApiKey(for: transcriptionModel)
             let mic = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey)
             try await prepareBackend(mic)
             self.micBackend = mic

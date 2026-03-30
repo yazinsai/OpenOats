@@ -30,11 +30,6 @@ final class StreamingTranscriber: @unchecked Sendable {
     /// Flush interval in 16kHz samples. Determined by the transcription model.
     private let flushInterval: Int
 
-    /// When true, skip inline partial hypotheses to avoid blocking the VAD loop.
-    /// Cloud backends (AssemblyAI, ElevenLabs) are too slow for partial transcription
-    /// because each call involves an HTTP upload + polling cycle that stalls audio processing.
-    private let isCloud: Bool
-
     init(
         backend: any TranscriptionBackend,
         locale: Locale,
