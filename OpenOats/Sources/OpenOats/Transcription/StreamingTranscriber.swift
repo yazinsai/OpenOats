@@ -71,6 +71,7 @@ final class StreamingTranscriber: @unchecked Sendable {
         var isRunningPartial = false
 
         for await buffer in stream {
+            guard !Task.isCancelled else { break }
             bufferCount += 1
             if bufferCount <= 3 {
                 let fmt = buffer.format
@@ -195,6 +196,7 @@ final class StreamingTranscriber: @unchecked Sendable {
 
     private func transcribeSegment(_ samples: [Float]) async {
         do {
+            try Task.checkCancellation()
             let text = try await backend.transcribe(samples, locale: locale, previousContext: previousContext)
             guard !text.isEmpty else { return }
             Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] transcribed: \(text.prefix(80), privacy: .private)")

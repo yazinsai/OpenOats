@@ -126,6 +126,9 @@ final class AppCoordinator {
     /// Guard against finalization hanging forever.
     private var finalizationTimeoutTask: Task<Void, Never>?
 
+    /// The active finalization task, retained so the timeout can cancel it.
+    private var finalizationTask: Task<Void, Never>?
+
     /// Retained reference to the active settings for side effects.
     var activeSettings: AppSettings?
 
@@ -174,9 +177,10 @@ final class AppCoordinator {
             finalizationTimeoutTask = Task {
                 try? await Task.sleep(for: .seconds(30))
                 guard !Task.isCancelled else { return }
+                finalizationTask?.cancel()
                 handle(.finalizationTimeout)
             }
-            Task {
+            finalizationTask = Task {
                 await liveSessionController?.finalizeCurrentSession(settings: settings)
                 finalizationTimeoutTask?.cancel()
                 finalizationTimeoutTask = nil
@@ -189,9 +193,11 @@ final class AppCoordinator {
         case .finalizationComplete:
             finalizationTimeoutTask?.cancel()
             finalizationTimeoutTask = nil
+            finalizationTask = nil
 
         case .finalizationTimeout:
             finalizationTimeoutTask = nil
+            finalizationTask = nil
         }
     }
 

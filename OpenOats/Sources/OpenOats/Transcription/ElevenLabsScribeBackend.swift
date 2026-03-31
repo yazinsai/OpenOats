@@ -99,6 +99,8 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
         // 3. POST to speech-to-text endpoint
+        try Task.checkCancellation()
+
         var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!)
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")

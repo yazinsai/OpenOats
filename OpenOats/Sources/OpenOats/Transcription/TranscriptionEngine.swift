@@ -573,6 +573,8 @@ final class TranscriptionEngine {
         micCapture.finishStream()
         systemCapture.finishStream()
 
+        micTask?.cancel()
+        sysTask?.cancel()
         await micTask?.value
         await sysTask?.value
 
