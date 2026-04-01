@@ -386,6 +386,17 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _removeFillerWords: Bool
+    var removeFillerWords: Bool {
+        get { access(keyPath: \.removeFillerWords); return _removeFillerWords }
+        set {
+            withMutation(keyPath: \.removeFillerWords) {
+                _removeFillerWords = newValue
+                defaults.set(newValue, forKey: "removeFillerWords")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _saveAudioRecording: Bool
     var saveAudioRecording: Bool {
         get { access(keyPath: \.saveAudioRecording); return _saveAudioRecording }
@@ -711,6 +722,7 @@ final class SettingsStore {
         ) ?? .parakeetV2
         self._transcriptionLocale = defaults.string(forKey: "transcriptionLocale") ?? "en-US"
         self._transcriptionCustomVocabulary = defaults.string(forKey: "transcriptionCustomVocabulary") ?? ""
+        self._removeFillerWords = defaults.bool(forKey: "removeFillerWords")
         self._saveAudioRecording = defaults.bool(forKey: "saveAudioRecording")
 
         if defaults.object(forKey: "enableEchoCancellation") == nil {

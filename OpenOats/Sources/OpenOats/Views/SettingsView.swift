@@ -335,6 +335,11 @@ private struct TranscriptionSettingsTab: View {
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
+                            Toggle("Remove filler words", isOn: $settings.removeFillerWords)
+                                .font(.system(size: 12))
+                            Text("Strips filler words, false starts, and non-speech sounds server-side before returning the transcript.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
                         default:
                             EmptyView()
                         }

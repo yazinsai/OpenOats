@@ -28,6 +28,41 @@ enum CloudASRError: LocalizedError {
     }
 }
 
+// MARK: - Transient Retry Helper
+
+/// Retries a throwing async operation on transient HTTP failures (5xx, timeouts).
+/// Respects task cancellation between attempts.
+func withTransientRetry<T>(
+    maxAttempts: Int = 3,
+    initialDelay: Duration = .milliseconds(250),
+    operation: () async throws -> T
+) async throws -> T {
+    var lastError: Error?
+    for attempt in 0 ..< maxAttempts {
+        try Task.checkCancellation()
+        do {
+            return try await operation()
+        } catch let error as CloudASRError where error.isTransient {
+            lastError = error
+        } catch let error as URLError where error.code == .timedOut || error.code == .networkConnectionLost {
+            lastError = error
+        }
+        if attempt < maxAttempts - 1 {
+            let delay = initialDelay * (1 << attempt)
+            try await Task.sleep(for: delay)
+        }
+    }
+    throw lastError!
+}
+
+extension CloudASRError {
+    var isTransient: Bool {
+        if case .httpError(let code) = self { return code >= 500 }
+        if case .timeout = self { return true }
+        return false
+    }
+}
+
 // MARK: - AssemblyAI Backend
 
 /// Cloud transcription backend using the AssemblyAI REST API.
@@ -128,17 +163,19 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         request.httpBody = data
 
-        let (responseData, response) = try await session.data(for: request)
-        try checkHTTPStatus(response)
+        return try await withTransientRetry { [session] in
+            let (responseData, response) = try await session.data(for: request)
+            try self.checkHTTPStatus(response)
 
-        let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-        guard let urlString = json?["upload_url"] as? String,
-              let url = URL(string: urlString)
-        else {
-            throw CloudASRError.invalidUploadURL
+            let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+            guard let urlString = json?["upload_url"] as? String,
+                  let url = URL(string: urlString)
+            else {
+                throw CloudASRError.invalidUploadURL
+            }
+
+            return url
         }
-
-        return url
     }
 
     // MARK: - Private: Create Transcript
@@ -162,15 +199,17 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (responseData, response) = try await session.data(for: request)
-        try checkHTTPStatus(response)
+        return try await withTransientRetry { [session] in
+            let (responseData, response) = try await session.data(for: request)
+            try self.checkHTTPStatus(response)
 
-        let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-        guard let id = json?["id"] as? String else {
-            throw CloudASRError.transcriptionFailed("Missing transcript ID in response.")
+            let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+            guard let id = json?["id"] as? String else {
+                throw CloudASRError.transcriptionFailed("Missing transcript ID in response.")
+            }
+
+            return id
         }
-
-        return id
     }
 
     // MARK: - Private: Poll

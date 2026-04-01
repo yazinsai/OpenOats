@@ -84,27 +84,26 @@ final class WhisperKitManager: @unchecked Sendable {
     /// Check whether the model files already exist locally.
     static func modelExists(variant: Variant) -> Bool {
         let fm = FileManager.default
-        // WhisperKit downloads models into ~/Library/Caches/huggingface/models/argmaxinc/whisperkit-coreml/
-        // and then into a subfolder matching the variant. We check if any compiled model
-        // folder exists. A simpler heuristic: check the default download location.
-        let cachesDir = fm.urls(for: .cachesDirectory, in: .userDomainMask).first
-        guard let cachesDir else { return false }
+        let subpath = ["huggingface", "models", "argmaxinc", "whisperkit-coreml"]
 
-        // WhisperKit stores models under:
-        // ~/Library/Caches/huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-{variant}
-        let hfCacheDir = cachesDir
-            .appendingPathComponent("huggingface")
-            .appendingPathComponent("models")
-            .appendingPathComponent("argmaxinc")
-            .appendingPathComponent("whisperkit-coreml")
+        // WhisperKit's Hub client downloads models into ~/Documents/huggingface/…
+        // Earlier versions used ~/Library/Caches/huggingface/… — check both for
+        // backward compatibility.
+        let roots: [URL?] = [
+            fm.urls(for: .documentDirectory, in: .userDomainMask).first,
+            fm.urls(for: .cachesDirectory, in: .userDomainMask).first,
+        ]
 
-        guard fm.fileExists(atPath: hfCacheDir.path) else { return false }
+        for root in roots.compactMap({ $0 }) {
+            var dir = root
+            for component in subpath { dir.appendPathComponent(component) }
 
-        // Look for a directory containing the variant name
-        guard let contents = try? fm.contentsOfDirectory(atPath: hfCacheDir.path) else {
-            return false
+            guard let contents = try? fm.contentsOfDirectory(atPath: dir.path) else { continue }
+            if contents.contains(where: { $0.contains("whisper-\(variant.rawValue)") }) {
+                return true
+            }
         }
-        return contents.contains { $0.contains("whisper-\(variant.rawValue)") }
+        return false
     }
 
     enum WhisperKitManagerError: LocalizedError {

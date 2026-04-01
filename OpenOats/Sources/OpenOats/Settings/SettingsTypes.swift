@@ -341,7 +341,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         }
     }
 
-    func makeBackend(customVocabulary: String = "", apiKey: String = "") -> any TranscriptionBackend {
+    func makeBackend(customVocabulary: String = "", apiKey: String = "", removeFillerWords: Bool = false) -> any TranscriptionBackend {
         switch self {
         case .parakeetV2: return ParakeetBackend(version: .v2, customVocabulary: customVocabulary)
         case .parakeetV3: return ParakeetBackend(version: .v3, customVocabulary: customVocabulary)
@@ -350,7 +350,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         case .whisperSmall: return WhisperKitBackend(variant: .small)
         case .whisperLargeV3Turbo: return WhisperKitBackend(variant: .largeV3Turbo)
         case .assemblyAI: return AssemblyAIBackend(apiKey: apiKey, customVocabulary: customVocabulary)
-        case .elevenLabsScribe: return ElevenLabsScribeBackend(apiKey: apiKey, customVocabulary: customVocabulary)
+        case .elevenLabsScribe: return ElevenLabsScribeBackend(apiKey: apiKey, customVocabulary: customVocabulary, removeFillerWords: removeFillerWords)
         }
     }
 

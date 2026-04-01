@@ -285,7 +285,8 @@ final class TranscriptionEngine {
         do {
             let vocab = settings.transcriptionCustomVocabulary
             let apiKey = settings.cloudASRApiKey
-            let mic = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey)
+            let noFiller = settings.removeFillerWords
+            let mic = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey, removeFillerWords: noFiller)
             try await prepareBackend(mic)
             self.micBackend = mic
 
@@ -294,7 +295,7 @@ final class TranscriptionEngine {
             if transcriptionModel == .qwen3ASR06B || transcriptionModel.isCloud {
                 self.systemBackend = mic
             } else {
-                let sys = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey)
+                let sys = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey, removeFillerWords: noFiller)
                 try await sys.prepare { _ in }
                 self.systemBackend = sys
             }

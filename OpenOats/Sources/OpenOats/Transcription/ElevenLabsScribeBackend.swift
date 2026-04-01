@@ -10,6 +10,7 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
 
     private let apiKey: String
     private let keyterms: [String]
+    private let removeFillerWords: Bool
     private let session: URLSession
     private var prepared = false
 
@@ -17,9 +18,10 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
 
     // MARK: - Init
 
-    init(apiKey: String, customVocabulary: String = "") {
+    init(apiKey: String, customVocabulary: String = "", removeFillerWords: Bool = false) {
         self.apiKey = apiKey
         self.keyterms = Self.parseKeyterms(customVocabulary)
+        self.removeFillerWords = removeFillerWords
         self.session = URLSession(configuration: .ephemeral)
     }
 
@@ -95,6 +97,10 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
             body.appendMultipart(boundary: boundary, name: "keyterms", value: jsonString)
         }
 
+        if removeFillerWords {
+            body.appendMultipart(boundary: boundary, name: "no_verbatim", value: "true")
+        }
+
         // Closing boundary
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
@@ -108,21 +114,23 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
         request.httpBody = body
         request.timeoutInterval = 30
 
-        let (responseData, response) = try await session.data(for: request)
+        let text: String = try await withTransientRetry { [session] in
+            let (responseData, response) = try await session.data(for: request)
 
-        if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 || http.statusCode == 403 {
-                throw CloudASRError.invalidAPIKey(backend: "ElevenLabs")
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 || http.statusCode == 403 {
+                    throw CloudASRError.invalidAPIKey(backend: "ElevenLabs")
+                }
+                if !(200 ..< 300).contains(http.statusCode) {
+                    throw CloudASRError.httpError(statusCode: http.statusCode)
+                }
             }
-            if !(200 ..< 300).contains(http.statusCode) {
-                throw CloudASRError.httpError(statusCode: http.statusCode)
-            }
-        }
 
-        // 4. Parse JSON response
-        let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-        guard let text = json?["text"] as? String else {
-            throw CloudASRError.transcriptionFailed("Missing text field in response.")
+            let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+            guard let text = json?["text"] as? String else {
+                throw CloudASRError.transcriptionFailed("Missing text field in response.")
+            }
+            return text
         }
 
         Self.log.info("ElevenLabs Scribe transcription completed")
