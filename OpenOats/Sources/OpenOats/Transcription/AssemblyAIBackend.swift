@@ -181,7 +181,10 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
     // MARK: - Private: Create Transcript
 
     private func createTranscript(audioURL: URL, locale: Locale) async throws -> String {
-        var body: [String: Any] = ["audio_url": audioURL.absoluteString]
+        var body: [String: Any] = [
+            "audio_url": audioURL.absoluteString,
+            "speech_models": ["universal-3-pro", "universal-2"],
+        ]
 
         // Language code from locale (e.g. "en", "pl", "de")
         let languageCode = locale.language.languageCode?.identifier
@@ -201,6 +204,13 @@ final class AssemblyAIBackend: TranscriptionBackend, @unchecked Sendable {
 
         return try await withTransientRetry { [session] in
             let (responseData, response) = try await session.data(for: request)
+
+            // Log diagnostic info for client errors before throwing
+            if let http = response as? HTTPURLResponse, (400 ..< 500).contains(http.statusCode) {
+                let errorMessage = (try? JSONSerialization.jsonObject(with: responseData) as? [String: Any])?["error"] as? String
+                Self.log.error("Transcript creation failed (HTTP \(http.statusCode, privacy: .public)): \(errorMessage ?? "unknown", privacy: .public)")
+            }
+
             try self.checkHTTPStatus(response)
 
             let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
