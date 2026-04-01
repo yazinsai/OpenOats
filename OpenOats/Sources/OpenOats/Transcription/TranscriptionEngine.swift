@@ -667,6 +667,12 @@ final class TranscriptionEngine {
 
         micTask = nil
         micCapture.stop()
+
+        guard await ensureMicrophonePermission() else {
+            Log.transcription.error("Mic permission lost during device switch")
+            return
+        }
+
         startMicStream(
             locale: settings.locale,
             vadManager: vadManager,
