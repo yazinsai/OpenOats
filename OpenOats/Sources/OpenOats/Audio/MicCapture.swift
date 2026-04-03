@@ -352,6 +352,14 @@ final class MicCapture: @unchecked Sendable {
         return status == noErr ? sampleRate : nil
     }
 
+    /// Resolve a stable CoreAudio UID string back to the current AudioDeviceID, if the device is connected.
+    static func inputDeviceID(forUID uid: String) -> AudioDeviceID? {
+        for device in availableInputDevices() {
+            if deviceUID(for: device.id) == uid { return device.id }
+        }
+        return nil
+    }
+
     static func defaultInputDeviceID() -> AudioDeviceID? {
         var propertyAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,

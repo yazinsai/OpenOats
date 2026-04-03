@@ -323,6 +323,19 @@ final class SystemAudioCapture: @unchecked Sendable {
         return result
     }
 
+    /// Get the stable UID string for an output device.
+    static func outputDeviceUID(for deviceID: AudioDeviceID) throws -> String {
+        try deviceUID(for: deviceID)
+    }
+
+    /// Resolve a stable CoreAudio UID string back to the current AudioDeviceID, if the device is connected.
+    static func outputDeviceID(forUID uid: String) -> AudioDeviceID? {
+        for device in availableOutputDevices() {
+            if (try? deviceUID(for: device.id)) == uid { return device.id }
+        }
+        return nil
+    }
+
     private static func deviceUID(for deviceID: AudioDeviceID) throws -> String {
         var address = propertyAddress(selector: kAudioDevicePropertyDeviceUID)
         var uid: Unmanaged<CFString>?

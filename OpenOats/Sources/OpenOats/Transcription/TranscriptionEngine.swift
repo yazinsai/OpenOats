@@ -769,7 +769,15 @@ final class TranscriptionEngine {
 
         let sysStreams: SystemAudioCapture.CaptureStreams
         do {
-            let outputID: AudioDeviceID? = settings.outputDeviceID != 0 ? settings.outputDeviceID : nil
+            var outputID: AudioDeviceID? = settings.outputDeviceID != 0 ? settings.outputDeviceID : nil
+            // If the stored ID is stale, try resolving via stable UID.
+            if let id = outputID,
+               !SystemAudioCapture.availableOutputDevices().contains(where: { $0.id == id }),
+               let uid = settings.outputDeviceUID,
+               let resolved = SystemAudioCapture.outputDeviceID(forUID: uid) {
+                settings.outputDeviceID = resolved
+                outputID = resolved
+            }
             sysStreams = try await systemCapture.bufferStream(outputDeviceID: outputID)
             Log.transcription.info("System audio capture started")
             clearSystemAudioErrorIfPresent()
@@ -902,7 +910,15 @@ final class TranscriptionEngine {
     private func resolvedMicDeviceID(for inputDeviceID: AudioDeviceID) -> AudioDeviceID? {
         if inputDeviceID > 0 {
             let availableDeviceIDs = Set(MicCapture.availableInputDevices().map(\.id))
-            return availableDeviceIDs.contains(inputDeviceID) ? inputDeviceID : nil
+            if availableDeviceIDs.contains(inputDeviceID) { return inputDeviceID }
+            // Device ID is stale; try resolving via stable UID.
+            if let uid = settings.inputDeviceUID,
+               let resolved = MicCapture.inputDeviceID(forUID: uid) {
+                // Update the stored ID so future lookups are fast.
+                settings.inputDeviceID = resolved
+                return resolved
+            }
+            return nil
         }
 
         return MicCapture.defaultInputDeviceID()

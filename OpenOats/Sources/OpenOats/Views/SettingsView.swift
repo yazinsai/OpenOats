@@ -272,6 +272,11 @@ private struct TranscriptionSettingsTab: View {
                         ForEach(inputDevices, id: \.id) { device in
                             Text(device.name).tag(device.id)
                         }
+                        if settings.inputDeviceID > 0,
+                           !inputDevices.contains(where: { $0.id == settings.inputDeviceID }),
+                           let name = settings.inputDeviceName {
+                            Text("\(name) (unavailable)").tag(settings.inputDeviceID)
+                        }
                     }
                     .font(.system(size: 12))
                     .accessibilityIdentifier("settings.microphonePicker")
@@ -280,6 +285,11 @@ private struct TranscriptionSettingsTab: View {
                         Text("System Default").tag(AudioDeviceID(0))
                         ForEach(outputDevices, id: \.id) { device in
                             Text(device.name).tag(device.id)
+                        }
+                        if settings.outputDeviceID > 0,
+                           !outputDevices.contains(where: { $0.id == settings.outputDeviceID }),
+                           let name = settings.outputDeviceName {
+                            Text("\(name) (unavailable)").tag(settings.outputDeviceID)
                         }
                     }
                     .font(.system(size: 12))
@@ -442,6 +452,19 @@ private struct TranscriptionSettingsTab: View {
         .onAppear {
             inputDevices = MicCapture.availableInputDevices()
             outputDevices = SystemAudioCapture.availableOutputDevices()
+            // Auto-restore devices by stable UID when the stored ID is stale.
+            if settings.inputDeviceID > 0,
+               !inputDevices.contains(where: { $0.id == settings.inputDeviceID }),
+               let uid = settings.inputDeviceUID,
+               let resolved = MicCapture.inputDeviceID(forUID: uid) {
+                settings.inputDeviceID = resolved
+            }
+            if settings.outputDeviceID > 0,
+               !outputDevices.contains(where: { $0.id == settings.outputDeviceID }),
+               let uid = settings.outputDeviceUID,
+               let resolved = SystemAudioCapture.outputDeviceID(forUID: uid) {
+                settings.outputDeviceID = resolved
+            }
         }
     }
 }

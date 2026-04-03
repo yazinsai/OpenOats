@@ -338,9 +338,24 @@ final class SettingsStore {
             withMutation(keyPath: \.inputDeviceID) {
                 _inputDeviceID = newValue
                 defaults.set(Int(newValue), forKey: "inputDeviceID")
+                if newValue > 0 {
+                    if let uid = MicCapture.deviceUID(for: newValue) {
+                        defaults.set(uid, forKey: "inputDeviceUID")
+                    }
+                    let name = MicCapture.availableInputDevices().first(where: { $0.id == newValue })?.name
+                    if let name { defaults.set(name, forKey: "inputDeviceName") }
+                } else {
+                    defaults.removeObject(forKey: "inputDeviceUID")
+                    defaults.removeObject(forKey: "inputDeviceName")
+                }
             }
         }
     }
+
+    /// Stable UID of the last selected input device (survives reboots/reconnects).
+    var inputDeviceUID: String? { defaults.string(forKey: "inputDeviceUID") }
+    /// Cached display name for the last selected input device.
+    var inputDeviceName: String? { defaults.string(forKey: "inputDeviceName") }
 
     @ObservationIgnored nonisolated(unsafe) private var _outputDeviceID: AudioDeviceID
     var outputDeviceID: AudioDeviceID {
@@ -349,9 +364,24 @@ final class SettingsStore {
             withMutation(keyPath: \.outputDeviceID) {
                 _outputDeviceID = newValue
                 defaults.set(Int(newValue), forKey: "outputDeviceID")
+                if newValue > 0 {
+                    if let uid = try? SystemAudioCapture.outputDeviceUID(for: newValue) {
+                        defaults.set(uid, forKey: "outputDeviceUID")
+                    }
+                    let name = SystemAudioCapture.availableOutputDevices().first(where: { $0.id == newValue })?.name
+                    if let name { defaults.set(name, forKey: "outputDeviceName") }
+                } else {
+                    defaults.removeObject(forKey: "outputDeviceUID")
+                    defaults.removeObject(forKey: "outputDeviceName")
+                }
             }
         }
     }
+
+    /// Stable UID of the last selected output device (survives reboots/reconnects).
+    var outputDeviceUID: String? { defaults.string(forKey: "outputDeviceUID") }
+    /// Cached display name for the last selected output device.
+    var outputDeviceName: String? { defaults.string(forKey: "outputDeviceName") }
 
     @ObservationIgnored nonisolated(unsafe) private var _transcriptionModel: TranscriptionModel
     var transcriptionModel: TranscriptionModel {
@@ -717,6 +747,19 @@ final class SettingsStore {
         // Capture Settings
         self._inputDeviceID = AudioDeviceID(defaults.integer(forKey: "inputDeviceID"))
         self._outputDeviceID = AudioDeviceID(defaults.integer(forKey: "outputDeviceID"))
+        // Seed stable UIDs for users upgrading from an older version.
+        let savedInputID = _inputDeviceID
+        let savedOutputID = _outputDeviceID
+        if savedInputID > 0, defaults.string(forKey: "inputDeviceUID") == nil {
+            if let uid = MicCapture.deviceUID(for: savedInputID) { defaults.set(uid, forKey: "inputDeviceUID") }
+            let name = MicCapture.availableInputDevices().first(where: { $0.id == savedInputID })?.name
+            if let name { defaults.set(name, forKey: "inputDeviceName") }
+        }
+        if savedOutputID > 0, defaults.string(forKey: "outputDeviceUID") == nil {
+            if let uid = try? SystemAudioCapture.outputDeviceUID(for: savedOutputID) { defaults.set(uid, forKey: "outputDeviceUID") }
+            let name = SystemAudioCapture.availableOutputDevices().first(where: { $0.id == savedOutputID })?.name
+            if let name { defaults.set(name, forKey: "outputDeviceName") }
+        }
         self._transcriptionModel = TranscriptionModel(
             rawValue: defaults.string(forKey: "transcriptionModel") ?? ""
         ) ?? .parakeetV2
