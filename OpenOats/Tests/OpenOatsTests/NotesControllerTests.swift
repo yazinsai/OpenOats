@@ -185,6 +185,55 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.selectedSessionID, sessionID)
     }
 
+    func testGenerateNotesPrependsTitleHeading() async {
+        let (root, notes) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let settings = makeSettings(notesDirectory: notes)
+        let sessionID = "session_test_heading"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID, title: "Q4 Planning")
+        await controller.loadHistory()
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        controller.generateNotes(sessionID: sessionID, settings: settings)
+        try? await Task.sleep(for: .milliseconds(500))
+
+        let markdown = controller.state.loadedNotes?.markdown ?? ""
+        XCTAssertTrue(markdown.hasPrefix("# Meeting Notes: Q4 Planning\n\n"))
+    }
+
+    func testGenerateNotesHeadingFallsBackToDate() async {
+        let (root, notes) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let settings = makeSettings(notesDirectory: notes)
+        let sessionID = "session_test_heading_fallback"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID, title: "")
+        await controller.loadHistory()
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        controller.generateNotes(sessionID: sessionID, settings: settings)
+        try? await Task.sleep(for: .milliseconds(500))
+
+        let markdown = controller.state.loadedNotes?.markdown ?? ""
+        XCTAssertTrue(markdown.hasPrefix("# Meeting Notes: "), "Should have heading with date fallback")
+        XCTAssertFalse(markdown.hasPrefix("# Meeting Notes: \n"), "Should not have empty title")
+    }
+
+    func testNotesHeadingStaticHelper() {
+        let withTitle = NotesController.notesHeading(title: "Standup", date: Date())
+        XCTAssertEqual(withTitle, "# Meeting Notes: Standup\n\n")
+
+        let withEmpty = NotesController.notesHeading(title: "", date: Date(timeIntervalSince1970: 1_700_000_000))
+        XCTAssertTrue(withEmpty.hasPrefix("# Meeting Notes: "))
+        XCTAssertFalse(withEmpty.contains("# Meeting Notes: \n"))
+
+        let withNil = NotesController.notesHeading(title: nil, date: Date(timeIntervalSince1970: 1_700_000_000))
+        XCTAssertTrue(withNil.hasPrefix("# Meeting Notes: "))
+    }
+
     func testOriginalTranscriptToggle() async {
         let (root, _) = makeTempDirs()
         let (controller, _) = makeController(root: root)

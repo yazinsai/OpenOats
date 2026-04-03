@@ -206,10 +206,15 @@ final class NotesController {
             )
 
             if !coordinator.notesEngine.generatedMarkdown.isEmpty {
+                let generatedMarkdown = coordinator.notesEngine.generatedMarkdown
+                let session = state.sessionHistory.first { $0.id == sessionID }
+                let heading = Self.notesHeading(title: session?.title, date: session?.startedAt ?? Date())
+                let markdown = heading + generatedMarkdown
+
                 let notes = GeneratedNotes(
                     template: coordinator.templateStore.snapshot(of: template),
                     generatedAt: Date(),
-                    markdown: coordinator.notesEngine.generatedMarkdown
+                    markdown: markdown
                 )
                 await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: notes)
                 state.loadedNotes = notes
@@ -386,6 +391,20 @@ final class NotesController {
 
     func loadHistory() async {
         state.sessionHistory = await coordinator.sessionRepository.listSessions()
+    }
+
+    /// Builds a markdown heading for generated notes.
+    static func notesHeading(title: String?, date: Date) -> String {
+        let displayTitle: String
+        if let title, !title.isEmpty {
+            displayTitle = title
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            displayTitle = formatter.string(from: date)
+        }
+        return "# Meeting Notes: \(displayTitle)\n\n"
     }
 
     /// Maps engine observable state to our flat status enums.
