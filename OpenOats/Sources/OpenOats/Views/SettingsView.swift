@@ -649,6 +649,7 @@ private struct TemplatesSettingsTab: View {
     @Environment(AppCoordinator.self) private var coordinator
     @State private var templates: [MeetingTemplate] = []
     @State private var isAddingTemplate = false
+    @State private var editingTemplateID: UUID?
     @State private var newTemplateName = ""
     @State private var newTemplateIcon = "doc.text"
     @State private var newTemplatePrompt = ""
@@ -678,6 +679,14 @@ private struct TemplatesSettingsTab: View {
                                 .foregroundStyle(.blue)
                             } else {
                                 Button {
+                                    beginEditing(template)
+                                } label: {
+                                    Image(systemName: "pencil")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.blue)
+                                }
+                                .buttonStyle(.plain)
+                                Button {
                                     deleteTemplate(id: template.id)
                                 } label: {
                                     Image(systemName: "trash")
@@ -689,7 +698,7 @@ private struct TemplatesSettingsTab: View {
                         }
                     }
 
-                    if isAddingTemplate {
+                    if isAddingTemplate || editingTemplateID != nil {
                         VStack(alignment: .leading, spacing: 10) {
                             // Name
                             VStack(alignment: .leading, spacing: 3) {
@@ -746,14 +755,25 @@ private struct TemplatesSettingsTab: View {
                                 }
                                 .buttonStyle(.plain)
                                 Button("Save") {
-                                    let template = MeetingTemplate(
-                                        id: UUID(),
-                                        name: trimmedTemplateName,
-                                        icon: newTemplateIcon,
-                                        systemPrompt: trimmedTemplatePrompt,
-                                        isBuiltIn: false
-                                    )
-                                    addTemplate(template)
+                                    if let editID = editingTemplateID {
+                                        let template = MeetingTemplate(
+                                            id: editID,
+                                            name: trimmedTemplateName,
+                                            icon: newTemplateIcon,
+                                            systemPrompt: trimmedTemplatePrompt,
+                                            isBuiltIn: false
+                                        )
+                                        updateTemplate(template)
+                                    } else {
+                                        let template = MeetingTemplate(
+                                            id: UUID(),
+                                            name: trimmedTemplateName,
+                                            icon: newTemplateIcon,
+                                            systemPrompt: trimmedTemplatePrompt,
+                                            isBuiltIn: false
+                                        )
+                                        addTemplate(template)
+                                    }
                                     resetNewTemplateForm()
                                 }
                                 .buttonStyle(.borderedProminent)
@@ -814,8 +834,27 @@ private struct TemplatesSettingsTab: View {
         }
     }
 
+    private func beginEditing(_ template: MeetingTemplate) {
+        editingTemplateID = template.id
+        newTemplateName = template.name
+        newTemplateIcon = template.icon
+        newTemplatePrompt = template.systemPrompt
+        isAddingTemplate = false
+        Task { @MainActor in
+            focusedTemplateField = .name
+        }
+    }
+
+    private func updateTemplate(_ template: MeetingTemplate) {
+        Task { @MainActor in
+            coordinator.templateStore.update(template)
+            templates = coordinator.templateStore.templates
+        }
+    }
+
     private func resetNewTemplateForm() {
         isAddingTemplate = false
+        editingTemplateID = nil
         newTemplateName = ""
         newTemplateIcon = "doc.text"
         newTemplatePrompt = ""
