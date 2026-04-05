@@ -16,6 +16,16 @@ protocol CameraSignalSource: Sendable {
 /// Monitors kCMIODevicePropertyDeviceIsRunningSomewhere on all video devices.
 /// Does NOT capture video -- only reads activation status.
 final class CoreMediaIOSignalSource: CameraSignalSource, @unchecked Sendable {
+    typealias PropertyDataGetter = (
+        CMIOObjectID,
+        UnsafeMutablePointer<CMIOObjectPropertyAddress>,
+        UInt32,
+        UnsafeRawPointer?,
+        UInt32,
+        UnsafeMutablePointer<UInt32>,
+        UnsafeMutableRawPointer
+    ) -> OSStatus
+
     private let listenerQueue = DispatchQueue(label: "com.openoats.camera-listener")
     private var deviceIDs: [CMIOObjectID] = []
     private var continuation: AsyncStream<Bool>.Continuation?
@@ -157,6 +167,20 @@ final class CoreMediaIOSignalSource: CameraSignalSource, @unchecked Sendable {
 
     // MARK: - Helpers
 
+    static func getPropertyData(
+        objectID: CMIOObjectID,
+        address: inout CMIOObjectPropertyAddress,
+        dataSize: UInt32,
+        data: UnsafeMutableRawPointer,
+        getter: PropertyDataGetter = { objectID, address, qualifierDataSize, qualifierData, dataSize, dataUsed, data in
+            CMIOObjectGetPropertyData(objectID, address, qualifierDataSize, qualifierData, dataSize, dataUsed, data)
+        }
+    ) -> (status: OSStatus, dataUsed: UInt32) {
+        var dataUsed: UInt32 = 0
+        let status = getter(objectID, &address, 0, nil, dataSize, &dataUsed, data)
+        return (status, dataUsed)
+    }
+
     private static func videoDeviceIDs() -> [CMIOObjectID] {
         var address = CMIOObjectPropertyAddress(
             mSelector: CMIOObjectPropertySelector(kCMIOHardwarePropertyDevices),
@@ -178,12 +202,15 @@ final class CoreMediaIOSignalSource: CameraSignalSource, @unchecked Sendable {
         defer { buffer.deallocate() }
         buffer.initialize(repeating: 0)
 
-        var dataUsed: UInt32 = 0
-        guard CMIOObjectGetPropertyData(
-            CMIOObjectID(kCMIOObjectSystemObject), &address, 0, nil, dataSize, buffer.baseAddress!, &dataUsed
-        ) == kCMIOHardwareNoError else { return [] }
+        let result = Self.getPropertyData(
+            objectID: CMIOObjectID(kCMIOObjectSystemObject),
+            address: &address,
+            dataSize: dataSize,
+            data: UnsafeMutableRawPointer(buffer.baseAddress!)
+        )
+        guard result.status == kCMIOHardwareNoError else { return [] }
 
-        let actualCount = min(Int(dataUsed) / MemoryLayout<CMIOObjectID>.size, count)
+        let actualCount = min(Int(result.dataUsed) / MemoryLayout<CMIOObjectID>.size, count)
         let deviceIDs = Array(buffer.prefix(actualCount))
 
         return deviceIDs.filter { deviceID in
@@ -206,8 +233,14 @@ final class CoreMediaIOSignalSource: CameraSignalSource, @unchecked Sendable {
         )
         var isRunning: UInt32 = 0
         let size = UInt32(MemoryLayout<UInt32>.size)
-        var dataUsed: UInt32 = 0
-        let status = CMIOObjectGetPropertyData(deviceID, &address, 0, nil, size, &isRunning, &dataUsed)
-        return status == kCMIOHardwareNoError && isRunning != 0
+        let result = withUnsafeMutableBytes(of: &isRunning) { bytes in
+            Self.getPropertyData(
+                objectID: deviceID,
+                address: &address,
+                dataSize: size,
+                data: bytes.baseAddress!
+            )
+        }
+        return result.status == kCMIOHardwareNoError && isRunning != 0
     }
 }
