@@ -170,11 +170,21 @@ final class CoreMediaIOSignalSource: CameraSignalSource, @unchecked Sendable {
         ) == kCMIOHardwareNoError else { return [] }
 
         let count = Int(dataSize) / MemoryLayout<CMIOObjectID>.size
-        var deviceIDs = [CMIOObjectID](repeating: 0, count: count)
+        guard count > 0 else { return [] }
+
+        // Use explicit heap allocation to avoid stack buffer overflow when
+        // CoreMediaIO writes device IDs through the raw pointer.
+        let buffer = UnsafeMutableBufferPointer<CMIOObjectID>.allocate(capacity: count)
+        defer { buffer.deallocate() }
+        buffer.initialize(repeating: 0)
+
         var dataUsed: UInt32 = 0
         guard CMIOObjectGetPropertyData(
-            CMIOObjectID(kCMIOObjectSystemObject), &address, 0, nil, dataSize, &deviceIDs, &dataUsed
+            CMIOObjectID(kCMIOObjectSystemObject), &address, 0, nil, dataSize, buffer.baseAddress!, &dataUsed
         ) == kCMIOHardwareNoError else { return [] }
+
+        let actualCount = min(Int(dataUsed) / MemoryLayout<CMIOObjectID>.size, count)
+        let deviceIDs = Array(buffer.prefix(actualCount))
 
         return deviceIDs.filter { deviceID in
             var streamAddress = CMIOObjectPropertyAddress(
