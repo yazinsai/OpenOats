@@ -117,7 +117,32 @@ export function renderSettingsPanel(
   }
 
   container.appendChild(label("Model"));
-  container.appendChild(fieldInput("text", settings.model, "google/gemini-3.1-flash-lite-preview", (v) => { settings.model = v; saveSettings(settings); }));
+  {
+    const MODEL_PRESETS: [string, string][] = [
+      ["google/gemini-3.1-flash-lite-preview", "Quick — Gemini Flash Lite"],
+      ["x-ai/grok-4.1-fast", "Sharp — Grok 4.1 Fast"],
+      ["openai/gpt-5.4", "Genius — GPT-5.4"],
+    ];
+    const wrap = el("div", "cfg-combo");
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "cfg-input cfg-combo-input";
+    input.value = settings.model;
+    input.placeholder = "org/model-name";
+    input.setAttribute("list", "model-presets");
+    input.addEventListener("input", () => { settings.model = input.value; saveSettings(settings); });
+    const datalist = document.createElement("datalist");
+    datalist.id = "model-presets";
+    MODEL_PRESETS.forEach(([value, label]) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.label = label;
+      datalist.appendChild(opt);
+    });
+    wrap.appendChild(input);
+    wrap.appendChild(datalist);
+    container.appendChild(wrap);
+  }
 
   container.appendChild(divider());
 
