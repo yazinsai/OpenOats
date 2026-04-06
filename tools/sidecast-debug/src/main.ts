@@ -150,7 +150,14 @@ async function triggerSidecast(currentTime: number) {
 
     const result = await generate(context, effectiveTime, settings);
 
-    // Add to debug history (including cooldown skips)
+    // Cooldown skip — keep the existing bubbles and log intact
+    if (result.skipped) {
+      setStatus("ok", "Cooldown — waiting");
+      isGenerating = false;
+      return;
+    }
+
+    // Add to debug history
     debugLog.push({
       id: ++debugLogCounter,
       timestamp: effectiveTime,
@@ -158,13 +165,6 @@ async function triggerSidecast(currentTime: number) {
       result,
     });
     renderDebugLog(document.getElementById("debug-log")!, debugLog);
-
-    // Cooldown skip — keep the existing bubbles intact
-    if (result.skipped) {
-      setStatus("ok", "Cooldown — waiting");
-      isGenerating = false;
-      return;
-    }
 
     // Render output
     renderSidecastBubbles(
