@@ -3,6 +3,87 @@ import { saveSettings, addPersona, removePersona, resetPersonas } from "./settin
 
 type OnChange = (settings: AppSettings) => void;
 
+// --- Helpers ---
+function el(tag: string, cls?: string): HTMLElement {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  return e;
+}
+
+function label(text: string): HTMLElement {
+  const l = el("label", "cfg-label");
+  l.textContent = text;
+  return l;
+}
+
+function fieldInput(type: string, value: string, placeholder: string, onInput: (v: string) => void): HTMLInputElement {
+  const inp = document.createElement("input");
+  inp.type = type;
+  inp.value = value;
+  inp.placeholder = placeholder;
+  inp.className = "cfg-input";
+  inp.addEventListener("input", () => onInput(inp.value));
+  return inp;
+}
+
+function fieldSelect(options: [string, string][], value: string, onSelect: (v: string) => void): HTMLSelectElement {
+  const sel = document.createElement("select");
+  sel.className = "cfg-input";
+  options.forEach(([val, text]) => {
+    const opt = document.createElement("option");
+    opt.value = val;
+    opt.textContent = text;
+    opt.selected = val === value;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => onSelect(sel.value));
+  return sel;
+}
+
+function fieldSlider(min: number, max: number, step: number, value: number, onInput: (v: number) => void): HTMLElement {
+  const row = el("div", "cfg-slider");
+  const inp = document.createElement("input");
+  inp.type = "range";
+  inp.min = String(min);
+  inp.max = String(max);
+  inp.step = String(step);
+  inp.value = String(value);
+  const val = el("span", "cfg-slider-val");
+  val.textContent = String(value);
+  inp.addEventListener("input", () => {
+    const v = parseFloat(inp.value);
+    val.textContent = String(v);
+    onInput(v);
+  });
+  row.appendChild(inp);
+  row.appendChild(val);
+  return row;
+}
+
+function fieldToggle(checked: boolean, labelText: string, onChange: (v: boolean) => void): HTMLElement {
+  const row = el("div", "cfg-toggle");
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = checked;
+  cb.addEventListener("change", () => onChange(cb.checked));
+  const span = el("span");
+  span.textContent = labelText;
+  row.appendChild(cb);
+  row.appendChild(span);
+  return row;
+}
+
+function divider(): HTMLElement {
+  return el("hr", "cfg-divider");
+}
+
+function groupHeading(text: string): HTMLElement {
+  const h = el("div", "cfg-group-heading");
+  h.textContent = text;
+  return h;
+}
+
+// --- Settings Panel ---
 export function renderSettingsPanel(
   container: HTMLElement,
   settings: AppSettings,
@@ -10,243 +91,236 @@ export function renderSettingsPanel(
 ): void {
   container.innerHTML = "";
 
-  const h = (tag: string, attrs?: Record<string, string>, ...children: (string | HTMLElement)[]) => {
-    const el = document.createElement(tag);
-    if (attrs) Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
-    children.forEach((c) => (typeof c === "string" ? (el.innerHTML += c) : el.appendChild(c)));
-    return el;
-  };
+  // ── Connection ──
+  container.appendChild(groupHeading("Connection"));
 
-  function section(title: string, content: HTMLElement, collapsed = false): HTMLElement {
-    const sec = h("div", { class: `section${collapsed ? " collapsed" : ""}` });
-    const header = h("div", { class: "section-header" }, title);
-    header.addEventListener("click", () => sec.classList.toggle("collapsed"));
-    sec.appendChild(header);
-    const body = h("div", { class: "section-body" });
-    body.appendChild(content);
-    sec.appendChild(body);
-    return sec;
+  container.appendChild(label("Provider"));
+  container.appendChild(fieldSelect(
+    [["openrouter", "OpenRouter"], ["ollama", "Ollama"], ["openai-compatible", "OpenAI Compatible"]],
+    settings.llmProvider,
+    (v) => { settings.llmProvider = v as AppSettings["llmProvider"]; saveSettings(settings); onChange(settings); }
+  ));
+
+  container.appendChild(label("API Key"));
+  container.appendChild(fieldInput("password", settings.apiKey, "sk-or-v1-...", (v) => { settings.apiKey = v; saveSettings(settings); }));
+
+  if (settings.llmProvider !== "openrouter") {
+    container.appendChild(label("Base URL"));
+    container.appendChild(fieldInput("text", settings.baseURL, "http://localhost:11434", (v) => { settings.baseURL = v; saveSettings(settings); }));
   }
 
-  function inputRow(label: string, type: string, value: string, onInput: (v: string) => void): HTMLElement {
-    const row = h("div", {});
-    row.appendChild(h("label", {}, label));
-    const inp = document.createElement("input");
-    inp.type = type;
-    inp.value = value;
-    inp.addEventListener("input", () => {
-      onInput(inp.value);
-      saveSettings(settings);
-    });
-    row.appendChild(inp);
-    return row;
+  container.appendChild(label("Model"));
+  container.appendChild(fieldInput("text", settings.model, "google/gemini-3.1-flash-lite-preview", (v) => { settings.model = v; saveSettings(settings); }));
+
+  container.appendChild(divider());
+
+  // ── Tuning ──
+  container.appendChild(groupHeading("Tuning"));
+
+  const tuningGrid = el("div", "cfg-tuning-grid");
+
+  // Intensity
+  const intCell = el("div", "cfg-cell");
+  intCell.appendChild(label("Intensity"));
+  intCell.appendChild(fieldSelect(
+    [["quiet", "Quiet"], ["balanced", "Balanced"], ["lively", "Lively"]],
+    settings.intensity,
+    (v) => { settings.intensity = v as AppSettings["intensity"]; saveSettings(settings); onChange(settings); }
+  ));
+  tuningGrid.appendChild(intCell);
+
+  // Temperature
+  const tempCell = el("div", "cfg-cell");
+  tempCell.appendChild(label("Temperature"));
+  tempCell.appendChild(fieldSlider(0, 2, 0.1, settings.temperature, (v) => { settings.temperature = v; saveSettings(settings); }));
+  tuningGrid.appendChild(tempCell);
+
+  // Min Value
+  const valCell = el("div", "cfg-cell");
+  valCell.appendChild(label("Min Value"));
+  valCell.appendChild(fieldSlider(0, 1, 0.05, settings.minValueThreshold, (v) => { settings.minValueThreshold = v; saveSettings(settings); }));
+  tuningGrid.appendChild(valCell);
+
+  // Max Tokens
+  const tokCell = el("div", "cfg-cell");
+  tokCell.appendChild(label("Max Tokens"));
+  tokCell.appendChild(fieldSlider(100, 2000, 50, settings.maxTokens, (v) => { settings.maxTokens = v; saveSettings(settings); }));
+  tuningGrid.appendChild(tokCell);
+
+  // Window Size
+  const winCell = el("div", "cfg-cell");
+  winCell.appendChild(label("Context Window"));
+  winCell.appendChild(fieldSlider(5, 50, 1, settings.windowSize, (v) => { settings.windowSize = v; saveSettings(settings); }));
+  tuningGrid.appendChild(winCell);
+
+  // Summary Refresh
+  const sumCell = el("div", "cfg-cell");
+  sumCell.appendChild(label("Summary Refresh"));
+  sumCell.appendChild(fieldSlider(5, 30, 1, settings.summaryRefreshInterval, (v) => { settings.summaryRefreshInterval = v; saveSettings(settings); }));
+  tuningGrid.appendChild(sumCell);
+
+  container.appendChild(tuningGrid);
+
+  // Toggles row
+  const togglesRow = el("div", "cfg-toggles-row");
+  togglesRow.appendChild(fieldToggle(settings.forceFire, "Force-fire", (v) => { settings.forceFire = v; saveSettings(settings); }));
+  container.appendChild(togglesRow);
+
+  // Web search config (compact inline)
+  if (settings.llmProvider === "openrouter") {
+    const wsRow = el("div", "cfg-ws-row");
+    const wsLabel = el("span", "cfg-ws-label");
+    wsLabel.textContent = "Search";
+    wsRow.appendChild(wsLabel);
+    wsRow.appendChild(fieldSelect(
+      [["auto", "Auto"], ["native", "Native"], ["exa", "Exa"], ["parallel", "Parallel"], ["firecrawl", "Firecrawl"]],
+      settings.webSearchEngine,
+      (v) => { settings.webSearchEngine = v as AppSettings["webSearchEngine"]; saveSettings(settings); }
+    ));
+    const maxLabel = el("span", "cfg-ws-label");
+    maxLabel.textContent = "results";
+    const maxInp = document.createElement("input");
+    maxInp.type = "number";
+    maxInp.min = "1";
+    maxInp.max = "10";
+    maxInp.value = String(settings.webSearchMaxResults);
+    maxInp.className = "cfg-input cfg-input-narrow";
+    maxInp.addEventListener("input", () => { settings.webSearchMaxResults = parseInt(maxInp.value) || 5; saveSettings(settings); });
+    wsRow.appendChild(maxInp);
+    wsRow.appendChild(maxLabel);
+    container.appendChild(wsRow);
   }
 
-  function selectRow(label: string, options: [string, string][], value: string, onSelect: (v: string) => void): HTMLElement {
-    const row = h("div", {});
-    row.appendChild(h("label", {}, label));
-    const sel = document.createElement("select");
-    options.forEach(([val, text]) => {
-      const opt = document.createElement("option");
-      opt.value = val;
-      opt.textContent = text;
-      opt.selected = val === value;
-      sel.appendChild(opt);
-    });
-    sel.addEventListener("change", () => {
-      onSelect(sel.value);
-      saveSettings(settings);
-    });
-    row.appendChild(sel);
-    return row;
-  }
+  container.appendChild(divider());
 
-  function sliderRow(label: string, min: number, max: number, step: number, value: number, onInput: (v: number) => void): HTMLElement {
-    const row = h("div", { class: "slider-row" });
-    row.appendChild(h("label", { style: "min-width:100px" }, label));
-    const inp = document.createElement("input");
-    inp.type = "range";
-    inp.min = String(min);
-    inp.max = String(max);
-    inp.step = String(step);
-    inp.value = String(value);
-    const valSpan = h("span", { class: "slider-val" }, String(value));
-    inp.addEventListener("input", () => {
-      const v = parseFloat(inp.value);
-      valSpan.textContent = String(v);
-      onInput(v);
-      saveSettings(settings);
-    });
-    row.appendChild(inp);
-    row.appendChild(valSpan);
-    return row;
-  }
+  // ── Personas ──
+  const personaHeader = el("div", "cfg-persona-header");
+  const personaHeading = el("div", "cfg-group-heading");
+  personaHeading.textContent = "Personas";
+  personaHeader.appendChild(personaHeading);
 
-  // LLM section
-  const llmBody = h("div", {});
-  llmBody.appendChild(
-    selectRow("Provider", [["openrouter", "OpenRouter"], ["ollama", "Ollama"], ["openai-compatible", "OpenAI Compatible"]], settings.llmProvider, (v) => {
-      settings.llmProvider = v as AppSettings["llmProvider"];
-      onChange(settings);
-    })
-  );
-  llmBody.appendChild(inputRow("API Key", "password", settings.apiKey, (v) => (settings.apiKey = v)));
-  llmBody.appendChild(inputRow("Base URL", "text", settings.baseURL, (v) => (settings.baseURL = v)));
-  llmBody.appendChild(inputRow("Model", "text", settings.model, (v) => (settings.model = v)));
-  llmBody.appendChild(sliderRow("Temperature", 0, 2, 0.1, settings.temperature, (v) => (settings.temperature = v)));
-  llmBody.appendChild(sliderRow("Max Tokens", 100, 2000, 50, settings.maxTokens, (v) => (settings.maxTokens = v)));
-  container.appendChild(section("LLM", llmBody));
-
-  // Context section
-  const ctxBody = h("div", {});
-  ctxBody.appendChild(sliderRow("Window Size", 5, 50, 1, settings.windowSize, (v) => (settings.windowSize = v)));
-  ctxBody.appendChild(sliderRow("Summary Refresh", 5, 30, 1, settings.summaryRefreshInterval, (v) => (settings.summaryRefreshInterval = v)));
-  container.appendChild(section("Context", ctxBody));
-
-  // Sidecast section
-  const scBody = h("div", {});
-  scBody.appendChild(
-    selectRow("Intensity", [["quiet", "Quiet"], ["balanced", "Balanced"], ["lively", "Lively"]], settings.intensity, (v) => {
-      settings.intensity = v as AppSettings["intensity"];
-      onChange(settings);
-    })
-  );
-  const toggleDiv = h("div", { class: "toggle", style: "margin:8px 0" });
-  const ffCheck = document.createElement("input");
-  ffCheck.type = "checkbox";
-  ffCheck.checked = settings.forceFire;
-  ffCheck.addEventListener("change", () => {
-    settings.forceFire = ffCheck.checked;
-    saveSettings(settings);
-  });
-  toggleDiv.appendChild(ffCheck);
-  toggleDiv.appendChild(h("span", {}, "Force-fire (bypass cooldowns)"));
-  scBody.appendChild(toggleDiv);
-
-  scBody.appendChild(sliderRow("Min Value", 0, 1, 0.05, settings.minValueThreshold, (v) => (settings.minValueThreshold = v)));
-
-  const promptLabel = h("label", {}, "System Prompt Template");
-  scBody.appendChild(promptLabel);
-  const promptArea = document.createElement("textarea");
-  promptArea.value = settings.systemPromptTemplate;
-  promptArea.style.minHeight = "120px";
-  promptArea.addEventListener("input", () => {
-    settings.systemPromptTemplate = promptArea.value;
-    saveSettings(settings);
-  });
-  scBody.appendChild(promptArea);
-  container.appendChild(section("Sidecast", scBody));
-
-  // Web Search section
-  const wsBody = h("div", {});
-  wsBody.appendChild(
-    selectRow("Engine", [["auto", "Auto (native or Exa)"], ["native", "Native"], ["exa", "Exa"], ["parallel", "Parallel"], ["firecrawl", "Firecrawl"]], settings.webSearchEngine, (v) => {
-      settings.webSearchEngine = v as AppSettings["webSearchEngine"];
-      saveSettings(settings);
-    })
-  );
-  wsBody.appendChild(sliderRow("Max Results", 1, 10, 1, settings.webSearchMaxResults, (v) => (settings.webSearchMaxResults = v)));
-  wsBody.appendChild(h("div", { style: "font-size:11px;color:var(--text-muted);margin-top:4px" }, "Toggle web search per persona below. Only applies to OpenRouter."));
-  container.appendChild(section("Web Search", wsBody));
-
-  // Personas section
-  const personasBody = h("div", {});
-  settings.personas.forEach((persona, idx) => {
-    const card = renderPersonaCard(persona, settings, idx, onChange);
-    personasBody.appendChild(card);
-  });
-  const btnRow = h("div", { style: "display:flex;gap:4px;margin-top:8px" });
-  const addBtn = h("button", { class: "secondary" }, "Add Persona");
+  const personaBtns = el("div", "cfg-persona-btns");
+  const addBtn = el("button", "cfg-btn-sm");
+  addBtn.textContent = "+";
+  addBtn.title = "Add persona";
   addBtn.addEventListener("click", () => {
     const updated = addPersona(settings);
     Object.assign(settings, updated);
     saveSettings(settings);
     onChange(settings);
   });
-  const resetBtn = h("button", { class: "secondary" }, "Reset Starter Pack");
+  const resetBtn = el("button", "cfg-btn-sm");
+  resetBtn.textContent = "Reset";
+  resetBtn.title = "Reset to starter pack";
   resetBtn.addEventListener("click", () => {
     const updated = resetPersonas(settings);
     Object.assign(settings, updated);
     saveSettings(settings);
     onChange(settings);
   });
-  btnRow.appendChild(addBtn);
-  btnRow.appendChild(resetBtn);
-  personasBody.appendChild(btnRow);
-  container.appendChild(section("Personas", personasBody));
+  personaBtns.appendChild(addBtn);
+  personaBtns.appendChild(resetBtn);
+  personaHeader.appendChild(personaBtns);
+  container.appendChild(personaHeader);
+
+  settings.personas.forEach((persona) => {
+    container.appendChild(renderPersonaCard(persona, settings, onChange));
+  });
+
+  container.appendChild(divider());
+
+  // ── System Prompt (collapsible, usually don't need to see it) ──
+  const promptDetails = document.createElement("details");
+  promptDetails.className = "cfg-prompt-details";
+  const promptSummary = document.createElement("summary");
+  promptSummary.className = "cfg-prompt-summary";
+  promptSummary.textContent = "System Prompt";
+  promptDetails.appendChild(promptSummary);
+  const promptArea = document.createElement("textarea");
+  promptArea.className = "cfg-input cfg-prompt-textarea";
+  promptArea.value = settings.systemPromptTemplate;
+  promptArea.addEventListener("input", () => {
+    settings.systemPromptTemplate = promptArea.value;
+    saveSettings(settings);
+  });
+  promptDetails.appendChild(promptArea);
+  container.appendChild(promptDetails);
 }
 
+// --- Persona Card ---
 function renderPersonaCard(
   persona: SidecastPersona,
   settings: AppSettings,
-  _idx: number,
   onChange: OnChange
 ): HTMLElement {
-  const card = document.createElement("div");
-  card.className = "persona-card";
-  card.style.flexWrap = "wrap";
+  const card = el("div", "persona-card");
 
-  const dot = document.createElement("div");
-  dot.className = "persona-dot";
+  // Top row: dot + name + controls
+  const row = el("div", "persona-row");
+
+  const dot = el("div", "persona-dot");
   dot.style.background = persona.avatarTint;
-  card.appendChild(dot);
+  row.appendChild(dot);
 
-  const info = document.createElement("div");
-  info.className = "persona-info";
-  info.innerHTML = `<div class="persona-name">${persona.name}</div><div class="persona-subtitle">${persona.subtitle}</div>`;
-  card.appendChild(info);
+  const info = el("div", "persona-info");
+  info.innerHTML = `<span class="persona-name">${persona.name}</span><span class="persona-subtitle">${persona.subtitle}</span>`;
+  info.style.cursor = "pointer";
+  row.appendChild(info);
+
+  // Controls cluster
+  const controls = el("div", "persona-controls");
+
+  if (settings.llmProvider === "openrouter") {
+    const webBtn = el("button", `persona-icon-btn${persona.webSearchEnabled ? " active" : ""}`);
+    webBtn.innerHTML = "&#x1F50D;";
+    webBtn.title = persona.webSearchEnabled ? "Web search ON" : "Web search OFF";
+    webBtn.addEventListener("click", () => {
+      persona.webSearchEnabled = !persona.webSearchEnabled;
+      webBtn.className = `persona-icon-btn${persona.webSearchEnabled ? " active" : ""}`;
+      webBtn.title = persona.webSearchEnabled ? "Web search ON" : "Web search OFF";
+      saveSettings(settings);
+    });
+    controls.appendChild(webBtn);
+  }
 
   const toggle = document.createElement("input");
   toggle.type = "checkbox";
   toggle.checked = persona.isEnabled;
-  toggle.title = "Enable persona";
+  toggle.className = "persona-toggle";
   toggle.addEventListener("change", () => {
     persona.isEnabled = toggle.checked;
     saveSettings(settings);
   });
-  card.appendChild(toggle);
+  controls.appendChild(toggle);
 
-  const webBtn = document.createElement("button");
-  webBtn.className = "secondary";
-  webBtn.textContent = persona.webSearchEnabled ? "🔍" : "—";
-  webBtn.title = persona.webSearchEnabled ? "Web search: ON (click to disable)" : "Web search: OFF (click to enable)";
-  webBtn.style.cssText = "padding:2px 6px;font-size:12px;min-width:24px;";
-  webBtn.addEventListener("click", () => {
-    persona.webSearchEnabled = !persona.webSearchEnabled;
-    webBtn.textContent = persona.webSearchEnabled ? "🔍" : "—";
-    webBtn.title = persona.webSearchEnabled ? "Web search: ON (click to disable)" : "Web search: OFF (click to enable)";
-    saveSettings(settings);
-  });
-  card.appendChild(webBtn);
-
-  const delBtn = document.createElement("button");
-  delBtn.className = "secondary";
-  delBtn.textContent = "x";
-  delBtn.style.padding = "2px 6px";
+  const delBtn = el("button", "persona-icon-btn danger");
+  delBtn.textContent = "\u00D7";
   delBtn.addEventListener("click", () => {
     const updated = removePersona(settings, persona.id);
     Object.assign(settings, updated);
     saveSettings(settings);
     onChange(settings);
   });
-  card.appendChild(delBtn);
+  controls.appendChild(delBtn);
 
-  // Expandable edit fields
-  const editDiv = document.createElement("div");
-  editDiv.style.cssText = "width:100%;display:none;margin-top:6px;";
-  const fields = [
+  row.appendChild(controls);
+  card.appendChild(row);
+
+  // Expandable edit area
+  const editDiv = el("div", "persona-edit");
+  editDiv.style.display = "none";
+
+  const fields: [string, "name" | "subtitle" | "prompt", "text" | "textarea"][] = [
     ["Name", "name", "text"],
     ["Subtitle", "subtitle", "text"],
     ["Prompt", "prompt", "textarea"],
-  ] as const;
+  ];
 
-  fields.forEach(([label, key, type]) => {
-    const lbl = document.createElement("label");
-    lbl.textContent = label;
-    lbl.style.marginTop = "4px";
-    editDiv.appendChild(lbl);
+  fields.forEach(([lbl, key, type]) => {
+    editDiv.appendChild(label(lbl));
     if (type === "textarea") {
       const ta = document.createElement("textarea");
+      ta.className = "cfg-input";
       ta.value = persona[key];
       ta.addEventListener("input", () => {
         (persona as any)[key] = ta.value;
@@ -254,30 +328,26 @@ function renderPersonaCard(
       });
       editDiv.appendChild(ta);
     } else {
-      const inp = document.createElement("input");
-      inp.type = "text";
-      inp.value = persona[key];
-      inp.addEventListener("input", () => {
-        (persona as any)[key] = inp.value;
+      editDiv.appendChild(fieldInput("text", persona[key], "", (v) => {
+        (persona as any)[key] = v;
         saveSettings(settings);
-        info.innerHTML = `<div class="persona-name">${persona.name}</div><div class="persona-subtitle">${persona.subtitle}</div>`;
-      });
-      editDiv.appendChild(inp);
+        info.innerHTML = `<span class="persona-name">${persona.name}</span><span class="persona-subtitle">${persona.subtitle}</span>`;
+      }));
     }
   });
 
-  // Behavior dropdowns
-  const selects = [
+  // Behavior row — compact inline selects
+  const behaviorRow = el("div", "persona-behavior");
+  const selects: [string, "verbosity" | "cadence" | "evidencePolicy", readonly string[]][] = [
     ["Verbosity", "verbosity", ["terse", "short", "medium"]],
     ["Cadence", "cadence", ["rare", "normal", "active"]],
     ["Evidence", "evidencePolicy", ["required", "preferred", "optional"]],
-  ] as const;
-  selects.forEach(([label, key, opts]) => {
-    const lbl = document.createElement("label");
-    lbl.textContent = label;
-    lbl.style.marginTop = "4px";
-    editDiv.appendChild(lbl);
+  ];
+  selects.forEach(([lbl, key, opts]) => {
+    const cell = el("div", "persona-behavior-cell");
+    cell.appendChild(label(lbl));
     const sel = document.createElement("select");
+    sel.className = "cfg-input";
     opts.forEach((o) => {
       const opt = document.createElement("option");
       opt.value = o;
@@ -289,13 +359,14 @@ function renderPersonaCard(
       (persona as any)[key] = sel.value;
       saveSettings(settings);
     });
-    editDiv.appendChild(sel);
+    cell.appendChild(sel);
+    behaviorRow.appendChild(cell);
   });
+  editDiv.appendChild(behaviorRow);
 
   card.appendChild(editDiv);
 
-  // Toggle edit on click info area
-  info.style.cursor = "pointer";
+  // Toggle edit on click
   info.addEventListener("click", () => {
     editDiv.style.display = editDiv.style.display === "none" ? "block" : "none";
   });
@@ -324,7 +395,6 @@ export function renderTranscriptViewer(
     container.appendChild(div);
 
     if (i === activeIndex) {
-      // Auto-scroll to active
       requestAnimationFrame(() => div.scrollIntoView({ block: "center", behavior: "smooth" }));
     }
   });
@@ -382,14 +452,12 @@ export function renderDebugLog(
   heading.style.marginTop = "16px";
   container.appendChild(heading);
 
-  // Render newest first
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
     const r = entry.result;
 
     const node = document.createElement("details");
     node.className = "debug-entry";
-    // Auto-open the most recent entry
     if (i === entries.length - 1) node.open = true;
 
     const summary = document.createElement("summary");
@@ -414,7 +482,6 @@ export function renderDebugLog(
     body.className = "debug-entry-body";
 
     if (!r.skipped) {
-      // System prompt
       const sysDetails = document.createElement("details");
       sysDetails.className = "debug-sub";
       sysDetails.innerHTML =
@@ -422,7 +489,6 @@ export function renderDebugLog(
         `<pre class="debug-pre">${escapeHtml(r.systemPrompt)}</pre>`;
       body.appendChild(sysDetails);
 
-      // User prompt
       const userDetails = document.createElement("details");
       userDetails.className = "debug-sub";
       userDetails.innerHTML =
@@ -430,7 +496,6 @@ export function renderDebugLog(
         `<pre class="debug-pre">${escapeHtml(r.userPrompt)}</pre>`;
       body.appendChild(userDetails);
 
-      // Raw response
       const respDetails = document.createElement("details");
       respDetails.className = "debug-sub";
       respDetails.innerHTML =
@@ -438,7 +503,6 @@ export function renderDebugLog(
         `<pre class="debug-pre">${escapeHtml(r.rawResponse)}</pre>`;
       body.appendChild(respDetails);
 
-      // Web search citations
       if (r.citations.length > 0) {
         const citDetails = document.createElement("details");
         citDetails.className = "debug-sub";
@@ -456,7 +520,6 @@ export function renderDebugLog(
         body.appendChild(citDetails);
       }
 
-      // Accepted messages
       if (r.accepted.length > 0) {
         const accDiv = document.createElement("div");
         accDiv.className = "debug-section-label";
@@ -473,7 +536,6 @@ export function renderDebugLog(
         });
       }
 
-      // Filtered candidates
       if (r.filtered.length > 0) {
         const filtDiv = document.createElement("div");
         filtDiv.className = "debug-section-label";
