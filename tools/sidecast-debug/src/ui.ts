@@ -1,4 +1,4 @@
-import type { AppSettings, SidecastPersona } from "./types.ts";
+import type { AppSettings, SidecastPersona, DebugLogEntry } from "./types.ts";
 import { saveSettings, addPersona, removePersona, resetPersonas } from "./settings.ts";
 
 type OnChange = (settings: AppSettings) => void;
@@ -336,18 +336,119 @@ export function renderSidecastBubbles(
   });
 }
 
-export function renderFilterLog(
+function formatVideoTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function escapeHtml(text: string): string {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+export function renderDebugLog(
   container: HTMLElement,
-  filtered: { personaName: string; text: string; reason: string }[],
-  promptCharCount: number
+  entries: DebugLogEntry[]
 ): void {
-  container.innerHTML = `<div class="debug-info">Prompt: ~${promptCharCount} chars</div>`;
-  filtered.forEach((f) => {
-    const div = document.createElement("div");
-    div.className = "filter-log";
-    div.textContent = `[${f.personaName}] filtered: ${f.reason} — "${f.text.slice(0, 60)}..."`;
-    container.appendChild(div);
-  });
+  container.innerHTML = "";
+
+  if (entries.length === 0) return;
+
+  const heading = document.createElement("h2");
+  heading.textContent = "Debug Log";
+  heading.style.marginTop = "16px";
+  container.appendChild(heading);
+
+  // Render newest first
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    const r = entry.result;
+
+    const node = document.createElement("details");
+    node.className = "debug-entry";
+    // Auto-open the most recent entry
+    if (i === entries.length - 1) node.open = true;
+
+    const summary = document.createElement("summary");
+    summary.className = "debug-entry-summary";
+
+    const badge = r.skipped ? "skip" : r.accepted.length > 0 ? "ok" : "empty";
+    const badgeLabel = r.skipped
+      ? "cooldown"
+      : `${r.accepted.length} shown, ${r.filtered.length} filtered`;
+
+    summary.innerHTML =
+      `<span class="debug-badge debug-badge-${badge}">${badgeLabel}</span>` +
+      `<span class="debug-time">${formatVideoTime(entry.timestamp)}</span>` +
+      `<span class="debug-wall">${entry.wallTime.toLocaleTimeString()}</span>` +
+      `<span class="debug-chars">${r.promptCharCount > 0 ? `~${r.promptCharCount} chars` : ""}</span>`;
+    node.appendChild(summary);
+
+    const body = document.createElement("div");
+    body.className = "debug-entry-body";
+
+    if (!r.skipped) {
+      // System prompt
+      const sysDetails = document.createElement("details");
+      sysDetails.className = "debug-sub";
+      sysDetails.innerHTML =
+        `<summary class="debug-sub-summary">System Prompt</summary>` +
+        `<pre class="debug-pre">${escapeHtml(r.systemPrompt)}</pre>`;
+      body.appendChild(sysDetails);
+
+      // User prompt
+      const userDetails = document.createElement("details");
+      userDetails.className = "debug-sub";
+      userDetails.innerHTML =
+        `<summary class="debug-sub-summary">User Prompt</summary>` +
+        `<pre class="debug-pre">${escapeHtml(r.userPrompt)}</pre>`;
+      body.appendChild(userDetails);
+
+      // Raw response
+      const respDetails = document.createElement("details");
+      respDetails.className = "debug-sub";
+      respDetails.innerHTML =
+        `<summary class="debug-sub-summary">LLM Response</summary>` +
+        `<pre class="debug-pre">${escapeHtml(r.rawResponse)}</pre>`;
+      body.appendChild(respDetails);
+
+      // Accepted messages
+      if (r.accepted.length > 0) {
+        const accDiv = document.createElement("div");
+        accDiv.className = "debug-section-label";
+        accDiv.textContent = "Accepted:";
+        body.appendChild(accDiv);
+        r.accepted.forEach((msg) => {
+          const line = document.createElement("div");
+          line.className = "debug-accepted";
+          line.innerHTML =
+            `<strong>${escapeHtml(msg.personaName)}</strong> ` +
+            `<span class="debug-meta">p:${msg.priority.toFixed(2)} c:${msg.confidence.toFixed(2)}</span><br>` +
+            `${escapeHtml(msg.text)}`;
+          body.appendChild(line);
+        });
+      }
+
+      // Filtered candidates
+      if (r.filtered.length > 0) {
+        const filtDiv = document.createElement("div");
+        filtDiv.className = "debug-section-label";
+        filtDiv.textContent = "Filtered:";
+        body.appendChild(filtDiv);
+        r.filtered.forEach((f) => {
+          const line = document.createElement("div");
+          line.className = "filter-log";
+          line.textContent = `[${f.personaName}] ${f.reason} — "${f.text.slice(0, 80)}"`;
+          body.appendChild(line);
+        });
+      }
+    }
+
+    node.appendChild(body);
+    container.appendChild(node);
+  }
 }
 
 export function setStatus(state: "ok" | "error" | "loading", text: string): void {

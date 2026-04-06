@@ -73,6 +73,16 @@ export interface GenerationResult {
   filtered: FilteredCandidate[];
   rawResponse: string;
   promptCharCount: number;
+  systemPrompt: string;
+  userPrompt: string;
+  skipped: boolean;
+}
+
+export interface DebugLogEntry {
+  id: number;
+  timestamp: number;       // video time in seconds
+  wallTime: Date;
+  result: GenerationResult;
 }
 
 // --- Settings ---

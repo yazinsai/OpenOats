@@ -1,4 +1,4 @@
-import type { TranscriptSegment, AppSettings } from "./types.ts";
+import type { TranscriptSegment, AppSettings, DebugLogEntry } from "./types.ts";
 import { YouTubePlayer, extractVideoId } from "./player.ts";
 import {
   fetchTranscript,
@@ -18,7 +18,7 @@ import {
   renderSettingsPanel,
   renderTranscriptViewer,
   renderSidecastBubbles,
-  renderFilterLog,
+  renderDebugLog,
   setStatus,
 } from "./ui.ts";
 
@@ -26,6 +26,8 @@ let settings: AppSettings = loadSettings();
 let segments: TranscriptSegment[] = [];
 let lastTriggeredSegmentIndex = -1;
 let isGenerating = false;
+let debugLog: DebugLogEntry[] = [];
+let debugLogCounter = 0;
 
 // --- Render settings panel ---
 function refreshSettings() {
@@ -66,6 +68,8 @@ async function loadVideo() {
   resetSummary();
   lastTriggeredSegmentIndex = -1;
   segments = [];
+  debugLog = [];
+  debugLogCounter = 0;
 
   try {
     const [, transcriptSegments] = await Promise.all([
@@ -146,8 +150,17 @@ async function triggerSidecast(currentTime: number) {
 
     const result = await generate(context, effectiveTime, settings);
 
-    // Cooldown skip — keep the existing UI intact
-    if (result.rawResponse === "(skipped: cooldown)") {
+    // Add to debug history (including cooldown skips)
+    debugLog.push({
+      id: ++debugLogCounter,
+      timestamp: effectiveTime,
+      wallTime: new Date(),
+      result,
+    });
+    renderDebugLog(document.getElementById("debug-log")!, debugLog);
+
+    // Cooldown skip — keep the existing bubbles intact
+    if (result.skipped) {
       setStatus("ok", "Cooldown — waiting");
       isGenerating = false;
       return;
@@ -159,15 +172,6 @@ async function triggerSidecast(currentTime: number) {
       getMessages(),
       settings.personas
     );
-
-    renderFilterLog(
-      document.getElementById("filter-log")!,
-      result.filtered,
-      result.promptCharCount
-    );
-
-    const rawEl = document.getElementById("raw-json")!;
-    rawEl.textContent = result.rawResponse;
 
     if (result.accepted.length > 0 || result.filtered.length > 0) {
       setStatus("ok", `Generated: ${result.accepted.length} shown, ${result.filtered.length} filtered`);
@@ -190,13 +194,9 @@ document.getElementById("generate-btn")!.addEventListener("click", () => {
 
 document.getElementById("clear-btn")!.addEventListener("click", () => {
   clearState();
+  debugLog = [];
+  debugLogCounter = 0;
   document.getElementById("sidecast-bubbles")!.innerHTML = "";
-  document.getElementById("filter-log")!.innerHTML = "";
-  document.getElementById("raw-json")!.textContent = "";
+  document.getElementById("debug-log")!.innerHTML = "";
   setStatus("ok", "Cleared");
-});
-
-document.getElementById("toggle-raw")!.addEventListener("click", () => {
-  const el = document.getElementById("raw-json")!;
-  el.style.display = el.style.display === "none" ? "block" : "none";
 });

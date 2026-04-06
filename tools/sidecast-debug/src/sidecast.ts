@@ -317,6 +317,9 @@ export async function generate(
         filtered: [],
         rawResponse: "(skipped: cooldown)",
         promptCharCount: 0,
+        systemPrompt: "",
+        userPrompt: "",
+        skipped: true,
       };
     }
   }
@@ -337,6 +340,9 @@ export async function generate(
       filtered: [],
       rawResponse,
       promptCharCount,
+      systemPrompt: system,
+      userPrompt: user,
+      skipped: false,
     };
   }
 
@@ -359,5 +365,5 @@ export async function generate(
     });
   }
 
-  return { accepted, filtered, rawResponse, promptCharCount };
+  return { accepted, filtered, rawResponse, promptCharCount, systemPrompt: system, userPrompt: user, skipped: false };
 }

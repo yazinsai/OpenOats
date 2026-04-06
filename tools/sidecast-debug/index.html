@@ -83,8 +83,48 @@
       .section-header::after { content: "\25BE"; font-size: 10px; }
       .section.collapsed .section-body { display: none; }
       .section.collapsed .section-header::after { content: "\25B8"; }
-      #raw-json { display: none; background: var(--surface); padding: 8px; border-radius: 4px; white-space: pre-wrap; font-family: monospace; font-size: 11px; max-height: 300px; overflow-y: auto; margin-top: 8px; }
       .filter-log { font-size: 11px; color: var(--text-muted); padding: 4px 8px; border-left: 2px solid #555; margin-bottom: 4px; }
+      .debug-entry { margin-bottom: 4px; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+      .debug-entry[open] { border-color: #555; }
+      .debug-entry-summary {
+        cursor: pointer; padding: 6px 8px; background: var(--surface);
+        display: flex; align-items: center; gap: 8px; font-size: 11px;
+        list-style: none; user-select: none;
+      }
+      .debug-entry-summary::-webkit-details-marker { display: none; }
+      .debug-entry-summary::before { content: "\25B8"; font-size: 9px; color: var(--text-muted); flex-shrink: 0; }
+      .debug-entry[open] > .debug-entry-summary::before { content: "\25BE"; }
+      .debug-entry-body { padding: 6px 8px; font-size: 11px; }
+      .debug-badge {
+        padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 500;
+        flex-shrink: 0;
+      }
+      .debug-badge-ok { background: #166534; color: #86efac; }
+      .debug-badge-empty { background: #44403c; color: #a8a29e; }
+      .debug-badge-skip { background: #422006; color: #fdba74; }
+      .debug-time { font-variant-numeric: tabular-nums; color: var(--text-muted); }
+      .debug-wall { color: var(--text-muted); font-size: 10px; }
+      .debug-chars { color: var(--text-muted); font-size: 10px; margin-left: auto; }
+      .debug-sub { margin: 4px 0; }
+      .debug-sub-summary {
+        cursor: pointer; font-size: 11px; color: var(--accent);
+        list-style: none; padding: 2px 0;
+      }
+      .debug-sub-summary::-webkit-details-marker { display: none; }
+      .debug-sub-summary::before { content: "\25B8 "; font-size: 9px; }
+      .debug-sub[open] > .debug-sub-summary::before { content: "\25BE "; }
+      .debug-pre {
+        background: var(--bg); padding: 8px; border-radius: 4px;
+        white-space: pre-wrap; font-family: monospace; font-size: 11px;
+        max-height: 250px; overflow-y: auto; margin: 4px 0;
+        border: 1px solid var(--border); line-height: 1.4;
+      }
+      .debug-section-label { font-size: 10px; color: var(--text-muted); margin: 6px 0 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+      .debug-accepted {
+        font-size: 11px; padding: 4px 8px; margin-bottom: 2px;
+        border-left: 2px solid #22c55e; line-height: 1.4;
+      }
+      .debug-meta { font-size: 10px; color: var(--text-muted); }
     </style>
   </head>
   <body>
@@ -111,9 +151,7 @@
           </div>
         </div>
         <div id="sidecast-bubbles"></div>
-        <button id="toggle-raw" class="secondary" style="margin-top:8px;font-size:11px;">Toggle Raw JSON</button>
-        <pre id="raw-json"></pre>
-        <div id="filter-log" style="margin-top:8px;"></div>
+        <div id="debug-log" style="margin-top:8px;"></div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
