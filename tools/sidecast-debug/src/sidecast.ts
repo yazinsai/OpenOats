@@ -92,6 +92,8 @@ No KB evidence retrieved for this turn.`;
 }
 
 // --- LLM Call ---
+const LLM_TIMEOUT_MS = 20_000;
+
 async function callLLM(
   system: string,
   user: string,
@@ -104,17 +106,20 @@ async function callLLM(
 
   switch (settings.llmProvider) {
     case "openrouter":
+      if (!settings.apiKey) throw new Error("OpenRouter API key is not set");
       url = "https://openrouter.ai/api/v1/chat/completions";
       headers["Authorization"] = `Bearer ${settings.apiKey}`;
       headers["HTTP-Referer"] = "OpenOats/SidecastDebug";
       break;
     case "ollama": {
       const base = settings.baseURL.replace(/\/+$/, "");
+      if (!base) throw new Error("Ollama base URL is not set");
       url = `${base}/v1/chat/completions`;
       break;
     }
     case "openai-compatible": {
       const base = settings.baseURL.replace(/\/+$/, "");
+      if (!base) throw new Error("Base URL is not set");
       url = `${base}/v1/chat/completions`;
       if (settings.apiKey) {
         headers["Authorization"] = `Bearer ${settings.apiKey}`;
@@ -134,11 +139,27 @@ async function callLLM(
     stream: false,
   };
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
+  console.log(`[sidecast] calling ${settings.llmProvider} (${settings.model}) — ${system.length + user.length} chars`);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      throw new Error(`LLM request timed out after ${LLM_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!res.ok) {
     const text = await res.text();

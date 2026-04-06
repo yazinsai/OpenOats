@@ -162,6 +162,7 @@ async function triggerSidecast(currentTime: number) {
       setStatus("ok", "No sidecast output (cooldown or empty)");
     }
   } catch (err: any) {
+    console.error("[sidecast] generation error:", err);
     setStatus("error", `Generation failed: ${err.message}`);
   } finally {
     isGenerating = false;
