@@ -219,7 +219,7 @@ Rules:
 - Never include URLs, links, citations, or source references in the text. The text is the insight itself, nothing else.
 - No markdown, no emoji, no stage directions, no quotes around the text.
 - Keep text extremely dense — every word must earn its place.
-- Fact-heavy personas must stay careful and avoid fabricated certainty. Use web search context if available but never cite it in the text.
+- Fact-heavy personas must stay careful and avoid fabricated certainty. Use web search context when available.
 - Humor and chaos personas can be sharp, but never hateful or unusably toxic.
 - Set priority (0.0–1.0) honestly: 0.9+ means "the host needs to see this right now." Most messages should be 0.4–0.7.
 - Set confidence (0.0–1.0) based on how sure you are the claim is correct. Below 0.5 means you're guessing.

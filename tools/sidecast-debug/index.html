@@ -125,14 +125,15 @@
 
       /* --- Sidecast Bubbles --- */
       .bubble {
-        background: var(--surface); border-radius: 6px; padding: 8px 10px;
-        margin-bottom: 6px; border-left: 3px solid var(--accent);
+        position: relative;
+        background: var(--surface); border-radius: 12px 12px 12px 4px;
+        padding: 10px 12px; margin-bottom: 10px; margin-right: 16px;
+        border: 1px solid var(--border-subtle);
       }
-      .bubble-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
+      .bubble-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
       .bubble-name { font-weight: 600; font-size: 11px; }
       .bubble-meta { font-size: 9px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
-      .bubble-text { font-size: 12px; line-height: 1.45; color: var(--text); }
-
+      .bubble-text { font-size: 12px; line-height: 1.5; color: var(--text); }
       /* --- Status Bar --- */
       .status-bar {
         display: flex; align-items: center; gap: 8px; padding: 6px 10px;

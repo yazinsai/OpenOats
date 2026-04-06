@@ -281,9 +281,9 @@ function filterAndRank(
       }
     }
 
-    // Sanitize text — strip URLs, markdown links, citations, and domain references
+    // Sanitize text — strip URLs, markdown links, and domain references
     let cleanedText = candidate.text
-      .replace(/\[([^\]]*)\]\([^)]+\)/g, "$1")           // [text](url) → text (or empty if text is empty)
+      .replace(/\[([^\]]*)\]\([^)]+\)/g, "$1")           // [text](url) → text
       .replace(/https?:\/\/\S+/g, "")                    // bare URLs
       .replace(/\b\w+\.(com|org|net|io|ai|app|dev|co|edu|gov)\b/gi, "")  // bare domains
       .replace(/\([^)]*\b(source|via|per|from|according)\b[^)]*\)/gi, "") // (source: ...) parentheticals

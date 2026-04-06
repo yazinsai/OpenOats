@@ -416,13 +416,14 @@ export function renderSidecastBubbles(
 
     const bubble = document.createElement("div");
     bubble.className = "bubble";
-    bubble.style.borderLeftColor = tint;
+    bubble.style.borderColor = tint + "30";
+    bubble.style.background = tint + "10";
     bubble.innerHTML = `
       <div class="bubble-header">
         <span class="bubble-name" style="color:${tint}">${msg.personaName}</span>
         <span class="bubble-meta">v:${msg.value.toFixed(2)} p:${msg.priority.toFixed(2)} c:${msg.confidence.toFixed(2)}</span>
       </div>
-      <div class="bubble-text">${msg.text}</div>
+      <div class="bubble-text">${escapeHtml(msg.text)}</div>
     `;
     container.appendChild(bubble);
   });
