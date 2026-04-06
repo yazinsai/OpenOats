@@ -25,84 +25,84 @@
       }
 
       /* --- Panels --- */
-      .panel { border-right: 1px solid var(--border); overflow-y: auto; padding: 10px; }
+      .panel { border-right: 1px solid var(--border); overflow-y: auto; padding: 16px; }
       .panel:last-child { border-right: none; }
       .panel::-webkit-scrollbar { width: 4px; }
       .panel::-webkit-scrollbar-track { background: transparent; }
       .panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-      h2 { font-size: 11px; margin-bottom: 8px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; font-weight: 500; }
+      h2 { font-size: 11px; margin-bottom: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; font-weight: 500; }
 
       /* --- Config Panel --- */
       .cfg-group-heading {
         font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px;
-        color: var(--text-dim); font-weight: 600; margin-bottom: 8px;
+        color: var(--text-dim); font-weight: 600; margin-bottom: 12px;
       }
-      .cfg-label { display: block; font-size: 10px; color: var(--text-muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+      .cfg-label { display: block; font-size: 10px; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
       .cfg-input {
-        width: 100%; padding: 5px 7px; background: var(--surface); border: 1px solid var(--border);
-        border-radius: 3px; color: var(--text); font-size: 11px; font-family: inherit;
-        margin-bottom: 6px; outline: none; transition: border-color 0.15s;
+        width: 100%; padding: 7px 9px; background: var(--surface); border: 1px solid var(--border);
+        border-radius: 4px; color: var(--text); font-size: 11px; font-family: inherit;
+        margin-bottom: 10px; outline: none; transition: border-color 0.15s;
       }
       .cfg-input:focus { border-color: var(--accent); }
       .cfg-input-narrow { width: 48px; text-align: center; margin: 0; }
-      .cfg-divider { border: none; border-top: 1px solid var(--border-subtle); margin: 10px 0; }
+      .cfg-divider { border: none; border-top: 1px solid var(--border-subtle); margin: 18px 0; }
 
-      .cfg-tuning-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
-      .cfg-cell .cfg-label { margin-bottom: 1px; }
-      .cfg-slider { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+      .cfg-tuning-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+      .cfg-cell .cfg-label { margin-bottom: 3px; }
+      .cfg-slider { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
       .cfg-slider input[type="range"] { flex: 1; height: 3px; -webkit-appearance: none; background: var(--border); border-radius: 2px; outline: none; }
-      .cfg-slider input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); cursor: pointer; }
-      .cfg-slider-val { min-width: 28px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 10px; }
+      .cfg-slider input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); cursor: pointer; }
+      .cfg-slider-val { min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 10px; }
 
-      .cfg-toggle { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 11px; color: var(--text-muted); }
+      .cfg-toggle { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; font-size: 11px; color: var(--text-muted); }
       .cfg-toggle input[type="checkbox"] { accent-color: var(--accent); }
 
-      .cfg-ws-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+      .cfg-ws-row { display: flex; align-items: center; gap: 8px; margin: 6px 0 4px; }
       .cfg-ws-row .cfg-input { width: auto; flex: 1; margin-bottom: 0; }
       .cfg-ws-label { font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
 
-      .cfg-persona-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+      .cfg-persona-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
       .cfg-persona-header .cfg-group-heading { margin-bottom: 0; }
-      .cfg-persona-btns { display: flex; gap: 4px; }
+      .cfg-persona-btns { display: flex; gap: 6px; }
       .cfg-btn-sm {
-        padding: 2px 8px; background: var(--surface); border: 1px solid var(--border);
-        border-radius: 3px; color: var(--text-muted); cursor: pointer; font-size: 10px; font-family: inherit;
+        padding: 3px 10px; background: var(--surface); border: 1px solid var(--border);
+        border-radius: 4px; color: var(--text-muted); cursor: pointer; font-size: 10px; font-family: inherit;
       }
       .cfg-btn-sm:hover { border-color: var(--accent); color: var(--text); }
 
-      .cfg-prompt-details { margin-top: 4px; }
+      .cfg-prompt-details { margin-top: 8px; }
       .cfg-prompt-summary {
         font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
-        color: var(--text-dim); cursor: pointer; padding: 4px 0; list-style: none;
+        color: var(--text-dim); cursor: pointer; padding: 6px 0; list-style: none;
       }
       .cfg-prompt-summary::-webkit-details-marker { display: none; }
       .cfg-prompt-summary::before { content: "\25B8 "; font-size: 8px; }
       .cfg-prompt-details[open] > .cfg-prompt-summary::before { content: "\25BE "; }
-      .cfg-prompt-textarea { min-height: 140px; resize: vertical; line-height: 1.5; font-size: 10px; }
+      .cfg-prompt-textarea { min-height: 160px; resize: vertical; line-height: 1.55; font-size: 10px; }
 
       /* --- Persona Cards --- */
       .persona-card {
-        background: var(--surface); border-radius: 4px; padding: 6px 8px; margin-bottom: 4px;
+        background: var(--surface); border-radius: 5px; padding: 10px 12px; margin-bottom: 6px;
         border: 1px solid var(--border);
       }
-      .persona-row { display: flex; align-items: center; gap: 6px; }
-      .persona-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-      .persona-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      .persona-row { display: flex; align-items: center; gap: 10px; }
+      .persona-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+      .persona-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
       .persona-name { font-weight: 600; font-size: 11px; line-height: 1.3; }
       .persona-subtitle { font-size: 10px; color: var(--text-dim); line-height: 1.2; }
-      .persona-controls { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
+      .persona-controls { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
       .persona-toggle { accent-color: var(--accent); }
       .persona-icon-btn {
-        padding: 1px 4px; background: none; border: 1px solid transparent;
-        border-radius: 3px; color: var(--text-dim); cursor: pointer; font-size: 10px; line-height: 1;
+        padding: 3px 6px; background: none; border: 1px solid transparent;
+        border-radius: 4px; color: var(--text-dim); cursor: pointer; font-size: 11px; line-height: 1;
       }
       .persona-icon-btn:hover { border-color: var(--border); color: var(--text-muted); }
       .persona-icon-btn.active { color: var(--blue); border-color: rgba(125,211,252,0.2); background: rgba(125,211,252,0.06); }
       .persona-icon-btn.danger:hover { color: var(--red); border-color: rgba(248,113,113,0.3); }
-      .persona-edit { padding: 6px 0 2px 14px; }
-      .persona-behavior { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-top: 4px; }
-      .persona-behavior-cell .cfg-label { font-size: 9px; margin-bottom: 1px; }
-      .persona-behavior-cell .cfg-input { font-size: 10px; padding: 3px 4px; }
+      .persona-edit { padding: 10px 0 4px 18px; }
+      .persona-behavior { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 8px; }
+      .persona-behavior-cell .cfg-label { font-size: 9px; margin-bottom: 2px; }
+      .persona-behavior-cell .cfg-input { font-size: 10px; padding: 4px 6px; }
 
       /* --- URL Bar & Transcript --- */
       .url-bar { display: flex; gap: 6px; margin-bottom: 10px; }
