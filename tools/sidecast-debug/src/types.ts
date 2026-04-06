@@ -47,6 +47,7 @@ export interface SidecastMessage {
   timestamp: number;
   confidence: number;
   priority: number;
+  value: number;
 }
 
 export interface SidecastResponseMessage {
@@ -55,6 +56,7 @@ export interface SidecastResponseMessage {
   text: string;
   priority: number | null;
   confidence: number | null;
+  value: number | null;
 }
 
 export interface SidecastResponse {
@@ -146,6 +148,9 @@ export interface AppSettings {
   systemPromptTemplate: string;
   forceFire: boolean;
 
+  // Quality
+  minValueThreshold: number;
+
   // Web Search
   webSearchEngine: WebSearchEngine;
   webSearchMaxResults: number;
@@ -227,7 +232,12 @@ Rules:
 - Humor and chaos personas can be sharp, but never hateful or unusably toxic.
 - Set priority (0.0–1.0) honestly: 0.9+ means "the host needs to see this right now." Most messages should be 0.4–0.7.
 - Set confidence (0.0–1.0) based on how sure you are the claim is correct. Below 0.5 means you're guessing.
+- Set value (0.0–1.0): how much this message would genuinely help the host. Be brutally honest.
+  0.0–0.3: generic, obvious, or hollow — anyone could say this. Do not send.
+  0.4–0.5: mildly interesting but not actionable.
+  0.6–0.7: solid insight the host probably didn't know or hadn't considered.
+  0.8–1.0: genuinely surprising, corrects a misconception, or provides a killer reframe.
 
 Output schema:
-{"messages":[{"persona_id":"UUID","speak":true,"text":"string","priority":0.0,"confidence":0.0}]}`;
+{"messages":[{"persona_id":"UUID","speak":true,"text":"string","priority":0.0,"confidence":0.0,"value":0.0}]}`;
 

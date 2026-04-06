@@ -325,6 +325,17 @@ function filterAndRank(
     }
 
     const confidence = Math.max(0, Math.min(1, candidate.confidence ?? 0.55));
+    const value = Math.max(0, Math.min(1, candidate.value ?? 0.5));
+
+    // Value gate — drop hollow or low-value responses
+    if (value < settings.minValueThreshold) {
+      filtered.push({
+        personaName: persona.name,
+        text: cleanedText,
+        reason: `Below value threshold (${value.toFixed(2)} < ${settings.minValueThreshold})`,
+      });
+      continue;
+    }
 
     const msg: SidecastMessage = {
       id: crypto.randomUUID(),
@@ -334,6 +345,7 @@ function filterAndRank(
       timestamp: currentTime,
       confidence,
       priority: candidate.priority ?? 0.5,
+      value,
     };
 
     accepted.push(msg);

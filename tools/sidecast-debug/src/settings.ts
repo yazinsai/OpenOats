@@ -43,6 +43,8 @@ function defaultSettings(): AppSettings {
     systemPromptTemplate: DEFAULT_SYSTEM_PROMPT,
     forceFire: false,
 
+    minValueThreshold: 0.5,
+
     webSearchEngine: "auto",
     webSearchMaxResults: 5,
 

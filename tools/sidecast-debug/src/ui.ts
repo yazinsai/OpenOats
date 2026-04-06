@@ -130,6 +130,8 @@ export function renderSettingsPanel(
   toggleDiv.appendChild(h("span", {}, "Force-fire (bypass cooldowns)"));
   scBody.appendChild(toggleDiv);
 
+  scBody.appendChild(sliderRow("Min Value", 0, 1, 0.05, settings.minValueThreshold, (v) => (settings.minValueThreshold = v)));
+
   const promptLabel = h("label", {}, "System Prompt Template");
   scBody.appendChild(promptLabel);
   const promptArea = document.createElement("textarea");
@@ -338,7 +340,7 @@ export function renderTranscriptViewer(
 // --- Sidecast Output ---
 export function renderSidecastBubbles(
   container: HTMLElement,
-  messages: { personaName: string; text: string; confidence: number; priority: number; personaId: string }[],
+  messages: { personaName: string; text: string; confidence: number; priority: number; value: number; personaId: string }[],
   personas: SidecastPersona[]
 ): void {
   container.innerHTML = "";
@@ -354,7 +356,7 @@ export function renderSidecastBubbles(
     bubble.innerHTML = `
       <div class="bubble-header">
         <span class="bubble-name" style="color:${tint}">${msg.personaName}</span>
-        <span class="bubble-meta">p:${msg.priority.toFixed(2)} c:${msg.confidence.toFixed(2)}</span>
+        <span class="bubble-meta">v:${msg.value.toFixed(2)} p:${msg.priority.toFixed(2)} c:${msg.confidence.toFixed(2)}</span>
       </div>
       <div class="bubble-text">${msg.text}</div>
     `;
@@ -472,7 +474,7 @@ export function renderDebugLog(
           line.className = "debug-accepted";
           line.innerHTML =
             `<strong>${escapeHtml(msg.personaName)}</strong> ` +
-            `<span class="debug-meta">p:${msg.priority.toFixed(2)} c:${msg.confidence.toFixed(2)}</span><br>` +
+            `<span class="debug-meta">v:${msg.value.toFixed(2)} p:${msg.priority.toFixed(2)} c:${msg.confidence.toFixed(2)}</span><br>` +
             `${escapeHtml(msg.text)}`;
           body.appendChild(line);
         });
