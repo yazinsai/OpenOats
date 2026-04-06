@@ -77,12 +77,14 @@ final class SidecastEngine {
             )
 
             do {
+                let useWebSearch = self.shouldUseWebSearch(for: personas)
                 let response = try await self.client.complete(
                     apiKey: self.llmApiKey,
                     model: self.settings.activeRealtimeModel,
                     messages: prompt,
                     maxTokens: 700,
-                    baseURL: self.llmBaseURL
+                    baseURL: self.llmBaseURL,
+                    webSearch: useWebSearch
                 )
                 let decoded = try self.decodeResponse(response)
 
@@ -162,13 +164,16 @@ final class SidecastEngine {
                 continue
             }
 
+            let value = max(0, min(1, candidate.value ?? 0.5))
+            if value < 0.5 { continue }
+
             let evidenceRequired = persona.evidencePolicy == .required
-            if evidenceRequired && evidence.isEmpty {
+            if evidenceRequired && !persona.webSearchEnabled && evidence.isEmpty {
                 continue
             }
 
             let confidence = max(0, min(1, candidate.confidence ?? 0.55))
-            if evidenceRequired && confidence < 0.35 {
+            if evidenceRequired && !persona.webSearchEnabled && confidence < 0.35 {
                 continue
             }
 
@@ -179,6 +184,7 @@ final class SidecastEngine {
                 timestamp: now,
                 confidence: confidence,
                 priority: candidate.priority ?? 0.5,
+                value: value,
                 sourceBreadcrumb: topBreadcrumb
             )
 
@@ -204,11 +210,29 @@ final class SidecastEngine {
         }
     }
 
+    private static let sanitizePatterns: [(NSRegularExpression, String)] = {
+        let patterns: [(String, String)] = [
+            (#"\[([^\]]*)\]\([^)]+\)"#, "$1"),                             // [text](url) → text
+            (#"https?://\S+"#, ""),                                         // bare URLs
+            (#"\b\w+\.(com|org|net|io|ai|app|dev|co|edu|gov)\b"#, ""),     // bare domains
+            (#"\([^)]*\b(source|via|per|from|according)\b[^)]*\)"#, ""),   // (source: …) parentheticals
+            (#"\[\s*\]"#, ""),                                              // leftover empty []
+        ]
+        return patterns.compactMap { (pattern, template) in
+            (try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)).map { ($0, template) }
+        }
+    }()
+
     private func sanitize(_ text: String, limit: Int) -> String {
-        let collapsed = text
+        var result = text
+        for (regex, template) in Self.sanitizePatterns {
+            result = regex.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: template)
+        }
+        let collapsed = result
             .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "  ", with: " ")
+            .replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,;"))
         guard !collapsed.isEmpty else { return "" }
         guard collapsed.count > limit else { return collapsed }
         return String(collapsed.prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -266,19 +290,29 @@ final class SidecastEngine {
         You are Sidecast, a live multi-persona producer for a host-assist sidebar.
         Decide which personas should speak right now in response to the latest utterance.
 
+        Quality bar:
+        - Only speak when you have genuine insight — a non-obvious fact, a sharp reframe, a useful correction, or a punchy callback.
+        - Silence is better than filler. If nothing clears the bar, return {"messages":[]}.
+        - Every bubble should make the host think "glad I saw that." If it wouldn't, don't send it.
+
         Rules:
         - Return valid JSON only.
         - Use at most \(settings.sidecastIntensity.maxMessagesPerTurn) persona messages.
-        - Only include personas that have something distinct and timely to add.
-        - Prioritize useful, non-redundant commentary over completeness.
-        - Keep each text short enough for a sidebar bubble.
+        - Never include URLs, links, citations, or source references in the text. The text is the insight itself, nothing else.
         - No markdown, no emoji, no stage directions, no quotes around the text.
-        - Fact-heavy personas must stay careful and avoid fabricated certainty.
+        - Keep text extremely dense — every word must earn its place.
+        - Fact-heavy personas must lead with specific numbers, percentages, dates, or named sources. Never say "X is higher" — say "X is 42% higher." Avoid vague qualifiers like "significantly", "increasingly", "many" — replace them with the actual number. If no precise data is available, stay silent rather than generalizing.
         - Humor and chaos personas can be sharp, but never hateful or unusably toxic.
-        - If nothing is worth surfacing, return {"messages":[]}.
+        - Set priority (0.0–1.0) honestly: 0.9+ means "the host needs to see this right now." Most messages should be 0.4–0.7.
+        - Set confidence (0.0–1.0) based on how sure you are the claim is correct. Below 0.5 means you're guessing.
+        - Set value (0.0–1.0): how much this message would genuinely help the host. Be brutally honest.
+          0.0–0.3: generic, obvious, or hollow — anyone could say this. Do not send.
+          0.4–0.5: mildly interesting but not actionable.
+          0.6–0.7: solid insight the host probably didn't know or hadn't considered.
+          0.8–1.0: genuinely surprising, corrects a misconception, or provides a killer reframe.
 
         Output schema:
-        {"messages":[{"persona_id":"UUID","speak":true,"text":"string","priority":0.0,"confidence":0.0}]}
+        {"messages":[{"persona_id":"UUID","speak":true,"text":"string","priority":0.0,"confidence":0.0,"value":0.0}]}
         """
 
         let user = """
@@ -345,6 +379,11 @@ final class SidecastEngine {
         }
     }
 
+    /// Web search is enabled when the provider is OpenRouter and any enabled persona has it on.
+    private func shouldUseWebSearch(for personas: [SidecastPersona]) -> Bool {
+        settings.llmProvider == .openRouter && personas.contains(where: { $0.webSearchEnabled })
+    }
+
     private var llmBaseURL: URL? {
         switch settings.llmProvider {
         case .openRouter: nil
@@ -368,6 +407,7 @@ private struct SidecastResponseMessage: Codable {
     let text: String
     let priority: Double?
     let confidence: Double?
+    let value: Double?
 
     enum CodingKeys: String, CodingKey {
         case personaID = "persona_id"
@@ -375,5 +415,6 @@ private struct SidecastResponseMessage: Codable {
         case text
         case priority
         case confidence
+        case value
     }
 }

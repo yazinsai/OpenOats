@@ -12,6 +12,7 @@ struct SidecastPersona: Identifiable, Codable, Sendable, Equatable {
     var cadence: PersonaCadence
     var evidencePolicy: PersonaEvidencePolicy
     var isEnabled: Bool
+    var webSearchEnabled: Bool
 
     init(
         id: UUID = UUID(),
@@ -24,7 +25,8 @@ struct SidecastPersona: Identifiable, Codable, Sendable, Equatable {
         verbosity: PersonaVerbosity,
         cadence: PersonaCadence,
         evidencePolicy: PersonaEvidencePolicy,
-        isEnabled: Bool = true
+        isEnabled: Bool = true,
+        webSearchEnabled: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -37,6 +39,23 @@ struct SidecastPersona: Identifiable, Codable, Sendable, Equatable {
         self.cadence = cadence
         self.evidencePolicy = evidencePolicy
         self.isEnabled = isEnabled
+        self.webSearchEnabled = webSearchEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        subtitle = try container.decode(String.self, forKey: .subtitle)
+        prompt = try container.decode(String.self, forKey: .prompt)
+        avatarSymbol = try container.decode(String.self, forKey: .avatarSymbol)
+        avatarTint = try container.decode(PersonaAvatarTint.self, forKey: .avatarTint)
+        avatarImagePath = try container.decode(String.self, forKey: .avatarImagePath)
+        verbosity = try container.decode(PersonaVerbosity.self, forKey: .verbosity)
+        cadence = try container.decode(PersonaCadence.self, forKey: .cadence)
+        evidencePolicy = try container.decode(PersonaEvidencePolicy.self, forKey: .evidencePolicy)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+        webSearchEnabled = try container.decodeIfPresent(Bool.self, forKey: .webSearchEnabled) ?? false
     }
 
     var avatarUsesImage: Bool {
@@ -47,12 +66,13 @@ struct SidecastPersona: Identifiable, Codable, Sendable, Equatable {
         SidecastPersona(
             name: "The Checker",
             subtitle: "Facts and missing nuance",
-            prompt: "Verify claims, spot weak assumptions, and correct timing, numbers, or framing. Stay calm and precise.",
+            prompt: "Verify claims with specific data: cite exact numbers, percentages, dates, dollar amounts, or named studies. Never make a general statement when a specific figure exists. If the speaker says something vague, counter with the precise number.",
             avatarSymbol: "checkmark.seal.fill",
             avatarTint: .green,
             verbosity: .short,
             cadence: .normal,
-            evidencePolicy: .required
+            evidencePolicy: .required,
+            webSearchEnabled: true
         ),
         SidecastPersona(
             name: "The Archivist",
@@ -62,7 +82,8 @@ struct SidecastPersona: Identifiable, Codable, Sendable, Equatable {
             avatarTint: .indigo,
             verbosity: .short,
             cadence: .normal,
-            evidencePolicy: .preferred
+            evidencePolicy: .preferred,
+            webSearchEnabled: true
         ),
         SidecastPersona(
             name: "The Sniper",
@@ -95,6 +116,7 @@ struct SidecastMessage: Identifiable, Sendable, Equatable {
     let timestamp: Date
     let confidence: Double
     let priority: Double
+    let value: Double
     let sourceBreadcrumb: String
 
     init(
@@ -105,6 +127,7 @@ struct SidecastMessage: Identifiable, Sendable, Equatable {
         timestamp: Date = .now,
         confidence: Double = 0,
         priority: Double = 0,
+        value: Double = 0.5,
         sourceBreadcrumb: String = ""
     ) {
         self.id = id
@@ -114,6 +137,7 @@ struct SidecastMessage: Identifiable, Sendable, Equatable {
         self.timestamp = timestamp
         self.confidence = confidence
         self.priority = priority
+        self.value = value
         self.sourceBreadcrumb = sourceBreadcrumb
     }
 }

@@ -259,6 +259,11 @@ private struct SidecastPersonaEditor: View {
                             }
 
                             Toggle("Enabled", isOn: $draft.isEnabled)
+
+                            Toggle("Web Search", isOn: $draft.webSearchEnabled)
+                            Text("Lets this persona cite live web results. Requires OpenRouter.")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
                         }
                     }
                 }
