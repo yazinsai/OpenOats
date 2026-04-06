@@ -36,14 +36,79 @@ export interface ContextWindow {
   conversationSummary: string;
 }
 
+// --- Summary state ---
 let runningSummary = "";
-let segmentsSinceLastSummary = 0;
-let lastSummarizedIndex = -1;
+let summaryCoversUpToIndex = -1;
+let summaryInFlight = false;
 
 export function resetSummary(): void {
   runningSummary = "";
-  segmentsSinceLastSummary = 0;
-  lastSummarizedIndex = -1;
+  summaryCoversUpToIndex = -1;
+  summaryInFlight = false;
+}
+
+export function getSummary(): string {
+  return runningSummary;
+}
+
+/**
+ * Ensure a summary exists that covers content before the rolling window.
+ * Called before every generation. Handles both forward playback and seeks.
+ */
+export async function ensureSummary(
+  segments: TranscriptSegment[],
+  currentTime: number,
+  settings: AppSettings,
+  llmCall: (systemPrompt: string, userPrompt: string) => Promise<string>
+): Promise<void> {
+  if (summaryInFlight) return;
+
+  const available = getSegmentsUpTo(segments, currentTime);
+  if (available.length === 0) return;
+
+  // The window covers the last N segments. Everything before that needs summarizing.
+  const windowStart = Math.max(0, available.length - settings.windowSize);
+  if (windowStart <= 0) return; // Not enough content to need a summary
+
+  // Did we seek backward? If so, invalidate the summary.
+  if (windowStart < summaryCoversUpToIndex) {
+    runningSummary = "";
+    summaryCoversUpToIndex = -1;
+  }
+
+  // Do we need a new/updated summary?
+  // Either we have no summary, or there are 15+ new segments since last summary.
+  const newSegsSinceSummary = windowStart - Math.max(0, summaryCoversUpToIndex);
+  if (summaryCoversUpToIndex >= 0 && newSegsSinceSummary < settings.summaryRefreshInterval) {
+    return; // Summary is fresh enough
+  }
+
+  // Build the text to summarize: everything from where the last summary left off
+  // up to the window boundary.
+  const summarizeFrom = Math.max(0, summaryCoversUpToIndex);
+  const toSummarize = available.slice(summarizeFrom, windowStart);
+  if (toSummarize.length === 0) return;
+
+  const transcript = toSummarize.map((s) => s.text).join(" ");
+
+  const systemPrompt =
+    "You are a conversation summarizer for a podcast. Produce a concise running summary. Focus on: key topics discussed, claims made, names mentioned, and open questions. Max 200 words. No preamble — just the summary.";
+
+  const userPrompt = runningSummary
+    ? `Previous summary:\n${runningSummary}\n\nNew content to incorporate:\n${transcript}`
+    : `Summarize this conversation so far:\n${transcript}`;
+
+  summaryInFlight = true;
+  try {
+    console.log(`[transcript] summarizing segments ${summarizeFrom}–${windowStart} (${toSummarize.length} segs)`);
+    runningSummary = await llmCall(systemPrompt, userPrompt);
+    summaryCoversUpToIndex = windowStart;
+    console.log(`[transcript] summary updated, covers up to segment ${windowStart}`);
+  } catch (err) {
+    console.error("[transcript] summary update failed:", err);
+  } finally {
+    summaryInFlight = false;
+  }
 }
 
 export function buildContextWindow(
@@ -69,79 +134,31 @@ export function buildContextWindow(
     .join("\n");
 
   let widerContext: string;
-  let summary = "No structured state yet.";
 
   switch (settings.contextMode) {
     case "full": {
       const fullText = available.map((s) => `Speaker: ${s.text}`).join("\n");
-      // Truncate to char limit
       widerContext =
         fullText.length > settings.fullModeCharLimit
           ? "..." + fullText.slice(-settings.fullModeCharLimit)
           : fullText;
       break;
     }
-    case "window": {
-      const windowSegs = available.slice(-settings.windowSize);
-      widerContext = windowSegs.map((s) => `Speaker: ${s.text}`).join("\n");
-      break;
-    }
+    case "window":
     case "summary-recent": {
       const windowSegs = available.slice(-settings.windowSize);
       widerContext = windowSegs.map((s) => `Speaker: ${s.text}`).join("\n");
-      summary = runningSummary || "No structured state yet.";
       break;
     }
   }
+
+  // Summary is always included regardless of context mode
+  const conversationSummary = runningSummary || "No structured state yet.";
 
   return {
     latestUtterance: `Speaker: ${latest.text}`,
     recentExchange,
     widerContext,
-    conversationSummary: summary,
+    conversationSummary,
   };
-}
-
-/**
- * Called periodically to update the running summary via LLM.
- * Returns true if a summary update was triggered.
- */
-export async function maybeUpdateSummary(
-  segments: TranscriptSegment[],
-  currentTime: number,
-  settings: AppSettings,
-  llmCall: (systemPrompt: string, userPrompt: string) => Promise<string>
-): Promise<boolean> {
-  if (settings.contextMode !== "summary-recent") return false;
-
-  const available = getSegmentsUpTo(segments, currentTime);
-  const currentIndex = available.length - 1;
-
-  // Check if enough new segments have passed since last summary
-  if (currentIndex - lastSummarizedIndex < settings.summaryRefreshInterval) {
-    return false;
-  }
-
-  // Summarize everything up to the window boundary
-  const boundaryIndex = Math.max(0, available.length - settings.windowSize);
-  const toSummarize = available.slice(0, boundaryIndex);
-  if (toSummarize.length === 0) return false;
-
-  const transcript = toSummarize.map((s) => s.text).join(" ");
-
-  const systemPrompt =
-    "You are a conversation summarizer. Produce a concise running summary of the conversation so far. Focus on: key topics discussed, claims made, decisions reached, and open questions. Keep it under 300 words.";
-  const userPrompt = runningSummary
-    ? `Previous summary:\n${runningSummary}\n\nNew content to incorporate:\n${transcript}`
-    : `Summarize this conversation:\n${transcript}`;
-
-  try {
-    runningSummary = await llmCall(systemPrompt, userPrompt);
-    lastSummarizedIndex = currentIndex;
-    segmentsSinceLastSummary = 0;
-    return true;
-  } catch (err) {
-    console.error("[transcript] summary update failed:", err);
-    return false;
-  }
 }

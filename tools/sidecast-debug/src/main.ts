@@ -4,7 +4,7 @@ import {
   fetchTranscript,
   findActiveSegmentIndex,
   buildContextWindow,
-  maybeUpdateSummary,
+  ensureSummary,
   resetSummary,
 } from "./transcript.ts";
 import { loadSettings, saveSettings } from "./settings.ts";
@@ -121,6 +121,9 @@ function onSeek(currentTime: number) {
   const idx = findActiveSegmentIndex(segments, currentTime);
   lastTriggeredSegmentIndex = idx;
 
+  // Seeks always invalidate the summary — it will rebuild for the new position
+  resetSummary();
+
   renderTranscriptViewer(
     document.getElementById("transcript-viewer")!,
     segments,
@@ -143,8 +146,8 @@ async function triggerSidecast(currentTime: number) {
       ? segments[0].start + 0.01
       : currentTime;
 
-    // Maybe update summary
-    await maybeUpdateSummary(segments, effectiveTime, settings, (sys, usr) =>
+    // Ensure summary covers content before the rolling window
+    await ensureSummary(segments, effectiveTime, settings, (sys, usr) =>
       llmCall(sys, usr, settings)
     );
 
