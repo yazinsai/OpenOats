@@ -128,7 +128,6 @@ export function renderSettingsPanel(
 
   // Intensity
   const intCell = el("div", "cfg-cell");
-  intCell.appendChild(label("Intensity"));
   intCell.appendChild(fieldSelect(
     [["quiet", "Quiet"], ["balanced", "Balanced"], ["lively", "Lively"]],
     settings.intensity,
@@ -386,7 +385,7 @@ export function renderTranscriptViewer(
   container.innerHTML = "";
   segments.forEach((seg, i) => {
     const div = document.createElement("div");
-    div.className = `transcript-seg${i === activeIndex ? " active" : ""}`;
+    div.className = `transcript-seg${i === activeIndex ? " active" : i > activeIndex ? " future" : ""}`;
 
     const minutes = Math.floor(seg.start / 60);
     const seconds = Math.floor(seg.start % 60);

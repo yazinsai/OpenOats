@@ -6,7 +6,7 @@ import type {
   FilteredCandidate,
   WebSearchCitation,
 } from "./types.ts";
-import { INTENSITY_CONFIG, VERBOSITY_CHAR_LIMIT, CADENCE_COOLDOWN_SECONDS } from "./types.ts";
+import { INTENSITY_CONFIG, CADENCE_COOLDOWN_SECONDS } from "./types.ts";
 import type { ContextWindow } from "./transcript.ts";
 
 // --- State ---
@@ -59,7 +59,7 @@ function buildPrompt(
   const personaText = enabledPersonas
     .map(
       (p) =>
-        `- id: ${p.id}\n  name: ${p.name}\n  subtitle: ${p.subtitle}\n  prompt: ${p.prompt}\n  verbosity: ${p.verbosity} (max ${VERBOSITY_CHAR_LIMIT[p.verbosity]} chars)\n  cadence: ${p.cadence}\n  evidence: ${p.evidencePolicy}`
+        `- id: ${p.id}\n  name: ${p.name}\n  subtitle: ${p.subtitle}\n  prompt: ${p.prompt}\n  verbosity: ${p.verbosity}\n  cadence: ${p.cadence}\n  evidence: ${p.evidencePolicy}`
     )
     .join("\n");
 
@@ -282,7 +282,6 @@ function filterAndRank(
     }
 
     // Sanitize text — strip URLs, markdown links, citations, and domain references
-    const limit = VERBOSITY_CHAR_LIMIT[persona.verbosity];
     let cleanedText = candidate.text
       .replace(/\[([^\]]*)\]\([^)]+\)/g, "$1")           // [text](url) → text (or empty if text is empty)
       .replace(/https?:\/\/\S+/g, "")                    // bare URLs
@@ -301,10 +300,6 @@ function filterAndRank(
       });
       continue;
     }
-    if (cleanedText.length > limit) {
-      cleanedText = cleanedText.slice(0, limit).trim();
-    }
-
     // Jaccard dedup
     if (dedupeCorpus.some((prev) => jaccard(prev, cleanedText) > 0.62)) {
       filtered.push({

@@ -26,6 +26,8 @@
 
       /* --- Panels --- */
       .panel { border-right: 1px solid var(--border); overflow-y: auto; padding: 16px; }
+      #player-panel { display: flex; flex-direction: column; overflow-y: hidden; }
+      #player-panel > *:not(#transcript-viewer) { flex-shrink: 0; }
       .panel:last-child { border-right: none; }
       .panel::-webkit-scrollbar { width: 4px; }
       .panel::-webkit-scrollbar-track { background: transparent; }
@@ -47,7 +49,7 @@
       .cfg-input-narrow { width: 48px; text-align: center; margin: 0; }
       .cfg-divider { border: none; border-top: 1px solid var(--border-subtle); margin: 18px 0; }
 
-      .cfg-tuning-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; overflow: hidden; align-items: end; }
+      .cfg-tuning-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; overflow: hidden; align-items: center; }
       .cfg-cell { min-width: 0; }
       .cfg-slider-wrap { margin-bottom: 2px; padding-bottom: 6px; }
       .cfg-slider-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
@@ -112,12 +114,13 @@
       .url-bar input:focus { border-color: var(--accent); }
       .url-bar button { font-family: inherit; }
       #transcript-viewer {
-        max-height: 300px; overflow-y: auto; margin-top: 8px;
+        flex: 1; min-height: 0; overflow-y: auto; margin-top: 8px;
         background: var(--surface); border-radius: 4px; padding: 6px;
       }
       .transcript-seg { padding: 2px 5px; border-radius: 2px; cursor: pointer; line-height: 1.5; font-size: 11px; }
       .transcript-seg:hover { background: var(--accent-dim); }
       .transcript-seg.active { background: rgba(129,140,248,0.2); }
+      .transcript-seg.future { opacity: 0.35; }
       .transcript-seg .ts { color: var(--text-dim); font-size: 10px; margin-right: 6px; font-variant-numeric: tabular-nums; }
 
       /* --- Sidecast Bubbles --- */

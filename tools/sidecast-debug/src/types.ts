@@ -12,12 +12,6 @@ export type PersonaVerbosity = "terse" | "short" | "medium";
 export type PersonaCadence = "rare" | "normal" | "active";
 export type PersonaEvidencePolicy = "required" | "preferred" | "optional";
 
-export const VERBOSITY_CHAR_LIMIT: Record<PersonaVerbosity, number> = {
-  terse: 80,
-  short: 140,
-  medium: 220,
-};
-
 export const CADENCE_COOLDOWN_SECONDS: Record<PersonaCadence, number> = {
   rare: 40,
   normal: 24,
