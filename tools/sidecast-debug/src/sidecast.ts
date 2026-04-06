@@ -4,6 +4,7 @@ import type {
   SidecastResponse,
   GenerationResult,
   FilteredCandidate,
+  WebSearchCitation,
 } from "./types.ts";
 import { INTENSITY_CONFIG, VERBOSITY_CHAR_LIMIT, CADENCE_COOLDOWN_SECONDS } from "./types.ts";
 import type { ContextWindow } from "./transcript.ts";
@@ -92,13 +93,19 @@ No KB evidence retrieved for this turn.`;
 }
 
 // --- LLM Call ---
-const LLM_TIMEOUT_MS = 20_000;
+const LLM_TIMEOUT_MS = 30_000;
+
+interface LLMResult {
+  content: string;
+  citations: WebSearchCitation[];
+}
 
 async function callLLM(
   system: string,
   user: string,
-  settings: AppSettings
-): Promise<string> {
+  settings: AppSettings,
+  webSearch: boolean = false
+): Promise<LLMResult> {
   let url: string;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -128,7 +135,7 @@ async function callLLM(
     }
   }
 
-  const body = {
+  const body: Record<string, any> = {
     model: settings.model,
     messages: [
       { role: "system", content: system },
@@ -138,6 +145,19 @@ async function callLLM(
     temperature: settings.temperature,
     stream: false,
   };
+
+  // Add web search plugin for OpenRouter
+  if (webSearch && settings.llmProvider === "openrouter") {
+    const plugin: Record<string, any> = {
+      id: "web",
+      max_results: settings.webSearchMaxResults,
+    };
+    if (settings.webSearchEngine !== "auto") {
+      plugin.engine = settings.webSearchEngine;
+    }
+    body.plugins = [plugin];
+    console.log(`[sidecast] web search enabled (engine: ${settings.webSearchEngine}, max: ${settings.webSearchMaxResults})`);
+  }
 
   console.log(`[sidecast] calling ${settings.llmProvider} (${settings.model}) — ${system.length + user.length} chars`);
 
@@ -167,7 +187,24 @@ async function callLLM(
   }
 
   const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? "";
+  const message = data.choices?.[0]?.message;
+  const content: string = message?.content ?? "";
+
+  // Parse citations from OpenRouter annotations
+  const citations: WebSearchCitation[] = [];
+  if (message?.annotations) {
+    for (const ann of message.annotations) {
+      if (ann.type === "url_citation" && ann.url_citation) {
+        citations.push({
+          url: ann.url_citation.url,
+          title: ann.url_citation.title ?? "",
+          content: ann.url_citation.content,
+        });
+      }
+    }
+  }
+
+  return { content, citations };
 }
 
 /** Standalone LLM call for summary generation */
@@ -176,7 +213,8 @@ export async function llmCall(
   userPrompt: string,
   settings: AppSettings
 ): Promise<string> {
-  return callLLM(systemPrompt, userPrompt, settings);
+  const result = await callLLM(systemPrompt, userPrompt, settings);
+  return result.content;
 }
 
 // --- JSON Extraction ---
@@ -271,12 +309,12 @@ function filterAndRank(
       continue;
     }
 
-    // Evidence policy
-    if (persona.evidencePolicy === "required") {
+    // Evidence policy — skip filter if persona has web search enabled (evidence comes from web)
+    if (persona.evidencePolicy === "required" && !persona.webSearchEnabled) {
       filtered.push({
         personaName: persona.name,
         text: cleanedText,
-        reason: "Evidence required but none available (no KB)",
+        reason: "Evidence required but none available (no KB, web search off)",
       });
       continue;
     }
@@ -320,6 +358,8 @@ export async function generate(
         systemPrompt: "",
         userPrompt: "",
         skipped: true,
+        citations: [],
+        webSearchUsed: false,
       };
     }
   }
@@ -329,7 +369,13 @@ export async function generate(
   const { system, user } = buildPrompt(context, settings);
   const promptCharCount = system.length + user.length;
 
-  const rawResponse = await callLLM(system, user, settings);
+  // Enable web search if any enabled persona has it turned on
+  const enabledPersonas = settings.personas.filter((p) => p.isEnabled);
+  const webSearch = enabledPersonas.some((p) => p.webSearchEnabled);
+
+  const llmResult = await callLLM(system, user, settings, webSearch);
+  const rawResponse = llmResult.content;
+  const citations = llmResult.citations;
 
   let parsed: SidecastResponse;
   try {
@@ -343,6 +389,8 @@ export async function generate(
       systemPrompt: system,
       userPrompt: user,
       skipped: false,
+      citations,
+      webSearchUsed: webSearch,
     };
   }
 
@@ -365,5 +413,5 @@ export async function generate(
     });
   }
 
-  return { accepted, filtered, rawResponse, promptCharCount, systemPrompt: system, userPrompt: user, skipped: false };
+  return { accepted, filtered, rawResponse, promptCharCount, systemPrompt: system, userPrompt: user, skipped: false, citations, webSearchUsed: webSearch };
 }

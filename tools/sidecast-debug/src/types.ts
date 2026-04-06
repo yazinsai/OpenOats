@@ -34,6 +34,7 @@ export interface SidecastPersona {
   cadence: PersonaCadence;
   evidencePolicy: PersonaEvidencePolicy;
   isEnabled: boolean;
+  webSearchEnabled: boolean;
 }
 
 // --- Sidecast Messages ---
@@ -76,6 +77,8 @@ export interface GenerationResult {
   systemPrompt: string;
   userPrompt: string;
   skipped: boolean;
+  citations: WebSearchCitation[];
+  webSearchUsed: boolean;
 }
 
 export interface DebugLogEntry {
@@ -88,6 +91,13 @@ export interface DebugLogEntry {
 // --- Settings ---
 
 export type LLMProvider = "openrouter" | "ollama" | "openai-compatible";
+export type WebSearchEngine = "auto" | "native" | "exa" | "parallel" | "firecrawl";
+
+export interface WebSearchCitation {
+  url: string;
+  title: string;
+  content?: string;
+}
 export type ContextMode = "full" | "window" | "summary-recent";
 export type SidecastIntensity = "quiet" | "balanced" | "lively";
 
@@ -136,6 +146,10 @@ export interface AppSettings {
   systemPromptTemplate: string;
   forceFire: boolean;
 
+  // Web Search
+  webSearchEngine: WebSearchEngine;
+  webSearchMaxResults: number;
+
   // Personas
   personas: SidecastPersona[];
 }
@@ -152,6 +166,7 @@ export const STARTER_PERSONAS: SidecastPersona[] = [
     cadence: "normal",
     evidencePolicy: "required",
     isEnabled: true,
+    webSearchEnabled: true,
   },
   {
     id: crypto.randomUUID(),
@@ -164,6 +179,7 @@ export const STARTER_PERSONAS: SidecastPersona[] = [
     cadence: "normal",
     evidencePolicy: "preferred",
     isEnabled: true,
+    webSearchEnabled: true,
   },
   {
     id: crypto.randomUUID(),
@@ -176,6 +192,7 @@ export const STARTER_PERSONAS: SidecastPersona[] = [
     cadence: "rare",
     evidencePolicy: "optional",
     isEnabled: true,
+    webSearchEnabled: false,
   },
   {
     id: crypto.randomUUID(),
@@ -188,6 +205,7 @@ export const STARTER_PERSONAS: SidecastPersona[] = [
     cadence: "rare",
     evidencePolicy: "optional",
     isEnabled: true,
+    webSearchEnabled: false,
   },
 ];
 

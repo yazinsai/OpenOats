@@ -43,6 +43,9 @@ function defaultSettings(): AppSettings {
     systemPromptTemplate: DEFAULT_SYSTEM_PROMPT,
     forceFire: false,
 
+    webSearchEngine: "auto",
+    webSearchMaxResults: 5,
+
     personas: STARTER_PERSONAS.map((p) => ({ ...p, id: crypto.randomUUID() })),
   };
 }
@@ -59,6 +62,7 @@ export function addPersona(settings: AppSettings): AppSettings {
     cadence: "normal",
     evidencePolicy: "optional",
     isEnabled: true,
+    webSearchEnabled: false,
   };
   return { ...settings, personas: [...settings.personas, newPersona] };
 }

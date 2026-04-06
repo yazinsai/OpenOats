@@ -142,6 +142,18 @@ export function renderSettingsPanel(
   scBody.appendChild(promptArea);
   container.appendChild(section("Sidecast", scBody));
 
+  // Web Search section
+  const wsBody = h("div", {});
+  wsBody.appendChild(
+    selectRow("Engine", [["auto", "Auto (native or Exa)"], ["native", "Native"], ["exa", "Exa"], ["parallel", "Parallel"], ["firecrawl", "Firecrawl"]], settings.webSearchEngine, (v) => {
+      settings.webSearchEngine = v as AppSettings["webSearchEngine"];
+      saveSettings(settings);
+    })
+  );
+  wsBody.appendChild(sliderRow("Max Results", 1, 10, 1, settings.webSearchMaxResults, (v) => (settings.webSearchMaxResults = v)));
+  wsBody.appendChild(h("div", { style: "font-size:11px;color:var(--text-muted);margin-top:4px" }, "Toggle web search per persona below. Only applies to OpenRouter."));
+  container.appendChild(section("Web Search", wsBody));
+
   // Personas section
   const personasBody = h("div", {});
   settings.personas.forEach((persona, idx) => {
@@ -192,11 +204,25 @@ function renderPersonaCard(
   const toggle = document.createElement("input");
   toggle.type = "checkbox";
   toggle.checked = persona.isEnabled;
+  toggle.title = "Enable persona";
   toggle.addEventListener("change", () => {
     persona.isEnabled = toggle.checked;
     saveSettings(settings);
   });
   card.appendChild(toggle);
+
+  const webBtn = document.createElement("button");
+  webBtn.className = "secondary";
+  webBtn.textContent = persona.webSearchEnabled ? "🔍" : "—";
+  webBtn.title = persona.webSearchEnabled ? "Web search: ON (click to disable)" : "Web search: OFF (click to enable)";
+  webBtn.style.cssText = "padding:2px 6px;font-size:12px;min-width:24px;";
+  webBtn.addEventListener("click", () => {
+    persona.webSearchEnabled = !persona.webSearchEnabled;
+    webBtn.textContent = persona.webSearchEnabled ? "🔍" : "—";
+    webBtn.title = persona.webSearchEnabled ? "Web search: ON (click to disable)" : "Web search: OFF (click to enable)";
+    saveSettings(settings);
+  });
+  card.appendChild(webBtn);
 
   const delBtn = document.createElement("button");
   delBtn.className = "secondary";
@@ -379,8 +405,11 @@ export function renderDebugLog(
       ? "cooldown"
       : `${r.accepted.length} shown, ${r.filtered.length} filtered`;
 
+    const webTag = r.webSearchUsed ? `<span class="debug-badge debug-badge-web">web</span>` : "";
+
     summary.innerHTML =
       `<span class="debug-badge debug-badge-${badge}">${badgeLabel}</span>` +
+      webTag +
       `<span class="debug-time">${formatVideoTime(entry.timestamp)}</span>` +
       `<span class="debug-wall">${entry.wallTime.toLocaleTimeString()}</span>` +
       `<span class="debug-chars">${r.promptCharCount > 0 ? `~${r.promptCharCount} chars` : ""}</span>`;
@@ -413,6 +442,24 @@ export function renderDebugLog(
         `<summary class="debug-sub-summary">LLM Response</summary>` +
         `<pre class="debug-pre">${escapeHtml(r.rawResponse)}</pre>`;
       body.appendChild(respDetails);
+
+      // Web search citations
+      if (r.citations.length > 0) {
+        const citDetails = document.createElement("details");
+        citDetails.className = "debug-sub";
+        let citHtml = `<summary class="debug-sub-summary">Web Citations (${r.citations.length})</summary><div style="padding:4px 0">`;
+        r.citations.forEach((c) => {
+          const domain = new URL(c.url).hostname;
+          citHtml += `<div class="debug-citation">`;
+          citHtml += `<a href="${escapeHtml(c.url)}" target="_blank" class="debug-citation-link">${escapeHtml(c.title || domain)}</a>`;
+          citHtml += `<span class="debug-citation-domain">${escapeHtml(domain)}</span>`;
+          if (c.content) citHtml += `<div class="debug-citation-snippet">${escapeHtml(c.content.slice(0, 200))}${c.content.length > 200 ? "..." : ""}</div>`;
+          citHtml += `</div>`;
+        });
+        citHtml += `</div>`;
+        citDetails.innerHTML = citHtml;
+        body.appendChild(citDetails);
+      }
 
       // Accepted messages
       if (r.accepted.length > 0) {
