@@ -7,6 +7,7 @@ struct SidecastSettingsTab: View {
 
     @State private var editingPersona: SidecastPersona?
     @State private var draftPersona = SidecastSettingsTab.newPersonaDraft()
+    @State private var importError: String?
 
     var body: some View {
         ScrollView {
@@ -68,8 +69,76 @@ struct SidecastSettingsTab: View {
 
                         Spacer()
 
+                        Button("Import Preset") {
+                            importPreset()
+                        }
+                        .font(.system(size: 12))
+
                         Button("Reset Starter Cast") {
                             settings.sidecastPersonas = SidecastPersona.starterPack
+                        }
+                        .font(.system(size: 12))
+                    }
+
+                    if let importError {
+                        Text(importError)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section("Tuning") {
+                    HStack {
+                        Text("Temperature")
+                            .font(.system(size: 12))
+                        Spacer()
+                        TextField("", value: $settings.sidecastTemperature, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 60)
+                            .font(.system(size: 12))
+                    }
+
+                    HStack {
+                        Text("Max Tokens")
+                            .font(.system(size: 12))
+                        Spacer()
+                        TextField("", value: $settings.sidecastMaxTokens, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 60)
+                            .font(.system(size: 12))
+                    }
+
+                    HStack {
+                        Text("Min Value Threshold")
+                            .font(.system(size: 12))
+                        Spacer()
+                        TextField("", value: $settings.sidecastMinValueThreshold, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 60)
+                            .font(.system(size: 12))
+                    }
+
+                    Text("Messages with value below threshold are filtered out.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("System Prompt") {
+                    Text("Custom system prompt for sidecast generation. Leave empty to use the built-in default.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    TextEditor(text: $settings.sidecastSystemPrompt)
+                        .font(.system(size: 11, design: .monospaced))
+                        .frame(minHeight: 120)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.secondary.opacity(0.2))
+                        )
+
+                    if !settings.sidecastSystemPrompt.isEmpty {
+                        Button("Reset to Default") {
+                            settings.sidecastSystemPrompt = ""
                         }
                         .font(.system(size: 12))
                     }
@@ -113,6 +182,24 @@ struct SidecastSettingsTab: View {
             cadence: .normal,
             evidencePolicy: .optional
         )
+    }
+
+    private func importPreset() {
+        importError = nil
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let preset = try JSONDecoder().decode(SidecastPreset.self, from: data)
+            preset.apply(to: settings)
+        } catch {
+            importError = "Import failed: \(error.localizedDescription)"
+        }
     }
 }
 
@@ -259,6 +346,11 @@ private struct SidecastPersonaEditor: View {
                             }
 
                             Toggle("Enabled", isOn: $draft.isEnabled)
+
+                            Toggle("Web Search", isOn: $draft.webSearchEnabled)
+                            Text("Lets this persona cite live web results. Requires OpenRouter.")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
                         }
                     }
                 }

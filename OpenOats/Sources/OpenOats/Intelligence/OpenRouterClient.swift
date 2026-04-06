@@ -22,12 +22,21 @@ actor OpenRouterClient {
         let content: String
     }
 
+    struct WebSearchPlugin: Codable, Sendable {
+        let id: String
+        let max_results: Int
+
+        static let `default` = WebSearchPlugin(id: "web", max_results: 5)
+    }
+
     struct ChatRequest: Codable {
         let model: String
         let messages: [Message]
         let stream: Bool
         let max_tokens: Int?
         let max_completion_tokens: Int?
+        let temperature: Double?
+        let plugins: [WebSearchPlugin]?
     }
 
     /// Streams the completion response, yielding text chunks.
@@ -46,7 +55,9 @@ actor OpenRouterClient {
                         messages: messages,
                         stream: true,
                         max_tokens: nil,
-                        max_completion_tokens: maxTokens
+                        max_completion_tokens: maxTokens,
+                        temperature: nil,
+                        plugins: nil
                     )
 
                     let targetURL = baseURL ?? Self.defaultBaseURL
@@ -100,14 +111,18 @@ actor OpenRouterClient {
         model: String,
         messages: [Message],
         maxTokens: Int = 512,
-        baseURL: URL? = nil
+        temperature: Double? = nil,
+        baseURL: URL? = nil,
+        webSearch: Bool = false
     ) async throws -> String {
         let request = ChatRequest(
             model: model,
             messages: messages,
             stream: false,
             max_tokens: nil,
-            max_completion_tokens: maxTokens
+            max_completion_tokens: maxTokens,
+            temperature: temperature,
+            plugins: webSearch ? [.default] : nil
         )
 
         let targetURL = baseURL ?? Self.defaultBaseURL

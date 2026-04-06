@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sidecast Debug</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      :root {
+        --bg: #141414; --surface: #1e1e1e; --surface-raised: #262626;
+        --border: #2a2a2a; --border-subtle: #222;
+        --text: #d4d4d4; --text-muted: #737373; --text-dim: #525252;
+        --accent: #818cf8; --accent-dim: rgba(129,140,248,0.12);
+        --green: #4ade80; --red: #f87171; --amber: #fbbf24; --blue: #7dd3fc;
+      }
+      body {
+        font-family: "SF Mono", "Fira Code", "JetBrains Mono", ui-monospace, monospace;
+        background: var(--bg); color: var(--text); font-size: 12px;
+        -webkit-font-smoothing: antialiased;
+      }
+      #app {
+        display: grid;
+        grid-template-columns: 300px 1fr 340px;
+        height: 100vh;
+      }
+
+      /* --- Panels --- */
+      .panel { border-right: 1px solid var(--border); overflow-y: auto; padding: 16px; }
+      #player-panel { display: flex; flex-direction: column; overflow-y: hidden; }
+      #player-panel > *:not(#transcript-viewer) { flex-shrink: 0; }
+      .panel:last-child { border-right: none; }
+      .panel::-webkit-scrollbar { width: 4px; }
+      .panel::-webkit-scrollbar-track { background: transparent; }
+      .panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+      h2 { font-size: 11px; margin-bottom: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; font-weight: 500; }
+
+      /* --- Config Panel --- */
+      .cfg-group-heading {
+        font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px;
+        color: var(--text-dim); font-weight: 600; margin-bottom: 12px;
+      }
+      .cfg-label { display: block; font-size: 10px; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+      .cfg-input {
+        width: 100%; padding: 7px 9px; background: var(--surface); border: 1px solid var(--border);
+        border-radius: 4px; color: var(--text); font-size: 11px; font-family: inherit;
+        margin-bottom: 10px; outline: none; transition: border-color 0.15s;
+      }
+      .cfg-input:focus { border-color: var(--accent); }
+      .cfg-input-narrow { width: 48px; text-align: center; margin: 0; }
+      .cfg-divider { border: none; border-top: 1px solid var(--border-subtle); margin: 18px 0; }
+
+      .cfg-tuning-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; overflow: hidden; align-items: center; }
+      .cfg-cell { min-width: 0; }
+      .cfg-slider-wrap { margin-bottom: 2px; padding-bottom: 6px; }
+      .cfg-slider-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+      .cfg-slider-header .cfg-label { margin-bottom: 0; }
+      .cfg-slider-val { font-variant-numeric: tabular-nums; color: var(--text); font-size: 11px; font-weight: 500; }
+      .cfg-range { width: 100%; height: 3px; -webkit-appearance: none; background: var(--border); border-radius: 2px; outline: none; display: block; }
+      .cfg-range::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); cursor: pointer; }
+
+      .cfg-toggle { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; font-size: 11px; color: var(--text-muted); }
+      .cfg-toggle input[type="checkbox"] { accent-color: var(--accent); }
+
+      .cfg-ws-row { display: flex; align-items: center; gap: 8px; margin: 6px 0 4px; }
+      .cfg-ws-row .cfg-input { width: auto; flex: 1; margin-bottom: 0; }
+      .cfg-ws-label { font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
+
+      .cfg-persona-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+      .cfg-persona-header .cfg-group-heading { margin-bottom: 0; }
+      .cfg-persona-btns { display: flex; gap: 6px; }
+      .cfg-btn-sm {
+        padding: 3px 10px; background: var(--surface); border: 1px solid var(--border);
+        border-radius: 4px; color: var(--text-muted); cursor: pointer; font-size: 10px; font-family: inherit;
+      }
+      .cfg-btn-sm:hover { border-color: var(--accent); color: var(--text); }
+
+      .cfg-prompt-details { margin-top: 8px; }
+      .cfg-prompt-summary {
+        font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+        color: var(--text-dim); cursor: pointer; padding: 6px 0; list-style: none;
+      }
+      .cfg-prompt-summary::-webkit-details-marker { display: none; }
+      .cfg-prompt-summary::before { content: "\25B8 "; font-size: 8px; }
+      .cfg-prompt-details[open] > .cfg-prompt-summary::before { content: "\25BE "; }
+      .cfg-prompt-textarea { min-height: 160px; resize: vertical; line-height: 1.55; font-size: 10px; }
+
+      .cfg-btn-export {
+        width: 100%; padding: 8px; margin-top: 4px;
+        background: var(--accent); border: none; border-radius: 5px;
+        color: #fff; cursor: pointer; font-size: 11px; font-family: inherit; font-weight: 500;
+      }
+      .cfg-btn-export:hover { opacity: 0.85; }
+
+      /* --- Persona Cards --- */
+      .persona-card {
+        background: var(--surface); border-radius: 5px; padding: 10px 12px; margin-bottom: 6px;
+        border: 1px solid var(--border);
+      }
+      .persona-card.disabled { opacity: 0.35; }
+      .persona-row { display: flex; align-items: center; gap: 10px; }
+      .persona-dot {
+        width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 13px; line-height: 1;
+      }
+      .persona-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+      .persona-name { font-weight: 600; font-size: 11px; line-height: 1.3; }
+      .persona-subtitle { font-size: 10px; color: var(--text-dim); line-height: 1.2; }
+      .persona-controls { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+      .persona-enable-pill {
+        padding: 2px 7px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+        border-radius: 9px; cursor: pointer; line-height: 1.4;
+        background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+        opacity: 0.45; transition: all 0.15s ease;
+      }
+      .persona-enable-pill:hover { opacity: 0.7; }
+      .persona-enable-pill.on {
+        opacity: 1; color: var(--text); border-color: rgba(255,255,255,0.25); background: rgba(255,255,255,0.08);
+      }
+      .persona-icon-btn {
+        padding: 3px 6px; background: none; border: 1px solid transparent;
+        border-radius: 4px; color: var(--text-dim); cursor: pointer; font-size: 11px; line-height: 1;
+      }
+      .persona-icon-btn:hover { border-color: var(--border); color: var(--text-muted); }
+      .persona-icon-btn.active { color: var(--blue); border-color: rgba(125,211,252,0.2); background: rgba(125,211,252,0.06); }
+      .persona-icon-btn.danger:hover { color: var(--red); border-color: rgba(248,113,113,0.3); }
+      .persona-web-pill {
+        padding: 2px 7px; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+        border-radius: 9px; cursor: pointer; line-height: 1.4;
+        background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+        opacity: 0.45; transition: all 0.15s ease;
+      }
+      .persona-web-pill:hover { opacity: 0.7; }
+      .persona-web-pill.on {
+        opacity: 1; color: #34d399; border-color: rgba(52,211,153,0.35); background: rgba(52,211,153,0.08);
+      }
+      .persona-edit { padding: 10px 0 4px 18px; }
+      .persona-behavior { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 8px; }
+      .persona-behavior-cell .cfg-label { font-size: 9px; margin-bottom: 2px; }
+      .persona-behavior-cell .cfg-input { font-size: 10px; padding: 4px 6px; }
+
+      /* --- URL Bar & Transcript --- */
+      .url-bar { display: flex; gap: 6px; margin-bottom: 10px; }
+      .url-bar input { flex: 1; font-family: inherit; padding: 5px 7px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-size: 11px; outline: none; }
+      .url-bar input:focus { border-color: var(--accent); }
+      .url-bar button { font-family: inherit; }
+      #transcript-viewer {
+        flex: 1; min-height: 0; overflow-y: auto; margin-top: 8px;
+        background: var(--surface); border-radius: 4px; padding: 6px;
+      }
+      .transcript-seg { padding: 2px 5px; border-radius: 2px; cursor: pointer; line-height: 1.5; font-size: 11px; }
+      .transcript-seg:hover { background: var(--accent-dim); }
+      .transcript-seg.active { background: rgba(129,140,248,0.2); }
+      .transcript-seg.future { opacity: 0.35; }
+      .transcript-seg .ts { color: var(--text-dim); font-size: 10px; margin-right: 6px; font-variant-numeric: tabular-nums; }
+
+      /* --- Sidecast Bubbles --- */
+      .bubble {
+        position: relative;
+        background: var(--surface); border-radius: 12px 12px 12px 4px;
+        padding: 10px 12px; margin-bottom: 10px; margin-right: 16px;
+        border: 1px solid var(--border-subtle);
+      }
+      .bubble-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+      .bubble-name { font-weight: 600; font-size: 11px; }
+      .bubble-meta { font-size: 9px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+      .bubble-text { font-size: 12px; line-height: 1.5; color: var(--text); }
+      /* --- Status Bar --- */
+      .status-bar {
+        display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+        background: var(--surface); border-bottom: 1px solid var(--border);
+        grid-column: 1 / -1; font-size: 11px;
+      }
+      .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+      .status-dot.ok { background: var(--green); }
+      .status-dot.error { background: var(--red); }
+      .status-dot.loading { background: var(--amber); }
+
+      /* --- Buttons --- */
+      button {
+        padding: 5px 10px; background: var(--accent); color: #fff; border: none;
+        border-radius: 3px; cursor: pointer; font-size: 11px; font-family: inherit;
+      }
+      button:hover { opacity: 0.85; }
+      button.secondary { background: var(--surface); border: 1px solid var(--border); color: var(--text-muted); }
+      button.secondary:hover { border-color: var(--accent); color: var(--text); }
+
+      /* --- Debug Log --- */
+      .filter-log { font-size: 10px; color: var(--text-muted); padding: 3px 6px; border-left: 2px solid var(--border); margin-bottom: 3px; }
+      .debug-entry { margin-bottom: 3px; border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
+      .debug-entry[open] { border-color: #444; }
+      .debug-entry-summary {
+        cursor: pointer; padding: 5px 7px; background: var(--surface);
+        display: flex; align-items: center; gap: 6px; font-size: 10px;
+        list-style: none; user-select: none;
+      }
+      .debug-entry-summary::-webkit-details-marker { display: none; }
+      .debug-entry-summary::before { content: "\25B8"; font-size: 8px; color: var(--text-dim); flex-shrink: 0; }
+      .debug-entry[open] > .debug-entry-summary::before { content: "\25BE"; }
+      .debug-entry-body { padding: 5px 7px; font-size: 10px; }
+      .debug-badge { padding: 1px 5px; border-radius: 2px; font-size: 9px; font-weight: 600; flex-shrink: 0; letter-spacing: 0.3px; }
+      .debug-badge-ok { background: #14532d; color: #86efac; }
+      .debug-badge-empty { background: #292524; color: #a8a29e; }
+      .debug-badge-skip { background: #451a03; color: #fdba74; }
+      .debug-badge-web { background: #172554; color: var(--blue); }
+      .debug-time { font-variant-numeric: tabular-nums; color: var(--text-dim); }
+      .debug-wall { color: var(--text-dim); font-size: 9px; }
+      .debug-chars { color: var(--text-dim); font-size: 9px; margin-left: auto; }
+      .debug-sub { margin: 3px 0; }
+      .debug-sub-summary { cursor: pointer; font-size: 10px; color: var(--accent); list-style: none; padding: 2px 0; }
+      .debug-sub-summary::-webkit-details-marker { display: none; }
+      .debug-sub-summary::before { content: "\25B8 "; font-size: 8px; }
+      .debug-sub[open] > .debug-sub-summary::before { content: "\25BE "; }
+      .debug-pre {
+        background: var(--bg); padding: 6px; border-radius: 3px;
+        white-space: pre-wrap; font-size: 10px; font-family: inherit;
+        max-height: 200px; overflow-y: auto; margin: 3px 0;
+        border: 1px solid var(--border); line-height: 1.45;
+      }
+      .debug-section-label { font-size: 9px; color: var(--text-dim); margin: 5px 0 2px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
+      .debug-accepted { font-size: 10px; padding: 3px 6px; margin-bottom: 2px; border-left: 2px solid var(--green); line-height: 1.4; }
+      .debug-meta { font-size: 9px; color: var(--text-dim); }
+      .debug-citation { padding: 3px 0; border-bottom: 1px solid var(--border); }
+      .debug-citation:last-child { border-bottom: none; }
+      .debug-citation-link { color: var(--accent); text-decoration: none; font-size: 10px; }
+      .debug-citation-link:hover { text-decoration: underline; }
+      .debug-citation-domain { font-size: 9px; color: var(--text-dim); margin-left: 4px; }
+      .debug-citation-snippet { font-size: 9px; color: var(--text-dim); margin-top: 1px; line-height: 1.3; }
+      .debug-info { font-size: 9px; color: var(--text-dim); margin-top: 4px; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="status-bar">
+        <div id="status-dot" class="status-dot"></div>
+        <span id="status-text">Paste a YouTube URL to start</span>
+      </div>
+      <div id="settings-panel" class="panel"></div>
+      <div id="player-panel" class="panel">
+        <div class="url-bar">
+          <input id="yt-url" type="text" placeholder="Paste YouTube URL..." />
+          <button id="yt-load">Load</button>
+        </div>
+        <div id="yt-player-container"></div>
+        <div id="transcript-viewer"></div>
+      </div>
+      <div id="sidecast-panel" class="panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <h2>Sidecast Output</h2>
+          <div style="display:flex;gap:4px;">
+            <button id="generate-btn" class="secondary">Generate Now</button>
+            <button id="clear-btn" class="secondary">Clear</button>
+          </div>
+        </div>
+        <div id="sidecast-bubbles"></div>
+        <div id="debug-log" style="margin-top:8px;"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
