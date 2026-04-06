@@ -540,6 +540,7 @@ final class LiveSessionController {
         next.modelDisplayName = activeModelRaw.split(separator: "/").last.map(String.init) ?? activeModelRaw
         next.showLiveTranscript = settings.showLiveTranscript
         next.isMicMuted = coordinator.transcriptionEngine?.isMicMuted ?? false
+        next.scratchpadText = state.scratchpadText
 
         state = next
     }
