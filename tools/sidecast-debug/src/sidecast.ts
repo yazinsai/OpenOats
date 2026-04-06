@@ -281,11 +281,16 @@ function filterAndRank(
       }
     }
 
-    // Sanitize text
+    // Sanitize text — strip URLs, markdown links, citations, and domain references
     const limit = VERBOSITY_CHAR_LIMIT[persona.verbosity];
     let cleanedText = candidate.text
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")          // [text](url) → text
+      .replace(/https?:\/\/\S+/g, "")                    // bare URLs
+      .replace(/\b\w+\.(com|org|net|io|ai|app|dev|co|edu|gov)\b/gi, "")  // bare domains
+      .replace(/\([^)]*\b(source|via|per|from|according)\b[^)]*\)/gi, "") // (source: ...) parentheticals
       .replace(/\n/g, " ")
       .replace(/ {2,}/g, " ")
+      .replace(/[.,;]\s*$/, "")                           // trailing punctuation from stripped content
       .trim();
     if (cleanedText.length === 0) {
       filtered.push({

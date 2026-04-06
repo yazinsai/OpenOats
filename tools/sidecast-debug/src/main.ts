@@ -25,9 +25,12 @@ import {
 let settings: AppSettings = loadSettings();
 let segments: TranscriptSegment[] = [];
 let lastTriggeredSegmentIndex = -1;
+let lastGeneratedSegmentIndex = -1;
 let isGenerating = false;
 let debugLog: DebugLogEntry[] = [];
 let debugLogCounter = 0;
+
+const MIN_NEW_SEGMENTS_BEFORE_GENERATION = 10;
 
 // --- Render settings panel ---
 function refreshSettings() {
@@ -67,6 +70,7 @@ async function loadVideo() {
   clearState();
   resetSummary();
   lastTriggeredSegmentIndex = -1;
+  lastGeneratedSegmentIndex = -1;
   segments = [];
   debugLog = [];
   debugLogCounter = 0;
@@ -101,10 +105,13 @@ function onTimeUpdate(currentTime: number) {
     (time) => player.seekTo(time)
   );
 
-  // Trigger sidecast when crossing a new segment boundary
+  // Trigger sidecast when enough new segments have accumulated
   if (idx > lastTriggeredSegmentIndex && idx >= 0) {
     lastTriggeredSegmentIndex = idx;
-    triggerSidecast(currentTime);
+    const newSegsSinceLastGen = idx - lastGeneratedSegmentIndex;
+    if (newSegsSinceLastGen >= MIN_NEW_SEGMENTS_BEFORE_GENERATION) {
+      triggerSidecast(currentTime);
+    }
   }
 }
 
@@ -156,6 +163,9 @@ async function triggerSidecast(currentTime: number) {
       isGenerating = false;
       return;
     }
+
+    // Track that a real generation happened at this segment
+    lastGeneratedSegmentIndex = lastTriggeredSegmentIndex;
 
     // Add to debug history
     debugLog.push({
