@@ -82,7 +82,8 @@ final class SidecastEngine {
                     apiKey: self.llmApiKey,
                     model: self.settings.activeRealtimeModel,
                     messages: prompt,
-                    maxTokens: 700,
+                    maxTokens: self.settings.sidecastMaxTokens,
+                    temperature: self.settings.sidecastTemperature,
                     baseURL: self.llmBaseURL,
                     webSearch: useWebSearch
                 )
@@ -165,7 +166,7 @@ final class SidecastEngine {
             }
 
             let value = max(0, min(1, candidate.value ?? 0.5))
-            if value < 0.5 { continue }
+            if value < settings.sidecastMinValueThreshold { continue }
 
             let evidenceRequired = persona.evidencePolicy == .required
             if evidenceRequired && !persona.webSearchEnabled && evidence.isEmpty {
@@ -286,34 +287,41 @@ final class SidecastEngine {
         let stateSummary = state.shortSummary.isEmpty ? "No structured state yet." : state.shortSummary
         let openQuestions = state.openQuestions.isEmpty ? "None" : state.openQuestions.joined(separator: "; ")
 
-        let system = """
-        You are Sidecast, a live multi-persona producer for a host-assist sidebar.
-        Decide which personas should speak right now in response to the latest utterance.
+        let systemTemplate = settings.sidecastSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let system: String
+        if systemTemplate.isEmpty {
+            system = """
+            You are Sidecast, a live multi-persona producer for a host-assist sidebar.
+            Decide which personas should speak right now in response to the latest utterance.
 
-        Quality bar:
-        - Only speak when you have genuine insight — a non-obvious fact, a sharp reframe, a useful correction, or a punchy callback.
-        - Silence is better than filler. If nothing clears the bar, return {"messages":[]}.
-        - Every bubble should make the host think "glad I saw that." If it wouldn't, don't send it.
+            Quality bar:
+            - Only speak when you have genuine insight — a non-obvious fact, a sharp reframe, a useful correction, or a punchy callback.
+            - Silence is better than filler. If nothing clears the bar, return {"messages":[]}.
+            - Every bubble should make the host think "glad I saw that." If it wouldn't, don't send it.
 
-        Rules:
-        - Return valid JSON only.
-        - Use at most \(settings.sidecastIntensity.maxMessagesPerTurn) persona messages.
-        - Never include URLs, links, citations, or source references in the text. The text is the insight itself, nothing else.
-        - No markdown, no emoji, no stage directions, no quotes around the text.
-        - Keep text extremely dense — every word must earn its place.
-        - Fact-heavy personas must lead with specific numbers, percentages, dates, or named sources. Never say "X is higher" — say "X is 42% higher." Avoid vague qualifiers like "significantly", "increasingly", "many" — replace them with the actual number. If no precise data is available, stay silent rather than generalizing.
-        - Humor and chaos personas can be sharp, but never hateful or unusably toxic.
-        - Set priority (0.0–1.0) honestly: 0.9+ means "the host needs to see this right now." Most messages should be 0.4–0.7.
-        - Set confidence (0.0–1.0) based on how sure you are the claim is correct. Below 0.5 means you're guessing.
-        - Set value (0.0–1.0): how much this message would genuinely help the host. Be brutally honest.
-          0.0–0.3: generic, obvious, or hollow — anyone could say this. Do not send.
-          0.4–0.5: mildly interesting but not actionable.
-          0.6–0.7: solid insight the host probably didn't know or hadn't considered.
-          0.8–1.0: genuinely surprising, corrects a misconception, or provides a killer reframe.
+            Rules:
+            - Return valid JSON only.
+            - Use at most \(settings.sidecastIntensity.maxMessagesPerTurn) persona messages.
+            - Never include URLs, links, citations, or source references in the text. The text is the insight itself, nothing else.
+            - No markdown, no emoji, no stage directions, no quotes around the text.
+            - Keep text extremely dense — every word must earn its place.
+            - Fact-heavy personas must lead with specific numbers, percentages, dates, or named sources. Never say "X is higher" — say "X is 42% higher." Avoid vague qualifiers like "significantly", "increasingly", "many" — replace them with the actual number. If no precise data is available, stay silent rather than generalizing.
+            - Humor and chaos personas can be sharp, but never hateful or unusably toxic.
+            - Set priority (0.0–1.0) honestly: 0.9+ means "the host needs to see this right now." Most messages should be 0.4–0.7.
+            - Set confidence (0.0–1.0) based on how sure you are the claim is correct. Below 0.5 means you're guessing.
+            - Set value (0.0–1.0): how much this message would genuinely help the host. Be brutally honest.
+              0.0–0.3: generic, obvious, or hollow — anyone could say this. Do not send.
+              0.4–0.5: mildly interesting but not actionable.
+              0.6–0.7: solid insight the host probably didn't know or hadn't considered.
+              0.8–1.0: genuinely surprising, corrects a misconception, or provides a killer reframe.
 
-        Output schema:
-        {"messages":[{"persona_id":"UUID","speak":true,"text":"string","priority":0.0,"confidence":0.0,"value":0.0}]}
-        """
+            Output schema:
+            {"messages":[{"persona_id":"UUID","speak":true,"text":"string","priority":0.0,"confidence":0.0,"value":0.0}]}
+            """
+        } else {
+            system = systemTemplate
+                .replacingOccurrences(of: "{{maxMessagesPerTurn}}", with: "\(settings.sidecastIntensity.maxMessagesPerTurn)")
+        }
 
         let user = """
         Latest utterance:

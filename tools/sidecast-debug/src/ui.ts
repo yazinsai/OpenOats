@@ -1,5 +1,5 @@
 import type { AppSettings, SidecastPersona, DebugLogEntry } from "./types.ts";
-import { saveSettings, addPersona, removePersona, resetPersonas } from "./settings.ts";
+import { saveSettings, addPersona, removePersona, resetPersonas, exportSettingsJSON } from "./settings.ts";
 
 type OnChange = (settings: AppSettings) => void;
 
@@ -266,6 +266,23 @@ export function renderSettingsPanel(
   });
   promptDetails.appendChild(promptArea);
   container.appendChild(promptDetails);
+
+  container.appendChild(divider());
+
+  // ── Export ──
+  const exportBtn = el("button", "cfg-btn-export");
+  exportBtn.textContent = "Export Settings JSON";
+  exportBtn.addEventListener("click", () => {
+    const json = exportSettingsJSON(settings);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "sidecast-preset.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+  container.appendChild(exportBtn);
 }
 
 // --- Persona Card ---
@@ -281,6 +298,9 @@ function renderPersonaCard(
 
   const dot = el("div", "persona-dot");
   dot.style.background = persona.avatarTint;
+  if (persona.avatarEmoji) {
+    dot.textContent = persona.avatarEmoji;
+  }
   row.appendChild(dot);
 
   const info = el("div", "persona-info");
@@ -357,6 +377,43 @@ function renderPersonaCard(
       }));
     }
   });
+
+  // Avatar row — emoji + color
+  const avatarRow = el("div", "persona-behavior");
+  const emojiCell = el("div", "persona-behavior-cell");
+  emojiCell.appendChild(label("Emoji"));
+  const emojiInp = document.createElement("input");
+  emojiInp.type = "text";
+  emojiInp.className = "cfg-input";
+  emojiInp.value = persona.avatarEmoji || "";
+  emojiInp.style.width = "50px";
+  emojiInp.style.textAlign = "center";
+  emojiInp.style.fontSize = "16px";
+  emojiInp.addEventListener("input", () => {
+    persona.avatarEmoji = emojiInp.value;
+    dot.textContent = emojiInp.value;
+    saveSettings(settings);
+  });
+  emojiCell.appendChild(emojiInp);
+  avatarRow.appendChild(emojiCell);
+
+  const colorCell = el("div", "persona-behavior-cell");
+  colorCell.appendChild(label("Color"));
+  const colorInp = document.createElement("input");
+  colorInp.type = "color";
+  colorInp.className = "cfg-input";
+  colorInp.value = persona.avatarTint;
+  colorInp.style.width = "50px";
+  colorInp.style.height = "28px";
+  colorInp.style.padding = "1px";
+  colorInp.addEventListener("input", () => {
+    persona.avatarTint = colorInp.value;
+    dot.style.background = colorInp.value;
+    saveSettings(settings);
+  });
+  colorCell.appendChild(colorInp);
+  avatarRow.appendChild(colorCell);
+  editDiv.appendChild(avatarRow);
 
   // Behavior row — compact inline selects
   const behaviorRow = el("div", "persona-behavior");
@@ -439,9 +496,10 @@ export function renderSidecastBubbles(
     bubble.className = "bubble";
     bubble.style.borderColor = tint + "30";
     bubble.style.background = tint + "10";
+    const emoji = persona?.avatarEmoji ?? "";
     bubble.innerHTML = `
       <div class="bubble-header">
-        <span class="bubble-name" style="color:${tint}">${msg.personaName}</span>
+        <span class="bubble-name" style="color:${tint}">${emoji ? emoji + " " : ""}${msg.personaName}</span>
         <span class="bubble-meta">v:${msg.value.toFixed(2)} p:${msg.priority.toFixed(2)} c:${msg.confidence.toFixed(2)}</span>
       </div>
       <div class="bubble-text">${escapeHtml(msg.text)}</div>

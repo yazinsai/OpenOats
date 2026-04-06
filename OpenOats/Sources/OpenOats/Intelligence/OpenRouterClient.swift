@@ -35,6 +35,7 @@ actor OpenRouterClient {
         let stream: Bool
         let max_tokens: Int?
         let max_completion_tokens: Int?
+        let temperature: Double?
         let plugins: [WebSearchPlugin]?
     }
 
@@ -55,6 +56,7 @@ actor OpenRouterClient {
                         stream: true,
                         max_tokens: nil,
                         max_completion_tokens: maxTokens,
+                        temperature: nil,
                         plugins: nil
                     )
 
@@ -109,6 +111,7 @@ actor OpenRouterClient {
         model: String,
         messages: [Message],
         maxTokens: Int = 512,
+        temperature: Double? = nil,
         baseURL: URL? = nil,
         webSearch: Bool = false
     ) async throws -> String {
@@ -118,6 +121,7 @@ actor OpenRouterClient {
             stream: false,
             max_tokens: nil,
             max_completion_tokens: maxTokens,
+            temperature: temperature,
             plugins: webSearch ? [.default] : nil
         )
 

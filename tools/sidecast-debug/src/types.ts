@@ -24,6 +24,7 @@ export interface SidecastPersona {
   subtitle: string;
   prompt: string;
   avatarTint: string;
+  avatarEmoji: string;
   verbosity: PersonaVerbosity;
   cadence: PersonaCadence;
   evidencePolicy: PersonaEvidencePolicy;
@@ -156,6 +157,7 @@ export const STARTER_PERSONAS: SidecastPersona[] = [
     prompt:
       "Verify claims with specific data: cite exact numbers, percentages, dates, dollar amounts, or named studies. Never make a general statement when a specific figure exists. Search for statistics and quantitative evidence first. If the speaker says something vague, counter with the precise number.",
     avatarTint: "#22c55e",
+    avatarEmoji: "\u2714\uFE0F",
     verbosity: "short",
     cadence: "normal",
     evidencePolicy: "required",
@@ -169,6 +171,7 @@ export const STARTER_PERSONAS: SidecastPersona[] = [
     prompt:
       "Add useful background, comparisons, history, or precedent that helps the host understand what was just said.",
     avatarTint: "#6366f1",
+    avatarEmoji: "\uD83D\uDCDA",
     verbosity: "short",
     cadence: "normal",
     evidencePolicy: "preferred",
@@ -182,6 +185,7 @@ export const STARTER_PERSONAS: SidecastPersona[] = [
     prompt:
       "Write short, sharp, host-usable punch lines or callbacks. Prioritize timing and brevity over explanation.",
     avatarTint: "#f97316",
+    avatarEmoji: "\u26A1",
     verbosity: "terse",
     cadence: "rare",
     evidencePolicy: "optional",
@@ -195,6 +199,7 @@ export const STARTER_PERSONAS: SidecastPersona[] = [
     prompt:
       "Inject pointed skepticism or contrarian heat without becoming abusive or unusably toxic. Make the tension entertaining.",
     avatarTint: "#ef4444",
+    avatarEmoji: "\uD83D\uDD25",
     verbosity: "terse",
     cadence: "rare",
     evidencePolicy: "optional",

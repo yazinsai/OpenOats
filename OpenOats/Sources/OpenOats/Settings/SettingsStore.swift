@@ -307,6 +307,50 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _sidecastTemperature: Double
+    var sidecastTemperature: Double {
+        get { access(keyPath: \.sidecastTemperature); return _sidecastTemperature }
+        set {
+            withMutation(keyPath: \.sidecastTemperature) {
+                _sidecastTemperature = newValue
+                defaults.set(newValue, forKey: "sidecastTemperature")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _sidecastMaxTokens: Int
+    var sidecastMaxTokens: Int {
+        get { access(keyPath: \.sidecastMaxTokens); return _sidecastMaxTokens }
+        set {
+            withMutation(keyPath: \.sidecastMaxTokens) {
+                _sidecastMaxTokens = newValue
+                defaults.set(newValue, forKey: "sidecastMaxTokens")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _sidecastSystemPrompt: String
+    var sidecastSystemPrompt: String {
+        get { access(keyPath: \.sidecastSystemPrompt); return _sidecastSystemPrompt }
+        set {
+            withMutation(keyPath: \.sidecastSystemPrompt) {
+                _sidecastSystemPrompt = newValue
+                defaults.set(newValue, forKey: "sidecastSystemPrompt")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _sidecastMinValueThreshold: Double
+    var sidecastMinValueThreshold: Double {
+        get { access(keyPath: \.sidecastMinValueThreshold); return _sidecastMinValueThreshold }
+        set {
+            withMutation(keyPath: \.sidecastMinValueThreshold) {
+                _sidecastMinValueThreshold = newValue
+                defaults.set(newValue, forKey: "sidecastMinValueThreshold")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _preFetchIntervalSeconds: Double
     var preFetchIntervalSeconds: Double {
         get { access(keyPath: \.preFetchIntervalSeconds); return _preFetchIntervalSeconds }
@@ -761,6 +805,13 @@ final class SettingsStore {
         self._sidebarMode = SidebarMode(rawValue: defaults.string(forKey: "sidebarMode") ?? "") ?? .classicSuggestions
         self._sidecastIntensity = SidecastIntensity(rawValue: defaults.string(forKey: "sidecastIntensity") ?? "") ?? .balanced
         self._sidecastPersonas = Self.decodePersonas(defaults.data(forKey: "sidecastPersonas")) ?? SidecastPersona.starterPack
+        self._sidecastTemperature = defaults.object(forKey: "sidecastTemperature") != nil
+            ? defaults.double(forKey: "sidecastTemperature") : 1.0
+        self._sidecastMaxTokens = defaults.object(forKey: "sidecastMaxTokens") != nil
+            ? defaults.integer(forKey: "sidecastMaxTokens") : 700
+        self._sidecastSystemPrompt = defaults.string(forKey: "sidecastSystemPrompt") ?? ""
+        self._sidecastMinValueThreshold = defaults.object(forKey: "sidecastMinValueThreshold") != nil
+            ? defaults.double(forKey: "sidecastMinValueThreshold") : 0.5
         self._preFetchIntervalSeconds = defaults.object(forKey: "preFetchIntervalSeconds") != nil
             ? defaults.double(forKey: "preFetchIntervalSeconds") : 4.0
         self._kbSimilarityThreshold = defaults.object(forKey: "kbSimilarityThreshold") != nil
