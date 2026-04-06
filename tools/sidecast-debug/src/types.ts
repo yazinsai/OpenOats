@@ -100,7 +100,6 @@ export interface WebSearchCitation {
   title: string;
   content?: string;
 }
-export type ContextMode = "full" | "window" | "summary-recent";
 export type SidecastIntensity = "quiet" | "balanced" | "lively";
 
 export const INTENSITY_CONFIG: Record<
@@ -138,10 +137,8 @@ export interface AppSettings {
   maxTokens: number;
 
   // Context
-  contextMode: ContextMode;
   windowSize: number;
   summaryRefreshInterval: number;
-  fullModeCharLimit: number;
 
   // Sidecast
   intensity: SidecastIntensity;

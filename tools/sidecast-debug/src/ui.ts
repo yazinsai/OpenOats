@@ -99,15 +99,8 @@ export function renderSettingsPanel(
 
   // Context section
   const ctxBody = h("div", {});
-  ctxBody.appendChild(
-    selectRow("Context Mode", [["full", "Full Transcript"], ["window", "Rolling Window"], ["summary-recent", "Summary + Recent"]], settings.contextMode, (v) => {
-      settings.contextMode = v as AppSettings["contextMode"];
-      onChange(settings);
-    })
-  );
   ctxBody.appendChild(sliderRow("Window Size", 5, 50, 1, settings.windowSize, (v) => (settings.windowSize = v)));
   ctxBody.appendChild(sliderRow("Summary Refresh", 5, 30, 1, settings.summaryRefreshInterval, (v) => (settings.summaryRefreshInterval = v)));
-  ctxBody.appendChild(sliderRow("Full Mode Limit", 1000, 16000, 500, settings.fullModeCharLimit, (v) => (settings.fullModeCharLimit = v)));
   container.appendChild(section("Context", ctxBody));
 
   // Sidecast section

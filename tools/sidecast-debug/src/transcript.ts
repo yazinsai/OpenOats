@@ -133,24 +133,8 @@ export function buildContextWindow(
     .map((s) => `Speaker: ${s.text}`)
     .join("\n");
 
-  let widerContext: string;
-
-  switch (settings.contextMode) {
-    case "full": {
-      const fullText = available.map((s) => `Speaker: ${s.text}`).join("\n");
-      widerContext =
-        fullText.length > settings.fullModeCharLimit
-          ? "..." + fullText.slice(-settings.fullModeCharLimit)
-          : fullText;
-      break;
-    }
-    case "window":
-    case "summary-recent": {
-      const windowSegs = available.slice(-settings.windowSize);
-      widerContext = windowSegs.map((s) => `Speaker: ${s.text}`).join("\n");
-      break;
-    }
-  }
+  const windowSegs = available.slice(-settings.windowSize);
+  const widerContext = windowSegs.map((s) => `Speaker: ${s.text}`).join("\n");
 
   // Summary is always included regardless of context mode
   const conversationSummary = runningSummary || "No structured state yet.";

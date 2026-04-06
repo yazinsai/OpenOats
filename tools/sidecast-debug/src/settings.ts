@@ -34,10 +34,8 @@ function defaultSettings(): AppSettings {
     temperature: 1.0,
     maxTokens: 700,
 
-    contextMode: "window",
     windowSize: 20,
     summaryRefreshInterval: 15,
-    fullModeCharLimit: 4000,
 
     intensity: "balanced",
     systemPromptTemplate: DEFAULT_SYSTEM_PROMPT,
