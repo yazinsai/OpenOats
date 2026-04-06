@@ -41,6 +41,10 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     // MARK: - Category Registration
 
     private func registerCategory() {
+        // UNUserNotificationCenter requires a valid bundle identifier;
+        // guard so the app doesn't crash when run unbundled (e.g. swift run).
+        guard Bundle.main.bundleIdentifier != nil else { return }
+
         // "Start Transcribing" is the default action (tap on notification body).
         // Only secondary actions appear in the dropdown.
         let notMeeting = UNNotificationAction(
