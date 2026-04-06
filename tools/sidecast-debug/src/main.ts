@@ -146,6 +146,13 @@ async function triggerSidecast(currentTime: number) {
 
     const result = await generate(context, effectiveTime, settings);
 
+    // Cooldown skip — keep the existing UI intact
+    if (result.rawResponse === "(skipped: cooldown)") {
+      setStatus("ok", "Cooldown — waiting");
+      isGenerating = false;
+      return;
+    }
+
     // Render output
     renderSidecastBubbles(
       document.getElementById("sidecast-bubbles")!,
@@ -165,7 +172,7 @@ async function triggerSidecast(currentTime: number) {
     if (result.accepted.length > 0 || result.filtered.length > 0) {
       setStatus("ok", `Generated: ${result.accepted.length} shown, ${result.filtered.length} filtered`);
     } else {
-      setStatus("ok", "No sidecast output (cooldown or empty)");
+      setStatus("ok", "No new sidecast output");
     }
   } catch (err: any) {
     console.error("[sidecast] generation error:", err);
