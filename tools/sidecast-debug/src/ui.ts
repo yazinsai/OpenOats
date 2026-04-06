@@ -131,7 +131,7 @@ export function renderSettingsPanel(
 
   // Temperature
   const tempCell = el("div", "cfg-cell");
-  tempCell.appendChild(label("Temperature"));
+  tempCell.appendChild(label("Temp"));
   tempCell.appendChild(fieldSlider(0, 2, 0.1, settings.temperature, (v) => { settings.temperature = v; saveSettings(settings); }));
   tuningGrid.appendChild(tempCell);
 
@@ -143,19 +143,19 @@ export function renderSettingsPanel(
 
   // Max Tokens
   const tokCell = el("div", "cfg-cell");
-  tokCell.appendChild(label("Max Tokens"));
+  tokCell.appendChild(label("Tokens"));
   tokCell.appendChild(fieldSlider(100, 2000, 50, settings.maxTokens, (v) => { settings.maxTokens = v; saveSettings(settings); }));
   tuningGrid.appendChild(tokCell);
 
   // Window Size
   const winCell = el("div", "cfg-cell");
-  winCell.appendChild(label("Context Window"));
+  winCell.appendChild(label("Window"));
   winCell.appendChild(fieldSlider(5, 50, 1, settings.windowSize, (v) => { settings.windowSize = v; saveSettings(settings); }));
   tuningGrid.appendChild(winCell);
 
   // Summary Refresh
   const sumCell = el("div", "cfg-cell");
-  sumCell.appendChild(label("Summary Refresh"));
+  sumCell.appendChild(label("Summary"));
   sumCell.appendChild(fieldSlider(5, 30, 1, settings.summaryRefreshInterval, (v) => { settings.summaryRefreshInterval = v; saveSettings(settings); }));
   tuningGrid.appendChild(sumCell);
 
