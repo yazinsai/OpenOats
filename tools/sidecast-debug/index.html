@@ -49,11 +49,12 @@
 
       .cfg-tuning-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; overflow: hidden; }
       .cfg-cell { min-width: 0; }
-      .cfg-cell .cfg-label { margin-bottom: 3px; }
-      .cfg-slider { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
-      .cfg-slider input[type="range"] { flex: 1; height: 3px; -webkit-appearance: none; background: var(--border); border-radius: 2px; outline: none; }
-      .cfg-slider input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); cursor: pointer; }
-      .cfg-slider-val { min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 10px; }
+      .cfg-slider-wrap { margin-bottom: 2px; }
+      .cfg-slider-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+      .cfg-slider-header .cfg-label { margin-bottom: 0; }
+      .cfg-slider-val { font-variant-numeric: tabular-nums; color: var(--text); font-size: 11px; font-weight: 500; }
+      .cfg-range { width: 100%; height: 3px; -webkit-appearance: none; background: var(--border); border-radius: 2px; outline: none; display: block; }
+      .cfg-range::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); cursor: pointer; }
 
       .cfg-toggle { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; font-size: 11px; color: var(--text-muted); }
       .cfg-toggle input[type="checkbox"] { accent-color: var(--accent); }

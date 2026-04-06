@@ -40,24 +40,31 @@ function fieldSelect(options: [string, string][], value: string, onSelect: (v: s
   return sel;
 }
 
-function fieldSlider(min: number, max: number, step: number, value: number, onInput: (v: number) => void): HTMLElement {
-  const row = el("div", "cfg-slider");
+function fieldSlider(labelText: string, min: number, max: number, step: number, value: number, onInput: (v: number) => void): HTMLElement {
+  const wrap = el("div", "cfg-slider-wrap");
+  const header = el("div", "cfg-slider-header");
+  const lbl = el("span", "cfg-label");
+  lbl.textContent = labelText;
+  const val = el("span", "cfg-slider-val");
+  val.textContent = String(value);
+  header.appendChild(lbl);
+  header.appendChild(val);
+  wrap.appendChild(header);
+
   const inp = document.createElement("input");
   inp.type = "range";
+  inp.className = "cfg-range";
   inp.min = String(min);
   inp.max = String(max);
   inp.step = String(step);
   inp.value = String(value);
-  const val = el("span", "cfg-slider-val");
-  val.textContent = String(value);
   inp.addEventListener("input", () => {
     const v = parseFloat(inp.value);
     val.textContent = String(v);
     onInput(v);
   });
-  row.appendChild(inp);
-  row.appendChild(val);
-  return row;
+  wrap.appendChild(inp);
+  return wrap;
 }
 
 function fieldToggle(checked: boolean, labelText: string, onChange: (v: boolean) => void): HTMLElement {
@@ -131,32 +138,27 @@ export function renderSettingsPanel(
 
   // Temperature
   const tempCell = el("div", "cfg-cell");
-  tempCell.appendChild(label("Temp"));
-  tempCell.appendChild(fieldSlider(0, 2, 0.1, settings.temperature, (v) => { settings.temperature = v; saveSettings(settings); }));
+  tempCell.appendChild(fieldSlider("Temp", 0, 2, 0.1, settings.temperature, (v) => { settings.temperature = v; saveSettings(settings); }));
   tuningGrid.appendChild(tempCell);
 
   // Min Value
   const valCell = el("div", "cfg-cell");
-  valCell.appendChild(label("Min Value"));
-  valCell.appendChild(fieldSlider(0, 1, 0.05, settings.minValueThreshold, (v) => { settings.minValueThreshold = v; saveSettings(settings); }));
+  valCell.appendChild(fieldSlider("Min Value", 0, 1, 0.05, settings.minValueThreshold, (v) => { settings.minValueThreshold = v; saveSettings(settings); }));
   tuningGrid.appendChild(valCell);
 
   // Max Tokens
   const tokCell = el("div", "cfg-cell");
-  tokCell.appendChild(label("Tokens"));
-  tokCell.appendChild(fieldSlider(100, 2000, 50, settings.maxTokens, (v) => { settings.maxTokens = v; saveSettings(settings); }));
+  tokCell.appendChild(fieldSlider("Tokens", 100, 2000, 50, settings.maxTokens, (v) => { settings.maxTokens = v; saveSettings(settings); }));
   tuningGrid.appendChild(tokCell);
 
   // Window Size
   const winCell = el("div", "cfg-cell");
-  winCell.appendChild(label("Window"));
-  winCell.appendChild(fieldSlider(5, 50, 1, settings.windowSize, (v) => { settings.windowSize = v; saveSettings(settings); }));
+  winCell.appendChild(fieldSlider("Window", 5, 50, 1, settings.windowSize, (v) => { settings.windowSize = v; saveSettings(settings); }));
   tuningGrid.appendChild(winCell);
 
   // Summary Refresh
   const sumCell = el("div", "cfg-cell");
-  sumCell.appendChild(label("Summary"));
-  sumCell.appendChild(fieldSlider(5, 30, 1, settings.summaryRefreshInterval, (v) => { settings.summaryRefreshInterval = v; saveSettings(settings); }));
+  sumCell.appendChild(fieldSlider("Summary", 5, 30, 1, settings.summaryRefreshInterval, (v) => { settings.summaryRefreshInterval = v; saveSettings(settings); }));
   tuningGrid.appendChild(sumCell);
 
   container.appendChild(tuningGrid);
