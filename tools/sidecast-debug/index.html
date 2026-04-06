@@ -47,7 +47,8 @@
       .cfg-input-narrow { width: 48px; text-align: center; margin: 0; }
       .cfg-divider { border: none; border-top: 1px solid var(--border-subtle); margin: 18px 0; }
 
-      .cfg-tuning-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+      .cfg-tuning-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; overflow: hidden; }
+      .cfg-cell { min-width: 0; }
       .cfg-cell .cfg-label { margin-bottom: 3px; }
       .cfg-slider { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
       .cfg-slider input[type="range"] { flex: 1; height: 3px; -webkit-appearance: none; background: var(--border); border-radius: 2px; outline: none; }
