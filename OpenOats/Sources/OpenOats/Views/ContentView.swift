@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -5,6 +6,8 @@ struct ContentView: View {
         case toggle
         case confirmDownload
     }
+
+    private let compactHeaderVerticalPadding: CGFloat = 10
 
     @Bindable var settings: AppSettings
     @Environment(AppContainer.self) private var container
@@ -18,6 +21,7 @@ struct ContentView: View {
     @State private var showOnboarding = false
     @State private var showConsentSheet = false
     @State private var pendingControlBarAction: ControlBarAction?
+    @State private var windowChromeTopInset: CGFloat = 0
 
     var body: some View {
         bodyWithModifiers
@@ -71,7 +75,7 @@ struct ContentView: View {
                 .accessibilityIdentifier("app.settingsButton")
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.vertical, compactHeaderVerticalPadding)
 
             Divider()
 
@@ -276,6 +280,7 @@ struct ContentView: View {
                 }
             )
         }
+        .padding(.top, max(windowChromeTopInset - compactHeaderVerticalPadding, 0))
     }
 
     private var bodyWithModifiers: some View {
@@ -284,6 +289,9 @@ struct ContentView: View {
 
     private var sizedRootContent: some View {
         rootContent
+            .background {
+                WindowChromeTopInsetReader(topInset: $windowChromeTopInset)
+            }
             .frame(minWidth: 360, maxWidth: 600, minHeight: 400)
             .background(.ultraThinMaterial)
     }
@@ -494,6 +502,30 @@ struct ContentView: View {
             }
         case .confirmDownload:
             liveSessionController?.downloadModelOnly(settings: settings)
+        }
+    }
+}
+
+private struct WindowChromeTopInsetReader: NSViewRepresentable {
+    @Binding var topInset: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        updateTopInset(for: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        updateTopInset(for: nsView)
+    }
+
+    private func updateTopInset(for view: NSView) {
+        let binding = _topInset
+        DispatchQueue.main.async { [weak view] in
+            guard let window = view?.window else { return }
+            let chromeHeight = max(window.frame.height - window.contentLayoutRect.height, 0)
+            guard abs(binding.wrappedValue - chromeHeight) > 0.5 else { return }
+            binding.wrappedValue = chromeHeight
         }
     }
 }
