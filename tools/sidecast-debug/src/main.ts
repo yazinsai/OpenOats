@@ -127,18 +127,24 @@ async function triggerSidecast(currentTime: number) {
   setStatus("loading", "Generating sidecast...");
 
   try {
+    // If video hasn't started, use a small offset so the first segment is included
+    const effectiveTime = currentTime < 0.5 && segments.length > 0
+      ? segments[0].start + 0.01
+      : currentTime;
+
     // Maybe update summary
-    await maybeUpdateSummary(segments, currentTime, settings, (sys, usr) =>
+    await maybeUpdateSummary(segments, effectiveTime, settings, (sys, usr) =>
       llmCall(sys, usr, settings)
     );
 
-    const context = buildContextWindow(segments, currentTime, settings);
+    const context = buildContextWindow(segments, effectiveTime, settings);
     if (!context.latestUtterance) {
+      setStatus("ok", "No transcript content at current position");
       isGenerating = false;
       return;
     }
 
-    const result = await generate(context, currentTime, settings);
+    const result = await generate(context, effectiveTime, settings);
 
     // Render output
     renderSidecastBubbles(
