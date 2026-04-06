@@ -1,0 +1,200 @@
+// --- Transcript ---
+
+export interface TranscriptSegment {
+  start: number; // seconds
+  duration: number;
+  text: string;
+}
+
+// --- Personas ---
+
+export type PersonaVerbosity = "terse" | "short" | "medium";
+export type PersonaCadence = "rare" | "normal" | "active";
+export type PersonaEvidencePolicy = "required" | "preferred" | "optional";
+
+export const VERBOSITY_CHAR_LIMIT: Record<PersonaVerbosity, number> = {
+  terse: 80,
+  short: 140,
+  medium: 220,
+};
+
+export const CADENCE_COOLDOWN_SECONDS: Record<PersonaCadence, number> = {
+  rare: 40,
+  normal: 24,
+  active: 14,
+};
+
+export interface SidecastPersona {
+  id: string;
+  name: string;
+  subtitle: string;
+  prompt: string;
+  avatarTint: string;
+  verbosity: PersonaVerbosity;
+  cadence: PersonaCadence;
+  evidencePolicy: PersonaEvidencePolicy;
+  isEnabled: boolean;
+}
+
+// --- Sidecast Messages ---
+
+export interface SidecastMessage {
+  id: string;
+  personaId: string;
+  personaName: string;
+  text: string;
+  timestamp: number;
+  confidence: number;
+  priority: number;
+}
+
+export interface SidecastResponseMessage {
+  persona_id: string;
+  speak: boolean;
+  text: string;
+  priority: number | null;
+  confidence: number | null;
+}
+
+export interface SidecastResponse {
+  messages: SidecastResponseMessage[];
+}
+
+// --- Filter Debug Info ---
+
+export interface FilteredCandidate {
+  personaName: string;
+  text: string;
+  reason: string;
+}
+
+export interface GenerationResult {
+  accepted: SidecastMessage[];
+  filtered: FilteredCandidate[];
+  rawResponse: string;
+  promptCharCount: number;
+}
+
+// --- Settings ---
+
+export type LLMProvider = "openrouter" | "ollama" | "openai-compatible";
+export type ContextMode = "full" | "window" | "summary-recent";
+export type SidecastIntensity = "quiet" | "balanced" | "lively";
+
+export const INTENSITY_CONFIG: Record<
+  SidecastIntensity,
+  {
+    maxMessagesPerTurn: number;
+    generationCooldownSeconds: number;
+    skipPersonaCooldowns: boolean;
+  }
+> = {
+  quiet: {
+    maxMessagesPerTurn: 1,
+    generationCooldownSeconds: 18,
+    skipPersonaCooldowns: false,
+  },
+  balanced: {
+    maxMessagesPerTurn: 2,
+    generationCooldownSeconds: 10,
+    skipPersonaCooldowns: false,
+  },
+  lively: {
+    maxMessagesPerTurn: 10,
+    generationCooldownSeconds: 0,
+    skipPersonaCooldowns: true,
+  },
+};
+
+export interface AppSettings {
+  // LLM
+  llmProvider: LLMProvider;
+  apiKey: string;
+  baseURL: string;
+  model: string;
+  temperature: number;
+  maxTokens: number;
+
+  // Context
+  contextMode: ContextMode;
+  windowSize: number;
+  summaryRefreshInterval: number;
+  fullModeCharLimit: number;
+
+  // Sidecast
+  intensity: SidecastIntensity;
+  systemPromptTemplate: string;
+  forceFire: boolean;
+
+  // Personas
+  personas: SidecastPersona[];
+}
+
+export const STARTER_PERSONAS: SidecastPersona[] = [
+  {
+    id: crypto.randomUUID(),
+    name: "The Checker",
+    subtitle: "Facts and missing nuance",
+    prompt:
+      "Verify claims, spot weak assumptions, and correct timing, numbers, or framing. Stay calm and precise.",
+    avatarTint: "#22c55e",
+    verbosity: "short",
+    cadence: "normal",
+    evidencePolicy: "required",
+    isEnabled: true,
+  },
+  {
+    id: crypto.randomUUID(),
+    name: "The Archivist",
+    subtitle: "Context and precedent",
+    prompt:
+      "Add useful background, comparisons, history, or precedent that helps the host understand what was just said.",
+    avatarTint: "#6366f1",
+    verbosity: "short",
+    cadence: "normal",
+    evidencePolicy: "preferred",
+    isEnabled: true,
+  },
+  {
+    id: crypto.randomUUID(),
+    name: "The Sniper",
+    subtitle: "Punchy one-liners",
+    prompt:
+      "Write short, sharp, host-usable punch lines or callbacks. Prioritize timing and brevity over explanation.",
+    avatarTint: "#f97316",
+    verbosity: "terse",
+    cadence: "rare",
+    evidencePolicy: "optional",
+    isEnabled: true,
+  },
+  {
+    id: crypto.randomUUID(),
+    name: "The Menace",
+    subtitle: "Skeptic and chaos",
+    prompt:
+      "Inject pointed skepticism or contrarian heat without becoming abusive or unusably toxic. Make the tension entertaining.",
+    avatarTint: "#ef4444",
+    verbosity: "terse",
+    cadence: "rare",
+    evidencePolicy: "optional",
+    isEnabled: true,
+  },
+];
+
+export const DEFAULT_SYSTEM_PROMPT = `You are Sidecast, a live multi-persona producer for a host-assist sidebar.
+Decide which personas should speak right now in response to the latest utterance.
+
+Rules:
+- Return valid JSON only.
+- Use at most {{maxMessagesPerTurn}} persona messages.
+- Only include personas that have something distinct and timely to add.
+- Prioritize useful, non-redundant commentary over completeness.
+- Keep each text short enough for a sidebar bubble.
+- No markdown, no emoji, no stage directions, no quotes around the text.
+- Fact-heavy personas must stay careful and avoid fabricated certainty.
+- Humor and chaos personas can be sharp, but never hateful or unusably toxic.
+- If nothing is worth surfacing, return {"messages":[]}.
+
+Output schema:
+{"messages":[{"persona_id":"UUID","speak":true,"text":"string","priority":0.0,"confidence":0.0}]}`;
+
