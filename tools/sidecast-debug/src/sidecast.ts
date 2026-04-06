@@ -266,7 +266,7 @@ function filterAndRank(
     }
 
     // Cadence cooldown
-    if (!intensityCfg.skipPersonaCooldowns && !settings.forceFire) {
+    if (!intensityCfg.skipPersonaCooldowns) {
       const lastSpoken = lastSpokenAtByPersona[persona.id];
       if (
         lastSpoken !== undefined &&
@@ -360,7 +360,7 @@ export async function generate(
   const intensityCfg = INTENSITY_CONFIG[settings.intensity];
 
   // Cooldown check
-  if (!settings.forceFire) {
+  {
     const elapsed = currentTime - lastGenerationTime;
     if (elapsed < intensityCfg.generationCooldownSeconds) {
       return {

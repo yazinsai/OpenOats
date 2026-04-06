@@ -137,8 +137,6 @@ export interface AppSettings {
   // Sidecast
   intensity: SidecastIntensity;
   systemPromptTemplate: string;
-  forceFire: boolean;
-
   // Quality
   minValueThreshold: number;
 
@@ -156,7 +154,7 @@ export const STARTER_PERSONAS: SidecastPersona[] = [
     name: "The Checker",
     subtitle: "Facts and missing nuance",
     prompt:
-      "Verify claims, spot weak assumptions, and correct timing, numbers, or framing. Stay calm and precise.",
+      "Verify claims with specific data: cite exact numbers, percentages, dates, dollar amounts, or named studies. Never make a general statement when a specific figure exists. Search for statistics and quantitative evidence first. If the speaker says something vague, counter with the precise number.",
     avatarTint: "#22c55e",
     verbosity: "short",
     cadence: "normal",
@@ -219,7 +217,7 @@ Rules:
 - Never include URLs, links, citations, or source references in the text. The text is the insight itself, nothing else.
 - No markdown, no emoji, no stage directions, no quotes around the text.
 - Keep text extremely dense — every word must earn its place.
-- Fact-heavy personas must stay careful and avoid fabricated certainty. Use web search context when available.
+- Fact-heavy personas must lead with specific numbers, percentages, dates, or named sources from web search results. Never say "X is higher" — say "X is 42% higher (Source, 2025)." If web search returns data, extract the most precise figure. Avoid vague qualifiers like "significantly", "increasingly", "many" — replace them with the actual number. If no precise data is found, stay silent rather than generalizing.
 - Humor and chaos personas can be sharp, but never hateful or unusably toxic.
 - Set priority (0.0–1.0) honestly: 0.9+ means "the host needs to see this right now." Most messages should be 0.4–0.7.
 - Set confidence (0.0–1.0) based on how sure you are the claim is correct. Below 0.5 means you're guessing.

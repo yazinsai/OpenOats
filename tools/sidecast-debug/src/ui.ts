@@ -162,11 +162,6 @@ export function renderSettingsPanel(
 
   container.appendChild(tuningGrid);
 
-  // Toggles row
-  const togglesRow = el("div", "cfg-toggles-row");
-  togglesRow.appendChild(fieldToggle(settings.forceFire, "Force-fire", (v) => { settings.forceFire = v; saveSettings(settings); }));
-  container.appendChild(togglesRow);
-
   // Web search config (compact inline)
   if (settings.llmProvider === "openrouter") {
     const wsRow = el("div", "cfg-ws-row");
@@ -254,7 +249,7 @@ function renderPersonaCard(
   settings: AppSettings,
   onChange: OnChange
 ): HTMLElement {
-  const card = el("div", "persona-card");
+  const card = el("div", `persona-card${persona.isEnabled ? "" : " disabled"}`);
 
   // Top row: dot + name + controls
   const row = el("div", "persona-row");
@@ -272,27 +267,28 @@ function renderPersonaCard(
   const controls = el("div", "persona-controls");
 
   if (settings.llmProvider === "openrouter") {
-    const webBtn = el("button", `persona-icon-btn${persona.webSearchEnabled ? " active" : ""}`);
-    webBtn.innerHTML = "&#x1F50D;";
-    webBtn.title = persona.webSearchEnabled ? "Web search ON" : "Web search OFF";
-    webBtn.addEventListener("click", () => {
+    const webPill = el("button", `persona-web-pill${persona.webSearchEnabled ? " on" : ""}`);
+    webPill.textContent = "Web";
+    webPill.title = "Toggle web search for this persona";
+    webPill.addEventListener("click", () => {
       persona.webSearchEnabled = !persona.webSearchEnabled;
-      webBtn.className = `persona-icon-btn${persona.webSearchEnabled ? " active" : ""}`;
-      webBtn.title = persona.webSearchEnabled ? "Web search ON" : "Web search OFF";
+      webPill.className = `persona-web-pill${persona.webSearchEnabled ? " on" : ""}`;
       saveSettings(settings);
     });
-    controls.appendChild(webBtn);
+    controls.appendChild(webPill);
   }
 
-  const toggle = document.createElement("input");
-  toggle.type = "checkbox";
-  toggle.checked = persona.isEnabled;
-  toggle.className = "persona-toggle";
-  toggle.addEventListener("change", () => {
-    persona.isEnabled = toggle.checked;
+  const enablePill = el("button", `persona-enable-pill${persona.isEnabled ? " on" : ""}`);
+  enablePill.textContent = persona.isEnabled ? "ON" : "OFF";
+  enablePill.title = "Enable or disable this persona";
+  enablePill.addEventListener("click", () => {
+    persona.isEnabled = !persona.isEnabled;
+    enablePill.className = `persona-enable-pill${persona.isEnabled ? " on" : ""}`;
+    enablePill.textContent = persona.isEnabled ? "ON" : "OFF";
+    card.className = `persona-card${persona.isEnabled ? "" : " disabled"}`;
     saveSettings(settings);
   });
-  controls.appendChild(toggle);
+  controls.appendChild(enablePill);
 
   const delBtn = el("button", "persona-icon-btn danger");
   delBtn.textContent = "\u00D7";
