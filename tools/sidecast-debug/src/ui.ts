@@ -146,8 +146,13 @@ export function renderSettingsPanel(
 
   container.appendChild(divider());
 
-  // ── Tuning ──
-  container.appendChild(groupHeading("Tuning"));
+  // ── Tuning (collapsible) ──
+  const tuningDetails = document.createElement("details");
+  tuningDetails.className = "cfg-prompt-details";
+  const tuningSummary = document.createElement("summary");
+  tuningSummary.className = "cfg-prompt-summary";
+  tuningSummary.textContent = "Tuning";
+  tuningDetails.appendChild(tuningSummary);
 
   const tuningGrid = el("div", "cfg-tuning-grid");
 
@@ -185,7 +190,7 @@ export function renderSettingsPanel(
   sumCell.appendChild(fieldSlider("Summary", 5, 30, 1, settings.summaryRefreshInterval, (v) => { settings.summaryRefreshInterval = v; saveSettings(settings); }));
   tuningGrid.appendChild(sumCell);
 
-  container.appendChild(tuningGrid);
+  tuningDetails.appendChild(tuningGrid);
 
   // Web search config (compact inline)
   if (settings.llmProvider === "openrouter") {
@@ -209,9 +214,10 @@ export function renderSettingsPanel(
     maxInp.addEventListener("input", () => { settings.webSearchMaxResults = parseInt(maxInp.value) || 5; saveSettings(settings); });
     wsRow.appendChild(maxInp);
     wsRow.appendChild(maxLabel);
-    container.appendChild(wsRow);
+    tuningDetails.appendChild(wsRow);
   }
 
+  container.appendChild(tuningDetails);
   container.appendChild(divider());
 
   // ── Personas ──
