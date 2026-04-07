@@ -770,7 +770,8 @@ struct NotesView: View {
                         if case .inProgress = state.cleanupStatus { return true }
                         return false
                     }()
-                    ForEach(Array(state.loadedTranscript.enumerated()), id: \.offset) { _, record in
+                    ForEach(0..<state.loadedTranscript.count, id: \.self) { index in
+                        let record = state.loadedTranscript[index]
                         transcriptRow(record: record, isCleaning: isCleaning, showingOriginal: state.showingOriginal)
                     }
                 }

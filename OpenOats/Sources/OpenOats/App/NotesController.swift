@@ -130,8 +130,6 @@ final class NotesController {
             let transcript = await coordinator.sessionRepository.loadTranscript(sessionID: sessionID)
             let audioURL = await coordinator.sessionRepository.audioFileURL(for: sessionID)
 
-            guard state.selectedSessionID == sessionID else { return }
-
             state.loadedNotes = notes
             state.loadedTranscript = transcript
             state.audioFileURL = audioURL
@@ -142,6 +140,9 @@ final class NotesController {
             } else {
                 state.selectedTemplate = coordinator.templateStore.template(for: TemplateStore.genericID)
             }
+
+            let hasAny = transcript.contains { $0.cleanedText != nil }
+            state.cleanupStatus = hasAny ? .completed : .idle
         }
     }
 
@@ -303,8 +304,11 @@ final class NotesController {
             await coordinator.sessionRepository.backfillCleanedText(sessionID: sessionID, from: utterances)
 
             guard state.selectedSessionID == sessionID else { return }
-            state.loadedTranscript = await coordinator.sessionRepository.loadTranscript(sessionID: sessionID)
-            syncCleanupStatus()
+            let newTranscript = await coordinator.sessionRepository.loadTranscript(sessionID: sessionID)
+            state.loadedTranscript = newTranscript
+            
+            let hasAny = newTranscript.contains { $0.cleanedText != nil }
+            state.cleanupStatus = hasAny ? .completed : .idle
         }
     }
 
@@ -423,30 +427,31 @@ final class NotesController {
 
     private func syncCleanupStatus() {
         let engine = coordinator.batchTextCleaner
+
         if engine.isCleaningUp {
-            state.cleanupStatus = .inProgress(
+            let newStatus = CleanupStatus.inProgress(
                 completed: engine.chunksCompleted,
                 total: engine.totalChunks
             )
-        } else if let error = engine.error {
-            state.cleanupStatus = .error(error)
-        } else if !state.loadedTranscript.isEmpty {
-            let hasAny = state.loadedTranscript.contains { $0.cleanedText != nil }
-            if hasAny {
-                state.cleanupStatus = .completed
-            } else {
-                state.cleanupStatus = .idle
+            if state.cleanupStatus != newStatus {
+                state.cleanupStatus = newStatus
             }
-        } else {
-            state.cleanupStatus = .idle
+        } else if let error = engine.error {
+            if state.cleanupStatus != .error(error) {
+                state.cleanupStatus = .error(error)
+            }
         }
     }
 
     private func syncGenerationStatus() {
         let engine = coordinator.notesEngine
         if engine.isGenerating {
-            state.notesGenerationStatus = .generating
-            state.streamingMarkdown = engine.generatedMarkdown
+            if state.notesGenerationStatus != .generating {
+                state.notesGenerationStatus = .generating
+            }
+            if state.streamingMarkdown != engine.generatedMarkdown {
+                state.streamingMarkdown = engine.generatedMarkdown
+            }
         }
         // Don't override .error or .completed set by generateNotes
     }
