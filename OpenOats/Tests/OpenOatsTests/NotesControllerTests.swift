@@ -127,9 +127,44 @@ final class NotesControllerTests: XCTestCase {
 
     func testCleanupProgressMapsCorrectly() async {
         let (root, _) = makeTempDirs()
-        let (controller, _) = makeController(root: root)
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_cleanup_mapping"
 
-        // When idle with no transcript, should be idle
+        // When idle with no transcript, should be idle initially
+        XCTAssertEqual(controller.state.cleanupStatus, .idle)
+        
+        let cleanedRecord = SessionRecord(
+            speaker: .you,
+            text: "Raw text.",
+            timestamp: Date(),
+            cleanedText: "Cleaned text."
+        )
+        await seedSession(coordinator: coordinator, sessionID: sessionID, utterances: [cleanedRecord])
+
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        // Ensure cleanupStatus maps to completed since transcript has cleaned elements
+        XCTAssertEqual(controller.state.cleanupStatus, .completed)
+    }
+
+    func testCleanupProgressIdleForUncleanedTranscript() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_cleanup_idle"
+        
+        let uncleanedRecord = SessionRecord(
+            speaker: .you,
+            text: "Raw text only.",
+            timestamp: Date(),
+            cleanedText: nil
+        )
+        await seedSession(coordinator: coordinator, sessionID: sessionID, utterances: [uncleanedRecord])
+
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        // Ensure cleanupStatus is idle since transcript has no cleaned elements
         XCTAssertEqual(controller.state.cleanupStatus, .idle)
     }
 
