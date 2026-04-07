@@ -39,6 +39,14 @@ actor OpenRouterClient {
         let plugins: [WebSearchPlugin]?
     }
 
+    /// Whether a URL points to a host that supports the `max_completion_tokens`
+    /// parameter (OpenAI, OpenRouter). Other OpenAI-compatible providers such as
+    /// Mistral and Ollama only accept `max_tokens`.
+    private static func usesMaxCompletionTokens(_ url: URL) -> Bool {
+        guard let host = url.host else { return false }
+        return host.contains("openrouter.ai") || host.contains("openai.com")
+    }
+
     /// Streams the completion response, yielding text chunks.
     func streamCompletion(
         apiKey: String? = nil,
@@ -50,17 +58,18 @@ actor OpenRouterClient {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    let targetURL = baseURL ?? Self.defaultBaseURL
+                    let useNewParam = Self.usesMaxCompletionTokens(targetURL)
                     let request = ChatRequest(
                         model: model,
                         messages: messages,
                         stream: true,
-                        max_tokens: nil,
-                        max_completion_tokens: maxTokens,
+                        max_tokens: useNewParam ? nil : maxTokens,
+                        max_completion_tokens: useNewParam ? maxTokens : nil,
                         temperature: nil,
                         plugins: nil
                     )
 
-                    let targetURL = baseURL ?? Self.defaultBaseURL
                     var urlRequest = URLRequest(url: targetURL)
                     urlRequest.httpMethod = "POST"
                     urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -115,17 +124,17 @@ actor OpenRouterClient {
         baseURL: URL? = nil,
         webSearch: Bool = false
     ) async throws -> String {
+        let targetURL = baseURL ?? Self.defaultBaseURL
+        let useNewParam = Self.usesMaxCompletionTokens(targetURL)
         let request = ChatRequest(
             model: model,
             messages: messages,
             stream: false,
-            max_tokens: nil,
-            max_completion_tokens: maxTokens,
+            max_tokens: useNewParam ? nil : maxTokens,
+            max_completion_tokens: useNewParam ? maxTokens : nil,
             temperature: temperature,
             plugins: webSearch ? [.default] : nil
         )
-
-        let targetURL = baseURL ?? Self.defaultBaseURL
         var urlRequest = URLRequest(url: targetURL)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
