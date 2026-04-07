@@ -213,3 +213,13 @@ document.getElementById("clear-btn")!.addEventListener("click", () => {
   document.getElementById("debug-log")!.innerHTML = "";
   setStatus("ok", "Cleared");
 });
+
+// --- Demo mode toggle ---
+const demoBtn = document.getElementById("demo-btn")!;
+const expandIcon = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="10 2 14 2 14 6"/><polyline points="6 14 2 14 2 10"/><polyline points="14 10 14 14 10 14"/><polyline points="2 6 2 2 6 2"/></svg>`;
+const collapseIcon = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 4 10 0 10"/><polyline points="12 2 12 6 16 6"/><polyline points="0 6 4 6 4 2"/><polyline points="16 10 12 10 12 14"/></svg>`;
+demoBtn.addEventListener("click", () => {
+  const app = document.getElementById("app")!;
+  const isDemo = app.classList.toggle("demo-mode");
+  demoBtn.innerHTML = isDemo ? collapseIcon : expandIcon;
+});

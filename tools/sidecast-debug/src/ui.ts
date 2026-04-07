@@ -90,6 +90,130 @@ function groupHeading(text: string): HTMLElement {
   return h;
 }
 
+// --- Model Picker ---
+interface ModelPreset {
+  id: string;
+  tier: string;
+  name: string;
+  desc: string;
+  color: string;
+  icon: string; // Iconify Solar icon SVG
+}
+
+const MODEL_PRESETS: ModelPreset[] = [
+  {
+    id: "google/gemini-3.1-flash-lite-preview",
+    tier: "Quick",
+    name: "Gemini Flash Lite",
+    desc: "Fast & cheap — good for testing",
+    color: "#fbbf24",
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M13.692 3.346a.75.75 0 0 0-1.384 0l-2.097 4.997L5.05 6.44a.75.75 0 0 0-.987.987l1.903 5.16-4.997 2.098a.75.75 0 0 0 0 1.384l4.997 2.097L5.063 23.327a.75.75 0 0 0 .987.987l5.16-1.903 2.098 4.997a.75.75 0 0 0 1.384 0l2.097-4.997 5.161 1.903a.75.75 0 0 0 .987-.987l-1.903-5.16 4.997-2.098a.75.75 0 0 0 0-1.384l-4.997-2.097 1.903-5.161a.75.75 0 0 0-.987-.987l-5.16 1.903z"/></svg>`,
+  },
+  {
+    id: "x-ai/grok-4.1-fast",
+    tier: "Sharp",
+    name: "Grok 4.1 Fast",
+    desc: "Balanced speed & intelligence",
+    color: "#818cf8",
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2m-1.834 4.856a.75.75 0 0 1 1.074.32l1.178 2.243 2.243 1.179a.75.75 0 0 1 0 1.342l-2.243 1.178-1.178 2.243a.75.75 0 0 1-1.342 0l-1.179-2.243-2.243-1.178a.75.75 0 0 1 0-1.342l2.243-1.179 1.179-2.243a.75.75 0 0 1 .268-.32M16.25 14a.75.75 0 0 1 .694.468l.395.974.974.395a.75.75 0 0 1 0 1.388l-.974.395-.395.974a.75.75 0 0 1-1.388 0l-.395-.974-.974-.395a.75.75 0 0 1 0-1.388l.974-.395.395-.974A.75.75 0 0 1 16.25 14"/></svg>`,
+  },
+  {
+    id: "openai/gpt-5.4",
+    tier: "Genius",
+    name: "GPT-5.4",
+    desc: "Maximum intelligence — best quality",
+    color: "#4ade80",
+    icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a4 4 0 0 0-4 4v1H7a3 3 0 0 0-3 3v8a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-8a3 3 0 0 0-3-3h-1V6a4 4 0 0 0-4-4m-2 4a2 2 0 1 1 4 0v1h-4zm-.5 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3M9 16h6a.75.75 0 0 1 0 1.5H9A.75.75 0 0 1 9 16"/></svg>`,
+  },
+];
+
+function findPreset(modelId: string): ModelPreset | undefined {
+  return MODEL_PRESETS.find((p) => p.id === modelId);
+}
+
+function renderModelPicker(settings: AppSettings, onChange: OnChange): HTMLElement {
+  const picker = el("div", "model-picker");
+  const preset = findPreset(settings.model);
+
+  // Selected display
+  const selected = el("div", "model-selected");
+  const updateSelected = (p: ModelPreset | undefined, modelId: string) => {
+    selected.innerHTML = p
+      ? `<div class="model-selected-icon" style="background:${p.color}18;color:${p.color}">${p.icon}</div>
+         <div class="model-selected-info">
+           <div class="model-selected-tier">${p.tier}</div>
+           <div class="model-selected-name">${p.name}</div>
+         </div>
+         <svg class="model-selected-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6l4 4 4-4"/></svg>`
+      : `<div class="model-selected-icon" style="background:var(--border);color:var(--text-muted)">
+           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+         </div>
+         <div class="model-selected-info">
+           <div class="model-selected-tier">Custom</div>
+           <div class="model-selected-name">${modelId}</div>
+         </div>
+         <svg class="model-selected-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6l4 4 4-4"/></svg>`;
+  };
+  updateSelected(preset, settings.model);
+  picker.appendChild(selected);
+
+  // Dropdown
+  const dropdown = el("div", "model-dropdown");
+
+  MODEL_PRESETS.forEach((p) => {
+    const opt = el("div", `model-option${p.id === settings.model ? " active" : ""}`);
+    opt.innerHTML = `
+      <div class="model-option-icon" style="background:${p.color}18;color:${p.color}">${p.icon}</div>
+      <div class="model-option-info">
+        <div class="model-option-tier">${p.tier} <span style="font-weight:400;color:var(--text-dim)">— ${p.name}</span></div>
+        <div class="model-option-desc">${p.desc}</div>
+      </div>`;
+    opt.addEventListener("click", () => {
+      settings.model = p.id;
+      saveSettings(settings);
+      updateSelected(p, p.id);
+      picker.classList.remove("open");
+      dropdown.querySelectorAll(".model-option").forEach((o) => o.classList.remove("active"));
+      opt.classList.add("active");
+    });
+    dropdown.appendChild(opt);
+  });
+
+  // Custom model input row
+  const customRow = el("div", "model-custom-row");
+  const customInput = document.createElement("input");
+  customInput.type = "text";
+  customInput.placeholder = "org/model-name";
+  customInput.value = findPreset(settings.model) ? "" : settings.model;
+  const customBtn = document.createElement("button");
+  customBtn.className = "secondary";
+  customBtn.textContent = "Use";
+  customBtn.addEventListener("click", () => {
+    const val = customInput.value.trim();
+    if (!val) return;
+    settings.model = val;
+    saveSettings(settings);
+    updateSelected(undefined, val);
+    picker.classList.remove("open");
+    dropdown.querySelectorAll(".model-option").forEach((o) => o.classList.remove("active"));
+  });
+  customRow.appendChild(customInput);
+  customRow.appendChild(customBtn);
+  dropdown.appendChild(customRow);
+
+  picker.appendChild(dropdown);
+
+  // Toggle
+  selected.addEventListener("click", () => picker.classList.toggle("open"));
+
+  // Close on outside click
+  document.addEventListener("click", (e) => {
+    if (!picker.contains(e.target as Node)) picker.classList.remove("open");
+  });
+
+  return picker;
+}
+
 // --- Settings Panel ---
 export function renderSettingsPanel(
   container: HTMLElement,
@@ -117,32 +241,7 @@ export function renderSettingsPanel(
   }
 
   container.appendChild(label("Model"));
-  {
-    const MODEL_PRESETS: [string, string][] = [
-      ["google/gemini-3.1-flash-lite-preview", "Quick — Gemini Flash Lite"],
-      ["x-ai/grok-4.1-fast", "Sharp — Grok 4.1 Fast"],
-      ["openai/gpt-5.4", "Genius — GPT-5.4"],
-    ];
-    const wrap = el("div", "cfg-combo");
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "cfg-input cfg-combo-input";
-    input.value = settings.model;
-    input.placeholder = "org/model-name";
-    input.setAttribute("list", "model-presets");
-    input.addEventListener("input", () => { settings.model = input.value; saveSettings(settings); });
-    const datalist = document.createElement("datalist");
-    datalist.id = "model-presets";
-    MODEL_PRESETS.forEach(([value, label]) => {
-      const opt = document.createElement("option");
-      opt.value = value;
-      opt.label = label;
-      datalist.appendChild(opt);
-    });
-    wrap.appendChild(input);
-    wrap.appendChild(datalist);
-    container.appendChild(wrap);
-  }
+  container.appendChild(renderModelPicker(settings, onChange));
 
   container.appendChild(divider());
 
