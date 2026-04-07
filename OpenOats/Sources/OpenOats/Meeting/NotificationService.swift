@@ -4,6 +4,11 @@ import UserNotifications
 /// Manages macOS notification delivery for meeting detection prompts.
 @MainActor
 final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
+    /// UNUserNotificationCenter requires a valid bundle identifier and will
+    /// assert (SIGABRT) on every API call when one isn't present. This is the
+    /// case when the app is built and run unbundled (e.g. `swift run`).
+    /// When false, all notification methods become no-ops.
+    private let isAvailable: Bool = Bundle.main.bundleIdentifier != nil
     private var hasRequestedPermission = false
     private var pendingTimeoutTask: Task<Void, Never>?
 
@@ -41,9 +46,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     // MARK: - Category Registration
 
     private func registerCategory() {
-        // UNUserNotificationCenter requires a valid bundle identifier;
-        // guard so the app doesn't crash when run unbundled (e.g. swift run).
-        guard Bundle.main.bundleIdentifier != nil else { return }
+        guard isAvailable else { return }
 
         // "Start Transcribing" is the default action (tap on notification body).
         // Only secondary actions appear in the dropdown.
@@ -84,6 +87,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     // MARK: - Permission
 
     private func ensurePermission() async -> Bool {
+        guard isAvailable else { return false }
         if hasRequestedPermission {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             return settings.authorizationStatus == .authorized
@@ -184,6 +188,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     func cancelPending() {
         pendingTimeoutTask?.cancel()
         pendingTimeoutTask = nil
+        guard isAvailable else { return }
         UNUserNotificationCenter.current().removeDeliveredNotifications(
             withIdentifiers: ["meeting-detection"]
         )

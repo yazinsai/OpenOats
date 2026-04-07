@@ -367,6 +367,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func showBackgroundModeHintIfNeeded() {
         guard !defaults.bool(forKey: "hasShownBackgroundModeHint") else { return }
         guard settings?.meetingAutoDetectEnabled == true else { return }
+        // UNUserNotificationCenter asserts when there's no bundle identifier
+        // (e.g. when built and run via `swift run`).
+        guard Bundle.main.bundleIdentifier != nil else { return }
 
         defaults.set(true, forKey: "hasShownBackgroundModeHint")
 
