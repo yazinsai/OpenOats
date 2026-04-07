@@ -564,10 +564,10 @@ final class LiveSessionController {
 
         // Arrays: compare by ID before assigning — array assignment always fires observation.
         let nextTranscript = coordinator.transcriptStore.utterances
-        if state.liveTranscript.map(\.id) != nextTranscript.map(\.id) {
+        if state.liveTranscript != nextTranscript {
             state.liveTranscript = nextTranscript
         }
-        if state.suggestions.map(\.id) != sidebarSuggestions.map(\.id) {
+        if state.suggestions != sidebarSuggestions {
             state.suggestions = sidebarSuggestions
         }
     }
@@ -637,7 +637,7 @@ final class LiveSessionController {
         // Refresh minibar content only when visible state changed
         if currentState.isRunning {
             let levelChanged = abs(currentState.audioLevel - observedAudioLevel) > 0.01
-            let suggestionsChanged = currentState.suggestions.map(\.id) != observedSuggestions.map(\.id)
+            let suggestionsChanged = currentState.suggestions != observedSuggestions
             let generatingChanged = currentState.isGeneratingSuggestions != observedIsGenerating
 
             if levelChanged || suggestionsChanged || generatingChanged {

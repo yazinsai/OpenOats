@@ -63,7 +63,7 @@ enum TextCleanupStatus: String, Codable, Sendable {
 
 // MARK: - Utterance
 
-struct Utterance: Identifiable, Codable, Sendable {
+struct Utterance: Identifiable, Codable, Sendable, Equatable {
     let id: UUID
     let text: String
     let speaker: Speaker

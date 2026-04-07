@@ -31,7 +31,7 @@ enum RealtimeTriggerKind: String, Codable, Sendable {
     }
 }
 
-struct SuggestionTrigger: Sendable, Codable {
+struct SuggestionTrigger: Sendable, Codable, Equatable {
     var kind: SuggestionTriggerKind
     var utteranceID: UUID
     var excerpt: String
@@ -40,7 +40,7 @@ struct SuggestionTrigger: Sendable, Codable {
 
 // MARK: - Suggestion Evidence
 
-struct SuggestionEvidence: Sendable, Codable {
+struct SuggestionEvidence: Sendable, Codable, Equatable {
     var sourceFile: String
     var headerContext: String
     var text: String
@@ -49,7 +49,7 @@ struct SuggestionEvidence: Sendable, Codable {
 
 // MARK: - Suggestion Decision (Surfacing Gate)
 
-struct SuggestionDecision: Sendable, Codable {
+struct SuggestionDecision: Sendable, Codable, Equatable {
     var shouldSurface: Bool
     var confidence: Double
     var relevanceScore: Double
@@ -70,7 +70,7 @@ enum SuggestionFeedback: String, Codable, Sendable {
 
 // MARK: - KB Result
 
-struct KBResult: Identifiable, Sendable, Codable {
+struct KBResult: Identifiable, Sendable, Codable, Equatable {
     let id: UUID
     let text: String
     let sourceFile: String
@@ -89,7 +89,7 @@ struct KBResult: Identifiable, Sendable, Codable {
 // MARK: - KB Context Pack
 
 /// Rich KB context preserving document structure for display and synthesis.
-struct KBContextPack: Identifiable, Sendable, Codable {
+struct KBContextPack: Identifiable, Sendable, Codable, Equatable {
     let id: UUID
     let matchedText: String
     let relativePath: String      // e.g. "sales/pricing.md"
@@ -141,7 +141,7 @@ enum SuggestionLifecycle: String, Codable, Sendable {
 }
 
 /// A real-time suggestion with stable identity across its lifecycle.
-struct RealtimeSuggestion: Identifiable, Sendable {
+struct RealtimeSuggestion: Identifiable, Sendable, Equatable {
     let id: UUID
     let triggerKind: RealtimeTriggerKind
     let triggerExcerpt: String
@@ -187,7 +187,7 @@ struct RealtimeSuggestion: Identifiable, Sendable {
 // MARK: - Realtime Suggestion Candidate
 
 /// Output of the local heuristic gate — passed to Layer 3 for synthesis.
-struct RealtimeSuggestionCandidate: Sendable {
+struct RealtimeSuggestionCandidate: Sendable, Equatable {
     let triggerKind: RealtimeTriggerKind
     let triggerExcerpt: String
     let triggerUtteranceID: UUID?
@@ -221,7 +221,7 @@ struct RealtimeSuggestionCandidate: Sendable {
 
 // MARK: - Suggestion
 
-struct Suggestion: Identifiable, Sendable, Codable {
+struct Suggestion: Identifiable, Sendable, Codable, Equatable {
     let id: UUID
     let text: String
     let timestamp: Date
