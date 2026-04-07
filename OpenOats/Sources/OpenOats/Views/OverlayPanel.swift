@@ -114,7 +114,12 @@ final class OverlayManager: ObservableObject {
 
     func hide() {
         panel?.orderOut(nil)
+        // Clear the SwiftUI content so the NSHostingView stops participating
+        // in the 60Hz display cycle (observation tracking + layout) while hidden.
+        hostingView?.rootView = AnyView(EmptyView())
+
         sidecastPanel?.orderOut(nil)
+        sidecastHostingView?.rootView = AnyView(EmptyView())
     }
 
     func toggle<Content: View>(content: Content) {
@@ -128,6 +133,7 @@ final class OverlayManager: ObservableObject {
     func toggleSidecast<Content: View>(content: Content) {
         if sidecastPanel?.isVisible == true {
             sidecastPanel?.orderOut(nil)
+            sidecastHostingView?.rootView = AnyView(EmptyView())
         } else {
             showSidecastSidebar(content: content)
         }

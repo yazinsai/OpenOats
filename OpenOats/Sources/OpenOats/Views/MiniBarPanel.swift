@@ -49,6 +49,7 @@ final class MiniBarState {
 @MainActor
 final class MiniBarManager: ObservableObject {
     private var panel: MiniBarPanel?
+    private var hostingView: NSHostingView<AnyView>?
     let state = MiniBarState()
     var defaults: UserDefaults = .standard
 
@@ -63,10 +64,14 @@ final class MiniBarManager: ObservableObject {
             let rect = NSRect(x: x, y: y, width: barWidth, height: barHeight)
             panel = MiniBarPanel(contentRect: rect, defaults: defaults)
 
-            let hostingView = NSHostingView(rootView: MiniBarContent(state: state))
-            hostingView.layer?.cornerRadius = 9
-            hostingView.layer?.masksToBounds = true
-            panel?.contentView = hostingView
+            let hv = NSHostingView(rootView: AnyView(MiniBarContent(state: state)))
+            hv.layer?.cornerRadius = 9
+            hv.layer?.masksToBounds = true
+            panel?.contentView = hv
+            hostingView = hv
+        } else {
+            // Restore live content if it was cleared on hide.
+            hostingView?.rootView = AnyView(MiniBarContent(state: state))
         }
         if panel?.isVisible != true {
             panel?.orderFront(nil)
@@ -81,6 +86,9 @@ final class MiniBarManager: ObservableObject {
 
     func hide() {
         panel?.orderOut(nil)
+        // Clear SwiftUI content so the NSHostingView stops participating in the
+        // 60Hz display cycle (observation tracking + layout) while hidden.
+        hostingView?.rootView = AnyView(EmptyView())
     }
 
     var isVisible: Bool {
