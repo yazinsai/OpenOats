@@ -70,10 +70,6 @@ final class KnowledgeBase {
         set { withMutation(keyPath: \.indexingProgress) { _indexingProgress = newValue } }
     }
 
-    /// Unit-normalized embeddings parallel to `chunks`, pre-computed at index time.
-    /// Cosine similarity on normalized vectors reduces to a single dot product.
-    private var normalizedChunkEmbeddings: [[Float]] = []
-
     private let settings: AppSettings
     private let voyageClient = VoyageClient()
     private let ollamaEmbedClient = OllamaEmbedClient()
@@ -154,7 +150,7 @@ final class KnowledgeBase {
                             text: chunk.text,
                             sourceFile: fileName,
                             headerContext: chunk.header,
-                            embedding: embedding,
+                            embedding: Self.normalizeEmbedding(embedding),
                             relativePath: entry.relativePath,
                             folderBreadcrumb: entry.folderBreadcrumb,
                             documentTitle: entry.documentTitle
@@ -180,7 +176,6 @@ final class KnowledgeBase {
             }
         }
 
-        self.normalizedChunkEmbeddings = allChunks.map { Self.normalizeEmbedding($0.embedding) }
         self.chunks = allChunks
         self.fileCount = scanResult.fileCount
         self.isIndexed = true
@@ -281,7 +276,7 @@ final class KnowledgeBase {
         for queryEmb in queryEmbeddings {
             let normQuery = Self.normalizeEmbedding(queryEmb)
             for i in 0..<chunks.count {
-                let sim = cosineSimilarity(normQuery, normalizedChunkEmbeddings[i])
+                let sim = cosineSimilarity(normQuery, chunks[i].embedding)
                 if sim > 0.1 {
                     bestScores[i] = max(bestScores[i] ?? 0, sim)
                 }
@@ -365,7 +360,6 @@ final class KnowledgeBase {
 
     func clear() {
         chunks.removeAll()
-        normalizedChunkEmbeddings.removeAll()
         isIndexed = false
         fileCount = 0
         indexingProgress = ""
@@ -537,12 +531,14 @@ final class KnowledgeBase {
     /// Any change (provider, model, URL) produces a different fingerprint, invalidating the cache.
     private func embeddingConfigFingerprint() -> String {
         switch settings.embeddingProvider {
+        // "n1" suffix denotes normalized embeddings stored in cache (added with Accelerate refactor).
+        // Changing this value invalidates all existing caches and forces a full re-embed.
         case .voyageAI:
-            return "voyageAI"
+            return "voyageAI|n1"
         case .ollama:
-            return "ollama|\(settings.ollamaBaseURL)|\(settings.ollamaEmbedModel)"
+            return "ollama|\(settings.ollamaBaseURL)|\(settings.ollamaEmbedModel)|n1"
         case .openAICompatible:
-            return "openAI|\(settings.openAIEmbedBaseURL)|\(settings.openAIEmbedModel)"
+            return "openAI|\(settings.openAIEmbedBaseURL)|\(settings.openAIEmbedModel)|n1"
         }
     }
 
