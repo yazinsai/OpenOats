@@ -22,6 +22,12 @@ final class AppUpdaterController {
 
         guard startUpdater else { return }
 
+        // Sparkle requires a bundled app with an Info.plist (feed URL, version,
+        // etc.). When running unbundled (e.g. via `swift run`), starting the
+        // updater throws and surfaces a modal error dialog on every launch.
+        // Skip silently in that case so developers can run from source.
+        guard Bundle.main.bundleIdentifier != nil else { return }
+
         do {
             try updater.start()
         } catch {
