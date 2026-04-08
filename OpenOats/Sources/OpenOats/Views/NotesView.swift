@@ -206,7 +206,9 @@ struct NotesView: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                if session.hasNotes {
+                if controller.isGenerating(sessionID: session.id) {
+                    ProgressView().controlSize(.mini).scaleEffect(0.7)
+                } else if session.hasNotes {
                     Image(systemName: "doc.text.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(

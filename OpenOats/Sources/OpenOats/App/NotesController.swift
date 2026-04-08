@@ -436,6 +436,11 @@ final class NotesController {
         generatingSessionID != nil
     }
 
+    /// Returns true if the given session is currently being generated.
+    func isGenerating(sessionID: String) -> Bool {
+        generatingSessionID == sessionID
+    }
+
     /// Display name of the session currently being generated (for tooltip messaging).
     var generatingSessionName: String {
         guard let id = generatingSessionID else { return "" }
