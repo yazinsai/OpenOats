@@ -435,7 +435,7 @@ actor SessionRepository {
         }
 
         // Mirror to notesFolderPath
-        mirrorNotesArtifacts(sessionID: sessionID)
+        scheduleMirror(sessionID: sessionID)
     }
 
     // MARK: - Notes
@@ -464,8 +464,8 @@ actor SessionRepository {
             writeSessionMetadata(sessionMeta, sessionID: sessionID)
         }
 
-        // Mirror to notesFolderPath
-        mirrorNotesArtifacts(sessionID: sessionID)
+        // Mirror to notesFolderPath — pass markdown through to avoid re-reading from disk
+        scheduleMirror(sessionID: sessionID, notesMarkdown: notes.markdown)
     }
 
     func loadNotes(sessionID: String) -> GeneratedNotes? {
@@ -648,7 +648,7 @@ actor SessionRepository {
         if var meta = loadSessionMetadataFile(sessionID: sessionID) {
             meta.title = title.isEmpty ? nil : title
             writeSessionMetadata(meta, sessionID: sessionID)
-            mirrorNotesArtifacts(sessionID: sessionID)
+            scheduleMirror(sessionID: sessionID)
             return
         }
 
@@ -993,6 +993,80 @@ actor SessionRepository {
         return playable.first
     }
 
+    // MARK: - Concurrent Session Loading
+
+    /// Loads notes, transcript, and audio URL concurrently off the actor, then returns all three.
+    /// Prefer this over three separate awaited calls to avoid sequential actor hops.
+    nonisolated func loadSessionData(sessionID: String) async -> (notes: GeneratedNotes?, transcript: [SessionRecord], audioURL: URL?) {
+        let sessDir = sessionsDirectoryURL
+        let dir = sessDir.appendingPathComponent(sessionID, isDirectory: true)
+
+        async let notes = Task.detached(priority: .userInitiated) {
+            SessionRepository.readNotes(sessionID: sessionID, dir: dir, sessionsDirectory: sessDir)
+        }.value
+        async let transcript = Task.detached(priority: .userInitiated) {
+            SessionRepository.readTranscript(sessionID: sessionID, dir: dir, sessionsDirectory: sessDir)
+        }.value
+        async let audioURL = Task.detached(priority: .userInitiated) {
+            SessionRepository.readAudioFileURL(dir: dir)
+        }.value
+
+        return await (notes, transcript, audioURL)
+    }
+
+    private nonisolated static func readNotes(sessionID: String, dir: URL, sessionsDirectory: URL) -> GeneratedNotes? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let mdURL = dir.appendingPathComponent("notes.md")
+        let metaURL = dir.appendingPathComponent("notes.meta.json")
+
+        if let markdown = try? String(contentsOf: mdURL, encoding: .utf8),
+           let metaData = try? Data(contentsOf: metaURL),
+           let meta = try? decoder.decode(NotesMeta.self, from: metaData) {
+            return GeneratedNotes(template: meta.templateSnapshot, generatedAt: meta.generatedAt, markdown: markdown)
+        }
+
+        return LegacySessionReader.loadNotes(sessionID: sessionID, sessionsDirectory: sessionsDirectory)
+    }
+
+    private nonisolated static func readTranscript(sessionID: String, dir: URL, sessionsDirectory: URL) -> [SessionRecord] {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        func parse(_ content: String) -> [SessionRecord] {
+            content.components(separatedBy: "\n").filter { !$0.isEmpty }.compactMap { line in
+                guard let data = line.data(using: .utf8) else { return nil }
+                return try? decoder.decode(SessionRecord.self, from: data)
+            }
+        }
+
+        let finalURL = dir.appendingPathComponent("transcript.final.jsonl")
+        if FileManager.default.fileExists(atPath: finalURL.path),
+           let content = try? String(contentsOf: finalURL, encoding: .utf8) {
+            let records = parse(content)
+            if !records.isEmpty { return records }
+        }
+
+        let liveURL = dir.appendingPathComponent("transcript.live.jsonl")
+        if FileManager.default.fileExists(atPath: liveURL.path),
+           let content = try? String(contentsOf: liveURL, encoding: .utf8) {
+            let records = parse(content)
+            if !records.isEmpty { return records }
+        }
+
+        return LegacySessionReader.loadTranscript(sessionID: sessionID, sessionsDirectory: sessionsDirectory)
+    }
+
+    private nonisolated static func readAudioFileURL(dir: URL) -> URL? {
+        let audioDir = dir.appendingPathComponent("audio", isDirectory: true)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: audioDir.path),
+              let contents = try? fm.contentsOfDirectory(at: audioDir, includingPropertiesForKeys: nil)
+        else { return nil }
+        let skipExtensions: Set<String> = ["caf", "json"]
+        return contents.filter { !skipExtensions.contains($0.pathExtension.lowercased()) }.first
+    }
+
     // MARK: - Private Helpers
 
     private func sessionDirectory(for sessionID: String) -> URL {
@@ -1096,13 +1170,38 @@ actor SessionRepository {
 
     // MARK: - Notes Folder Mirroring
 
-    /// Mirror notes.md and plain-text transcript to the user-visible notesFolderPath.
-    private func mirrorNotesArtifacts(sessionID: String) {
+    /// Schedule a background mirror of the session's notes and transcript to notesFolderPath.
+    /// Captures all actor-isolated state before spawning so the work runs entirely off-actor.
+    /// - Parameter notesMarkdown: Pass the markdown when already in memory (e.g. from saveNotes)
+    ///   to avoid a redundant disk read; nil causes the background task to read it from disk.
+    private func scheduleMirror(sessionID: String, notesMarkdown: String? = nil) {
         guard let outputDir = notesFolderPath else { return }
-
+        let sessDir = sessionsDirectory
         let meta = loadSessionMetadataFile(sessionID: sessionID)
-        let records = loadTranscript(sessionID: sessionID)
+        Task.detached(priority: .background) {
+            SessionRepository.performMirror(
+                sessionID: sessionID,
+                meta: meta,
+                notesMarkdown: notesMarkdown,
+                outputDir: outputDir,
+                sessionsDirectory: sessDir
+            )
+        }
+    }
+
+    private nonisolated static func performMirror(
+        sessionID: String,
+        meta: SessionMetadata?,
+        notesMarkdown: String?,
+        outputDir: URL,
+        sessionsDirectory: URL
+    ) {
+        let dir = sessionsDirectory.appendingPathComponent(sessionID, isDirectory: true)
+        let records = readTranscript(sessionID: sessionID, dir: dir, sessionsDirectory: sessionsDirectory)
         guard !records.isEmpty else { return }
+
+        let resolvedMarkdown = notesMarkdown
+            ?? readNotes(sessionID: sessionID, dir: dir, sessionsDirectory: sessionsDirectory)?.markdown
 
         let index = SessionIndex(
             id: meta?.id ?? sessionID,
@@ -1111,7 +1210,7 @@ actor SessionRepository {
             templateSnapshot: meta?.templateSnapshot,
             title: meta?.title,
             utteranceCount: meta?.utteranceCount ?? records.count,
-            hasNotes: meta?.hasNotes ?? false,
+            hasNotes: (meta?.hasNotes ?? false) || resolvedMarkdown != nil,
             language: meta?.language,
             meetingApp: meta?.meetingApp,
             engine: meta?.engine,
@@ -1119,14 +1218,10 @@ actor SessionRepository {
             source: meta?.source
         )
 
-        // Load generated notes (if any) to include in the export
-        let notes = loadNotes(sessionID: sessionID)
-
-        // Write/update Markdown meeting notes
         MarkdownMeetingWriter.write(
             metadata: .init(from: index),
             records: records,
-            notesMarkdown: notes?.markdown,
+            notesMarkdown: resolvedMarkdown,
             outputDirectory: outputDir
         )
     }

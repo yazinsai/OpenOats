@@ -36,13 +36,15 @@ final class NotesEngine {
         self.mode = mode
     }
 
-    /// Streams note generation from the LLM, updating `generatedMarkdown` in real time.
+    /// Starts streaming note generation from the LLM, updating `generatedMarkdown` in real time.
+    /// Returns immediately — generation runs in the background. Call `onFinished` to react when done.
     func generate(
         transcript: [SessionRecord],
         template: MeetingTemplate,
         settings: AppSettings,
-        scratchpad: String? = nil
-    ) async {
+        scratchpad: String? = nil,
+        onFinished: @escaping @MainActor () -> Void = {}
+    ) {
         currentTask?.cancel()
         isGenerating = true
         generatedMarkdown = ""
@@ -51,6 +53,7 @@ final class NotesEngine {
         if case .scripted(let markdown) = mode {
             generatedMarkdown = markdown
             isGenerating = false
+            onFinished()
             return
         }
 
@@ -68,6 +71,7 @@ final class NotesEngine {
             guard let ollamaURL = OpenRouterClient.chatCompletionsURL(from: settings.ollamaBaseURL) else {
                 error = "Invalid Ollama URL: \(settings.ollamaBaseURL)"
                 isGenerating = false
+                onFinished()
                 return
             }
             baseURL = ollamaURL
@@ -77,6 +81,7 @@ final class NotesEngine {
             guard let mlxURL = OpenRouterClient.chatCompletionsURL(from: settings.mlxBaseURL) else {
                 error = "Invalid MLX URL: \(settings.mlxBaseURL)"
                 isGenerating = false
+                onFinished()
                 return
             }
             baseURL = mlxURL
@@ -86,6 +91,7 @@ final class NotesEngine {
             guard let openAIURL = OpenRouterClient.chatCompletionsURL(from: settings.openAILLMBaseURL) else {
                 error = "Invalid OpenAI Compatible URL: \(settings.openAILLMBaseURL)"
                 isGenerating = false
+                onFinished()
                 return
             }
             baseURL = openAIURL
@@ -112,10 +118,14 @@ final class NotesEngine {
                     maxTokens: 4096,
                     baseURL: baseURL
                 )
-                guard let stream else { return }
+                guard let stream else {
+                    self?.isGenerating = false
+                    onFinished()
+                    return
+                }
 
                 for try await chunk in stream {
-                    guard !Task.isCancelled else { return }
+                    guard !Task.isCancelled else { break }
                     self?.generatedMarkdown += chunk
                 }
             } catch {
@@ -124,9 +134,9 @@ final class NotesEngine {
                 }
             }
             self?.isGenerating = false
+            onFinished()
         }
         currentTask = task
-        await task.value
     }
 
     func cancel() {

@@ -54,6 +54,10 @@ final class NotesController {
     /// Observation polling task for engine state mapping.
     @ObservationIgnored nonisolated(unsafe) private var engineObservationTask: Task<Void, Never>?
 
+    /// The session ID that triggered the currently in-progress generation, if any.
+    /// Used to prevent bleeding status/content onto a different session when the user switches mid-generation.
+    @ObservationIgnored private var generatingSessionID: String?
+
     /// Audio player for session recordings.
     @ObservationIgnored private var audioPlayer: AVPlayer?
     @ObservationIgnored private var playerObservation: Any?
@@ -125,14 +129,18 @@ final class NotesController {
         coordinator.batchTextCleaner.cancel()
         syncCleanupStatus()
 
-        Task {
-            let notes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
-            let transcript = await coordinator.sessionRepository.loadTranscript(sessionID: sessionID)
-            let audioURL = await coordinator.sessionRepository.audioFileURL(for: sessionID)
+        // If generation is running for a different session, don't show its status here
+        if generatingSessionID != sessionID {
+            state.notesGenerationStatus = .idle
+            state.streamingMarkdown = ""
+        }
 
-            state.loadedNotes = notes
-            state.loadedTranscript = transcript
-            state.audioFileURL = audioURL
+        Task {
+            let data = await coordinator.sessionRepository.loadSessionData(sessionID: sessionID)
+
+            state.loadedNotes = data.notes
+            state.loadedTranscript = data.transcript
+            state.audioFileURL = data.audioURL
 
             let session = state.sessionHistory.first { $0.id == sessionID }
             if let snapID = session?.templateSnapshot?.id {
@@ -141,7 +149,7 @@ final class NotesController {
                 state.selectedTemplate = coordinator.templateStore.template(for: TemplateStore.genericID)
             }
 
-            let hasAny = transcript.contains { $0.cleanedText != nil }
+            let hasAny = data.transcript.contains { $0.cleanedText != nil }
             state.cleanupStatus = hasAny ? .completed : .idle
         }
     }
@@ -196,38 +204,27 @@ final class NotesController {
             ?? coordinator.templateStore.template(for: TemplateStore.genericID)
             ?? TemplateStore.builtInTemplates.first!
 
+        // Capture transcript immediately — before any suspension — so session switches
+        // mid-load don't swap in the wrong session's records.
+        let capturedTranscript = state.loadedTranscript
+
+        generatingSessionID = sessionID
         state.notesGenerationStatus = .generating
         state.streamingMarkdown = ""
 
         Task {
             let scratchpad = await coordinator.sessionRepository.loadScratchpad(sessionID: sessionID)
-            await coordinator.notesEngine.generate(
-                transcript: state.loadedTranscript,
+
+            coordinator.notesEngine.generate(
+                transcript: capturedTranscript,
                 template: template,
                 settings: settings,
                 scratchpad: scratchpad.isEmpty ? nil : scratchpad
-            )
-
-            if !coordinator.notesEngine.generatedMarkdown.isEmpty {
-                let generatedMarkdown = coordinator.notesEngine.generatedMarkdown
-                let session = state.sessionHistory.first { $0.id == sessionID }
-                let heading = Self.notesHeading(title: session?.title, date: session?.startedAt ?? Date())
-                let markdown = heading + generatedMarkdown
-
-                let notes = GeneratedNotes(
-                    template: coordinator.templateStore.snapshot(of: template),
-                    generatedAt: Date(),
-                    markdown: markdown
-                )
-                await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: notes)
-                state.loadedNotes = notes
-
-                await loadHistory()
-                state.notesGenerationStatus = .completed
-            } else if let error = coordinator.notesEngine.error {
-                state.notesGenerationStatus = .error(error)
-            } else {
-                state.notesGenerationStatus = .idle
+            ) { [weak self] in
+                guard let self else { return }
+                Task {
+                    await self.finishGeneration(sessionID: sessionID, template: template)
+                }
             }
         }
     }
@@ -241,8 +238,40 @@ final class NotesController {
         generateNotes(sessionID: sessionID, settings: settings)
     }
 
+    private func finishGeneration(sessionID: String, template: MeetingTemplate) async {
+        defer { generatingSessionID = nil }
+
+        // Always save notes to disk regardless of which session the user is now on
+        if !coordinator.notesEngine.generatedMarkdown.isEmpty {
+            let generatedMarkdown = coordinator.notesEngine.generatedMarkdown
+            let session = state.sessionHistory.first { $0.id == sessionID }
+            let heading = Self.notesHeading(title: session?.title, date: session?.startedAt ?? Date())
+            let markdown = heading + generatedMarkdown
+
+            let notes = GeneratedNotes(
+                template: coordinator.templateStore.snapshot(of: template),
+                generatedAt: Date(),
+                markdown: markdown
+            )
+            await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: notes)
+            await loadHistory()
+
+            // Only update visible UI state if the user is still on this session
+            guard state.selectedSessionID == sessionID else { return }
+            state.loadedNotes = notes
+            state.notesGenerationStatus = .completed
+        } else if state.selectedSessionID == sessionID {
+            if let error = coordinator.notesEngine.error {
+                state.notesGenerationStatus = .error(error)
+            } else {
+                state.notesGenerationStatus = .idle
+            }
+        }
+    }
+
     func cancelGeneration() {
         coordinator.notesEngine.cancel()
+        generatingSessionID = nil
         state.notesGenerationStatus = .idle
         state.streamingMarkdown = ""
     }
@@ -445,14 +474,13 @@ final class NotesController {
 
     private func syncGenerationStatus() {
         let engine = coordinator.notesEngine
-        if engine.isGenerating {
-            if state.notesGenerationStatus != .generating {
-                state.notesGenerationStatus = .generating
-            }
-            if state.streamingMarkdown != engine.generatedMarkdown {
-                state.streamingMarkdown = engine.generatedMarkdown
-            }
+        // Only propagate engine state if the generation belongs to the currently selected session
+        guard engine.isGenerating, generatingSessionID == state.selectedSessionID else { return }
+        if state.notesGenerationStatus != .generating {
+            state.notesGenerationStatus = .generating
         }
-        // Don't override .error or .completed set by generateNotes
+        if state.streamingMarkdown != engine.generatedMarkdown {
+            state.streamingMarkdown = engine.generatedMarkdown
+        }
     }
 }
