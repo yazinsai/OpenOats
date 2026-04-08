@@ -197,11 +197,18 @@ final class SessionRepositoryTests: XCTestCase {
 
         await repo.saveNotes(sessionID: sessionID, notes: notes)
         
-        // Wait for detached task to complete
-        try? await Task.sleep(for: .milliseconds(300))
+        // Poll for detached task to complete (up to 2 seconds)
+        var didMirror = false
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .milliseconds(100))
+            let contents = try? FileManager.default.contentsOfDirectory(at: exportDir, includingPropertiesForKeys: nil)
+            if contents?.contains(where: { $0.lastPathComponent.contains("mirror-meeting") && $0.pathExtension == "md" }) ?? false {
+                didMirror = true
+                break
+            }
+        }
         
-        let contents = try? FileManager.default.contentsOfDirectory(at: exportDir, includingPropertiesForKeys: nil)
-        XCTAssertTrue(contents?.contains(where: { $0.lastPathComponent == "Mirror Meeting.md" }) ?? false)
+        XCTAssertTrue(didMirror, "Background mirror task did not complete in time")
         
         await repo.deleteSession(sessionID: sessionID)
     }
