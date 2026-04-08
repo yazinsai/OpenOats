@@ -287,9 +287,11 @@ final class LiveSessionController {
         if let settings {
             if let resolvedURL = settings.resolveNotesFolderBookmark() {
                 await coordinator.sessionRepository.setNotesFolderPath(resolvedURL, securityScoped: true)
+                coordinator.audioRecorder?.updateDirectory(resolvedURL, securityScoped: true)
             } else {
                 let notesURL = URL(fileURLWithPath: settings.notesFolderPath)
                 await coordinator.sessionRepository.setNotesFolderPath(notesURL)
+                coordinator.audioRecorder?.updateDirectory(notesURL)
             }
         }
 
@@ -605,7 +607,7 @@ final class LiveSessionController {
                 Task {
                     await coordinator.sessionRepository.setNotesFolderPath(resolvedURL, securityScoped: true)
                 }
-                coordinator.audioRecorder?.updateDirectory(resolvedURL)
+                coordinator.audioRecorder?.updateDirectory(resolvedURL, securityScoped: true)
             } else {
                 let url = URL(fileURLWithPath: settings.notesFolderPath)
                 Task {
