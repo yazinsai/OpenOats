@@ -21,6 +21,23 @@ final class StreamingTranscriber: @unchecked Sendable {
         interleaved: false
     )!
 
+    // -- Effective sample rate correction --
+    // Core Audio process taps can declare one sample rate but deliver audio at a
+    // different rate.  AudioRecorder already compensates for this when writing the
+    // merged file, but the streaming transcriber was trusting the declared rate,
+    // causing incorrect resampling and garbled audio for VAD + ASR.
+    //
+    // We measure the *actual* rate by comparing wall-clock time to frames received.
+    // Once we have ≥ 3 s of data and the rates diverge by > 5 %, we lock in the
+    // effective rate and rebuild the converter.
+    private var rateTrackingStartDate: Date?
+    private var rateTrackingTotalFrames: Int64 = 0
+    private var effectiveSampleRate: Double?
+    /// Minimum wall-clock seconds before we trust the effective rate measurement.
+    private static let rateWarmupSeconds: Double = 3.0
+    /// Relative threshold: if effective rate differs by more than this fraction, correct it.
+    private static let rateDivergenceThreshold: Double = 0.05
+
     /// Flush interval in 16kHz samples. Determined by the transcription model.
     private let flushInterval: Int
 
@@ -77,6 +94,9 @@ final class StreamingTranscriber: @unchecked Sendable {
                 let fmt = buffer.format
                 Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] buffer #\(bufferCount, privacy: .public): frames=\(buffer.frameLength, privacy: .public) sr=\(fmt.sampleRate, privacy: .public) ch=\(fmt.channelCount, privacy: .public) interleaved=\(fmt.isInterleaved, privacy: .public) common=\(fmt.commonFormat.rawValue, privacy: .public)")
             }
+
+            // Track effective sample rate (detects process-tap rate mismatch)
+            updateRateTracking(buffer)
 
             guard let samples = extractSamples(buffer) else { continue }
 
@@ -209,20 +229,50 @@ final class StreamingTranscriber: @unchecked Sendable {
         }
     }
 
+    /// Track wall-clock time vs frames received to detect process-tap rate mismatch.
+    private func updateRateTracking(_ buffer: AVAudioPCMBuffer) {
+        let frames = Int64(buffer.frameLength)
+        guard frames > 0 else { return }
+
+        let now = Date()
+        if rateTrackingStartDate == nil {
+            rateTrackingStartDate = now
+        }
+        rateTrackingTotalFrames += frames
+
+        // Only compute after warmup period; skip if already locked in
+        guard effectiveSampleRate == nil,
+              let start = rateTrackingStartDate else { return }
+
+        let elapsed = now.timeIntervalSince(start)
+        guard elapsed >= Self.rateWarmupSeconds else { return }
+
+        let measured = Double(rateTrackingTotalFrames) / elapsed
+        let declared = buffer.format.sampleRate
+        let divergence = abs(measured - declared) / declared
+
+        if divergence > Self.rateDivergenceThreshold {
+            effectiveSampleRate = measured
+            converter = nil // force rebuild on next extractSamples call
+            Log.streaming.warning("[\(self.speaker.storageKey, privacy: .public)] rate mismatch: declared=\(declared, privacy: .public) effective=\(measured, privacy: .public) (divergence \(String(format: "%.1f", divergence * 100), privacy: .public)%), correcting resampler")
+        }
+    }
+
     /// Extract [Float] samples from an AVAudioPCMBuffer, resampling if needed.
     private func extractSamples(_ buffer: AVAudioPCMBuffer) -> [Float]? {
         let sourceFormat = buffer.format
         let frameLength = Int(buffer.frameLength)
         guard frameLength > 0 else { return nil }
 
-        // Fast path: already Float32 at 16kHz (common for system audio capture)
-        if sourceFormat.commonFormat == .pcmFormatFloat32 && sourceFormat.sampleRate == 16000 {
+        // Determine the actual sample rate (may differ from declared for process taps)
+        let actualRate = effectiveSampleRate ?? sourceFormat.sampleRate
+
+        // Fast path: already Float32 at 16kHz
+        if sourceFormat.commonFormat == .pcmFormatFloat32 && actualRate == 16000 {
             guard let channelData = buffer.floatChannelData else { return nil }
             if sourceFormat.channelCount == 1 {
-                // Mono — direct copy
                 return Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
             } else {
-                // Multi-channel — take first channel only
                 return Array(UnsafeBufferPointer(start: channelData[0], count: frameLength))
             }
         }
@@ -230,10 +280,11 @@ final class StreamingTranscriber: @unchecked Sendable {
         // Downmix multi-channel to mono before resampling
         // (AVAudioConverter mishandles deinterleaved multi-channel input)
         var inputBuffer = buffer
+        let monoRate = actualRate
         if sourceFormat.channelCount > 1, let src = buffer.floatChannelData {
             let monoFormat = AVAudioFormat(
                 commonFormat: .pcmFormatFloat32,
-                sampleRate: sourceFormat.sampleRate,
+                sampleRate: monoRate,
                 channels: 1,
                 interleaved: false
             )!
@@ -248,6 +299,23 @@ final class StreamingTranscriber: @unchecked Sendable {
                     dst[i] = sum * scale
                 }
                 inputBuffer = monoBuf
+            }
+        } else if effectiveSampleRate != nil, sourceFormat.channelCount == 1 {
+            // Mono but rate-corrected: re-wrap buffer with the effective rate so the
+            // converter uses the correct ratio.
+            let correctedFormat = AVAudioFormat(
+                commonFormat: sourceFormat.commonFormat,
+                sampleRate: monoRate,
+                channels: 1,
+                interleaved: sourceFormat.isInterleaved
+            )!
+            if let rewrapped = AVAudioPCMBuffer(pcmFormat: correctedFormat, frameCapacity: buffer.frameCapacity) {
+                rewrapped.frameLength = buffer.frameLength
+                if let srcData = buffer.floatChannelData?[0],
+                   let dstData = rewrapped.floatChannelData?[0] {
+                    memcpy(dstData, srcData, frameLength * MemoryLayout<Float>.size)
+                    inputBuffer = rewrapped
+                }
             }
         }
 
