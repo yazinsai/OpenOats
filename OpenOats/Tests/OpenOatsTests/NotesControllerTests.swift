@@ -281,4 +281,63 @@ final class NotesControllerTests: XCTestCase {
         controller.toggleShowingOriginal()
         XCTAssertFalse(controller.state.showingOriginal)
     }
+
+    func testGenerateNotesUpdatesGeneratingFlags() async {
+        let (root, notes) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let settings = makeSettings(notesDirectory: notes)
+        let sessionID = "session_test_flags"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID)
+        await controller.loadHistory()
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertFalse(controller.isAnyGenerationInProgress)
+        XCTAssertFalse(controller.isGenerating(sessionID: sessionID))
+
+        controller.generateNotes(sessionID: sessionID, settings: settings)
+        
+        // Synchronous start
+        XCTAssertTrue(controller.isAnyGenerationInProgress)
+        XCTAssertTrue(controller.isGenerating(sessionID: sessionID))
+        XCTAssertEqual(controller.generatingSessionName, "Test Meeting")
+
+        // Wait for finish
+        try? await Task.sleep(for: .milliseconds(500))
+
+        XCTAssertFalse(controller.isAnyGenerationInProgress)
+        XCTAssertFalse(controller.isGenerating(sessionID: sessionID))
+    }
+
+    func testGenerateNotesUpdatesFreshlyGeneratedWhenSwitchedAway() async {
+        let (root, notes) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let settings = makeSettings(notesDirectory: notes)
+        let sessionID = "session_test_fresh_switch"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID)
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        // Start generation
+        controller.generateNotes(sessionID: sessionID, settings: settings)
+
+        // Switch to a different session (or nil) immediately
+        controller.selectSession(nil)
+
+        // Wait for generation to finish in the background
+        try? await Task.sleep(for: .milliseconds(500))
+
+        XCTAssertFalse(controller.isAnyGenerationInProgress)
+        XCTAssertTrue(controller.state.freshlyGeneratedSessionIDs.contains(sessionID))
+        XCTAssertNil(controller.state.loadedNotes, "Should not update loadedNotes for the current unselected view")
+
+        // Switch back to it
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertFalse(controller.state.freshlyGeneratedSessionIDs.contains(sessionID), "Should clear the fresh badge when selected")
+        XCTAssertNotNil(controller.state.loadedNotes, "Should load the generated notes")
+    }
 }
