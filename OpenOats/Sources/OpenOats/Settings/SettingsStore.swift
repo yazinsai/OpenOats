@@ -748,7 +748,7 @@ final class SettingsStore {
         do {
             var isStale = false
             let url = try URL(
-                resolvingBookmarkDataFrom: data,
+                resolvingBookmarkData: data,
                 options: .withSecurityScope,
                 relativeTo: nil,
                 bookmarkDataIsStale: &isStale
