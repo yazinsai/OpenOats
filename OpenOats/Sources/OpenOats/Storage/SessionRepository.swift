@@ -124,6 +124,10 @@ actor SessionRepository {
     /// User-facing notes folder for mirroring (e.g. ~/Documents/OpenOats).
     private var notesFolderPath: URL?
 
+    /// Whether `notesFolderPath` is a security-scoped URL that requires
+    /// `startAccessingSecurityScopedResource()` before file I/O.
+    private var notesFolderIsSecurityScoped = false
+
     init(rootDirectory: URL? = nil) {
         let baseDirectory: URL
         if let rootDirectory {
@@ -152,8 +156,12 @@ actor SessionRepository {
     // MARK: - Configuration
 
     /// Update the notes folder path used for mirroring artifacts.
-    func setNotesFolderPath(_ url: URL?) {
+    /// - Parameters:
+    ///   - url: The folder URL (may be a security-scoped URL resolved from a bookmark).
+    ///   - securityScoped: Pass `true` when the URL was resolved from a security-scoped bookmark.
+    func setNotesFolderPath(_ url: URL?, securityScoped: Bool = false) {
         notesFolderPath = url
+        notesFolderIsSecurityScoped = securityScoped
     }
 
     /// Register a callback invoked once per session when a write error occurs.
@@ -1177,6 +1185,7 @@ actor SessionRepository {
     private func scheduleMirror(sessionID: String, notesMarkdown: String? = nil) {
         guard let outputDir = notesFolderPath else { return }
         let sessDir = sessionsDirectory
+        let isSecurityScoped = notesFolderIsSecurityScoped
         let meta = loadSessionMetadataFile(sessionID: sessionID)
         Task.detached(priority: .background) {
             SessionRepository.performMirror(
@@ -1184,6 +1193,7 @@ actor SessionRepository {
                 meta: meta,
                 notesMarkdown: notesMarkdown,
                 outputDir: outputDir,
+                isSecurityScoped: isSecurityScoped,
                 sessionsDirectory: sessDir
             )
         }
@@ -1194,8 +1204,15 @@ actor SessionRepository {
         meta: SessionMetadata?,
         notesMarkdown: String?,
         outputDir: URL,
+        isSecurityScoped: Bool,
         sessionsDirectory: URL
     ) {
+        // Acquire security-scoped access if the URL was resolved from a bookmark
+        let didStartAccess = isSecurityScoped && outputDir.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccess { outputDir.stopAccessingSecurityScopedResource() }
+        }
+
         let dir = sessionsDirectory.appendingPathComponent(sessionID, isDirectory: true)
         let records = readTranscript(sessionID: sessionID, dir: dir, sessionsDirectory: sessionsDirectory)
         guard !records.isEmpty else { return }

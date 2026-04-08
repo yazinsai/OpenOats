@@ -725,6 +725,44 @@ final class SettingsStore {
         }
     }
 
+    /// Save a security-scoped bookmark for the user-selected notes folder.
+    func saveNotesFolderBookmark(from url: URL) {
+        do {
+            let bookmarkData = try url.bookmarkData(
+                options: .withSecurityScope,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            defaults.set(bookmarkData, forKey: "notesFolderBookmark")
+        } catch {
+            Log.sessionRepository.error("Failed to create notes folder bookmark: \(error, privacy: .public)")
+        }
+    }
+
+    /// Resolve the stored security-scoped bookmark to a URL.
+    /// Returns `nil` if no bookmark is stored or resolution fails.
+    func resolveNotesFolderBookmark() -> URL? {
+        guard let data = defaults.data(forKey: "notesFolderBookmark") else {
+            return nil
+        }
+        do {
+            var isStale = false
+            let url = try URL(
+                resolvingBookmarkData: data,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+            if isStale {
+                saveNotesFolderBookmark(from: url)
+            }
+            return url
+        } catch {
+            Log.sessionRepository.error("Failed to resolve notes folder bookmark: \(error, privacy: .public)")
+            return nil
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _kbFolderPath: String
     var kbFolderPath: String {
         get { access(keyPath: \.kbFolderPath); return _kbFolderPath }

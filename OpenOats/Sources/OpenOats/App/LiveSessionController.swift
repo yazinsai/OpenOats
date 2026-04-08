@@ -283,10 +283,16 @@ final class LiveSessionController {
             coordinator.sessionTemplateSnapshot = nil
         }
 
-        // Configure notes folder for mirroring
+        // Configure notes folder for mirroring (prefer security-scoped bookmark)
         if let settings {
-            let notesURL = URL(fileURLWithPath: settings.notesFolderPath)
-            await coordinator.sessionRepository.setNotesFolderPath(notesURL)
+            if let resolvedURL = settings.resolveNotesFolderBookmark() {
+                await coordinator.sessionRepository.setNotesFolderPath(resolvedURL, securityScoped: true)
+                coordinator.audioRecorder?.updateDirectory(resolvedURL, securityScoped: true)
+            } else {
+                let notesURL = URL(fileURLWithPath: settings.notesFolderPath)
+                await coordinator.sessionRepository.setNotesFolderPath(notesURL)
+                coordinator.audioRecorder?.updateDirectory(notesURL)
+            }
         }
 
         let templateID = coordinator.selectedTemplate?.id
@@ -597,11 +603,18 @@ final class LiveSessionController {
 
         if settings.notesFolderPath != observedNotesFolderPath {
             observedNotesFolderPath = settings.notesFolderPath
-            let url = URL(fileURLWithPath: settings.notesFolderPath)
-            Task {
-                await coordinator.sessionRepository.setNotesFolderPath(url)
+            if let resolvedURL = settings.resolveNotesFolderBookmark() {
+                Task {
+                    await coordinator.sessionRepository.setNotesFolderPath(resolvedURL, securityScoped: true)
+                }
+                coordinator.audioRecorder?.updateDirectory(resolvedURL, securityScoped: true)
+            } else {
+                let url = URL(fileURLWithPath: settings.notesFolderPath)
+                Task {
+                    await coordinator.sessionRepository.setNotesFolderPath(url)
+                }
+                coordinator.audioRecorder?.updateDirectory(url)
             }
-            coordinator.audioRecorder?.updateDirectory(url)
         }
 
         if settings.voyageApiKey != observedVoyageApiKey {

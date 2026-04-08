@@ -249,10 +249,37 @@ final class KnowledgeBase {
 
     /// Multi-query search with score fusion. Deduplicates by chunk index, uses max score.
     func search(queries: [String], topK: Int = 5) async -> [KBResult] {
+        await searchRaw(queries: queries, topK: topK).map(\.result)
+    }
+
+    /// Search returning rich context packs with adjacent sibling text.
+    func searchContextPacks(queries: [String], topK: Int = 3) async -> [KBContextPack] {
+        let raw = await searchRaw(queries: queries, topK: topK)
+        return raw.map { chunkIndex, result in
+            let prevSibling: String? = chunkIndex > 0 && chunks[chunkIndex - 1].sourceFile == result.sourceFile
+                ? chunks[chunkIndex - 1].text : nil
+            let nextSibling: String? = chunkIndex < chunks.count - 1 && chunks[chunkIndex + 1].sourceFile == result.sourceFile
+                ? chunks[chunkIndex + 1].text : nil
+            let chunk = chunks[chunkIndex]
+            return KBContextPack(
+                matchedText: result.text,
+                relativePath: chunk.relativePath,
+                folderBreadcrumb: chunk.folderBreadcrumb,
+                documentTitle: chunk.documentTitle,
+                headerBreadcrumb: result.headerContext,
+                score: result.score,
+                previousSiblingText: prevSibling,
+                nextSiblingText: nextSibling
+            )
+        }
+    }
+
+    /// Core search implementation. Returns chunk indices alongside results so callers
+    /// don't need to re-scan the chunks array to locate matched entries.
+    private func searchRaw(queries: [String], topK: Int) async -> [(chunkIndex: Int, result: KBResult)] {
         let provider = settings.embeddingProvider
         guard isIndexed, !chunks.isEmpty else { return [] }
 
-        // Validate credentials for the active provider
         if provider == .voyageAI {
             guard !settings.voyageApiKey.isEmpty else { return [] }
         }
@@ -260,7 +287,6 @@ final class KnowledgeBase {
         let validQueries = queries.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !validQueries.isEmpty else { return [] }
 
-        // Embed all queries at once
         let queryEmbeddings: [[Float]]
         do {
             queryEmbeddings = try await embedTexts(validQueries, inputType: "query")
@@ -295,19 +321,19 @@ final class KnowledgeBase {
             do {
                 let reranked = try await voyageClient.rerank(
                     apiKey: settings.voyageApiKey,
-                    query: validQueries[0],
+                    query: validQueries.joined(separator: " "),
                     documents: candidateDocs,
                     topN: topK
                 )
                 return reranked.map { result in
-                    let originalIdx = topCandidates[result.index].index
-                    let chunk = chunks[originalIdx]
-                    return KBResult(
+                    let chunkIndex = topCandidates[result.index].index
+                    let chunk = chunks[chunkIndex]
+                    return (chunkIndex, KBResult(
                         text: chunk.text,
                         sourceFile: chunk.sourceFile,
                         headerContext: chunk.headerContext,
                         score: result.score
-                    )
+                    ))
                 }
             } catch {
                 print("KB rerank error (falling back to cosine): \(error)")
@@ -317,44 +343,12 @@ final class KnowledgeBase {
         // Cosine-similarity fallback (used by Ollama or when Voyage rerank fails)
         return topCandidates.prefix(topK).map { candidate in
             let chunk = chunks[candidate.index]
-            return KBResult(
+            return (candidate.index, KBResult(
                 text: chunk.text,
                 sourceFile: chunk.sourceFile,
                 headerContext: chunk.headerContext,
                 score: Double(candidate.score)
-            )
-        }
-    }
-
-    /// Search returning rich context packs with adjacent sibling text.
-    func searchContextPacks(queries: [String], topK: Int = 3) async -> [KBContextPack] {
-        let results = await search(queries: queries, topK: topK)
-        return results.map { result in
-            let matchIndex = chunks.firstIndex { $0.text == result.text && $0.sourceFile == result.sourceFile }
-            let prevSibling: String?
-            if let mi = matchIndex, mi > 0, chunks[mi - 1].sourceFile == result.sourceFile {
-                prevSibling = chunks[mi - 1].text
-            } else {
-                prevSibling = nil
-            }
-            let nextSibling: String?
-            if let mi = matchIndex, mi < chunks.count - 1, chunks[mi + 1].sourceFile == result.sourceFile {
-                nextSibling = chunks[mi + 1].text
-            } else {
-                nextSibling = nil
-            }
-
-            let chunk = matchIndex.map { chunks[$0] }
-            return KBContextPack(
-                matchedText: result.text,
-                relativePath: chunk?.relativePath ?? result.sourceFile,
-                folderBreadcrumb: chunk?.folderBreadcrumb ?? "",
-                documentTitle: chunk?.documentTitle ?? result.sourceFile,
-                headerBreadcrumb: result.headerContext,
-                score: result.score,
-                previousSiblingText: prevSibling,
-                nextSiblingText: nextSibling
-            )
+            ))
         }
     }
 
@@ -573,14 +567,50 @@ final class KnowledgeBase {
 
     private func embedInBatches(texts: [String]) async -> (embeddings: [[Float]]?, error: String?) {
         let batchSize = 32
+        let batches = stride(from: 0, to: texts.count, by: batchSize).map { start in
+            Array(texts[start..<min(start + batchSize, texts.count)])
+        }
+
+        // Ollama is local with no rate limits — fire all batches concurrently.
+        // Cloud providers (Voyage, OpenAI-compatible) are rate-limited, keep sequential.
+        if settings.embeddingProvider == .ollama {
+            return await embedBatchesConcurrently(batches, total: texts.count)
+        } else {
+            return await embedBatchesSequentially(batches, total: texts.count)
+        }
+    }
+
+    private func embedBatchesConcurrently(_ batches: [[String]], total: Int) async -> (embeddings: [[Float]]?, error: String?) {
+        indexingProgress = "Embedding \(total) chunks..."
+        typealias Indexed = (order: Int, embeddings: [[Float]]?)
+        let results: [Indexed] = await withTaskGroup(of: Indexed.self) { group in
+            for (i, batch) in batches.enumerated() {
+                group.addTask {
+                    for attempt in 0..<2 {
+                        if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
+                        if let embs = try? await self.embedTexts(batch, inputType: "document") {
+                            return (i, embs)
+                        }
+                    }
+                    return (i, nil)
+                }
+            }
+            var collected: [Indexed] = []
+            for await r in group { collected.append(r) }
+            return collected.sorted { $0.order < $1.order }
+        }
+        guard !results.contains(where: { $0.embeddings == nil }) else {
+            return (nil, "One or more embedding batches failed")
+        }
+        return (results.flatMap { $0.embeddings! }, nil)
+    }
+
+    private func embedBatchesSequentially(_ batches: [[String]], total: Int) async -> (embeddings: [[Float]]?, error: String?) {
         var allEmbeddings: [[Float]] = []
-
-        for batchStart in stride(from: 0, to: texts.count, by: batchSize) {
-            let batchEnd = min(batchStart + batchSize, texts.count)
-            let batch = Array(texts[batchStart..<batchEnd])
-
-            indexingProgress = "Embedding \(batchStart + 1)-\(batchEnd) of \(texts.count)..."
-
+        var offset = 0
+        for batch in batches {
+            let end = offset + batch.count
+            indexingProgress = "Embedding \(offset + 1)-\(end) of \(total)..."
             var retried = false
             while true {
                 do {
@@ -596,8 +626,8 @@ final class KnowledgeBase {
                     return (nil, error.localizedDescription)
                 }
             }
+            offset = end
         }
-
         return (allEmbeddings, nil)
     }
 

@@ -10,6 +10,7 @@ final class AudioRecorder: @unchecked Sendable {
     private var micTempURL: URL?
     private var sysTempURL: URL?
     private var outputDirectory: URL
+    private var outputDirectoryIsSecurityScoped = false
     private var sessionTimestamp = ""
     private var micWriteCount = 0
     private var sysWriteCount = 0
@@ -30,8 +31,11 @@ final class AudioRecorder: @unchecked Sendable {
         self.outputDirectory = outputDirectory
     }
 
-    func updateDirectory(_ url: URL) {
-        lock.withLock { outputDirectory = url }
+    func updateDirectory(_ url: URL, securityScoped: Bool = false) {
+        lock.withLock {
+            outputDirectory = url
+            outputDirectoryIsSecurityScoped = securityScoped
+        }
     }
 
     func startSession() {
@@ -289,7 +293,7 @@ final class AudioRecorder: @unchecked Sendable {
     }
 
     private func mergeAndEncode() {
-        let (micURL, sysURL, dir, timestamp, sysEffectiveRate) = lock.withLock {
+        let (micURL, sysURL, dir, timestamp, sysEffectiveRate, dirIsSecurityScoped) = lock.withLock {
             // Effective sample rate: corrects for process tap delivering at lower rate than declared.
             var effectiveRate: Double? = nil
             if let start = sysStartDate, let end = sysEndDate, sysEndFrame > 0 {
@@ -298,7 +302,13 @@ final class AudioRecorder: @unchecked Sendable {
                     effectiveRate = Double(sysEndFrame) / wallClockSeconds
                 }
             }
-            return (micTempURL, sysTempURL, outputDirectory, sessionTimestamp, effectiveRate)
+            return (micTempURL, sysTempURL, outputDirectory, sessionTimestamp, effectiveRate, outputDirectoryIsSecurityScoped)
+        }
+
+        // Acquire security-scoped access if the URL was resolved from a bookmark
+        let didStartAccess = dirIsSecurityScoped && dir.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccess { dir.stopAccessingSecurityScopedResource() }
         }
 
         let micReader: AVAudioFile? = {

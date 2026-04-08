@@ -261,6 +261,7 @@ private struct GeneralSettingsTab: View {
 
         if panel.runModal() == .OK, let url = panel.url {
             settings.notesFolderPath = url.path
+            settings.saveNotesFolderBookmark(from: url)
         }
     }
 }
