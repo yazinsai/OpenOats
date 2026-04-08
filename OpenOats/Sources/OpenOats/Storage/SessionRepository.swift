@@ -124,6 +124,10 @@ actor SessionRepository {
     /// User-facing notes folder for mirroring (e.g. ~/Documents/OpenOats).
     private var notesFolderPath: URL?
 
+    /// Whether `notesFolderPath` is a security-scoped URL that requires
+    /// `startAccessingSecurityScopedResource()` before file I/O.
+    private var notesFolderIsSecurityScoped = false
+
     init(rootDirectory: URL? = nil) {
         let baseDirectory: URL
         if let rootDirectory {
@@ -152,8 +156,12 @@ actor SessionRepository {
     // MARK: - Configuration
 
     /// Update the notes folder path used for mirroring artifacts.
-    func setNotesFolderPath(_ url: URL?) {
+    /// - Parameters:
+    ///   - url: The folder URL (may be a security-scoped URL resolved from a bookmark).
+    ///   - securityScoped: Pass `true` when the URL was resolved from a security-scoped bookmark.
+    func setNotesFolderPath(_ url: URL?, securityScoped: Bool = false) {
         notesFolderPath = url
+        notesFolderIsSecurityScoped = securityScoped
     }
 
     /// Register a callback invoked once per session when a write error occurs.
@@ -1099,6 +1107,12 @@ actor SessionRepository {
     /// Mirror notes.md and plain-text transcript to the user-visible notesFolderPath.
     private func mirrorNotesArtifacts(sessionID: String) {
         guard let outputDir = notesFolderPath else { return }
+
+        // Acquire security-scoped access if the URL was resolved from a bookmark
+        let didStartAccess = notesFolderIsSecurityScoped && outputDir.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccess { outputDir.stopAccessingSecurityScopedResource() }
+        }
 
         let meta = loadSessionMetadataFile(sessionID: sessionID)
         let records = loadTranscript(sessionID: sessionID)
