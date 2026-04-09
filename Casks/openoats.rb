@@ -1,6 +1,6 @@
 cask "openoats" do
-  version "1.46.0"
-  sha256 "c099386ed29e2167443c8ca95b181d3912a6a817d4bf6dd3a81ea86abc04b0ca"
+  version "1.47.0"
+  sha256 "b2e40e8ba54ad18bad2c9832709eb664e2a31779d15082e65e3c9d4fbab93df5"
 
   url "https://github.com/yazinsai/OpenOats/releases/download/v#{version}/OpenOats.dmg"
   name "OpenOats"
