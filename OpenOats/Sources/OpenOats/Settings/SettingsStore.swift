@@ -274,6 +274,17 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _suggestionsAlwaysOnTop: Bool
+    var suggestionsAlwaysOnTop: Bool {
+        get { access(keyPath: \.suggestionsAlwaysOnTop); return _suggestionsAlwaysOnTop }
+        set {
+            withMutation(keyPath: \.suggestionsAlwaysOnTop) {
+                _suggestionsAlwaysOnTop = newValue
+                defaults.set(newValue, forKey: "suggestionsAlwaysOnTop")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _sidebarMode: SidebarMode
     var sidebarMode: SidebarMode {
         get { access(keyPath: \.sidebarMode); return _sidebarMode }
@@ -839,6 +850,11 @@ final class SettingsStore {
             self._suggestionPanelEnabled = true
         } else {
             self._suggestionPanelEnabled = defaults.bool(forKey: "suggestionPanelEnabled")
+        }
+        if defaults.object(forKey: "suggestionsAlwaysOnTop") == nil {
+            self._suggestionsAlwaysOnTop = true
+        } else {
+            self._suggestionsAlwaysOnTop = defaults.bool(forKey: "suggestionsAlwaysOnTop")
         }
         self._sidebarMode = SidebarMode(rawValue: defaults.string(forKey: "sidebarMode") ?? "") ?? .classicSuggestions
         self._sidecastIntensity = SidecastIntensity(rawValue: defaults.string(forKey: "sidecastIntensity") ?? "") ?? .balanced

@@ -560,6 +560,9 @@ private struct IntelligenceSettingsTab: View {
                 Section("Classic Suggestions") {
                     Toggle("Floating suggestion panel", isOn: $settings.suggestionPanelEnabled)
                         .font(.system(size: 12))
+                    Toggle("Always on top", isOn: $settings.suggestionsAlwaysOnTop)
+                        .font(.system(size: 12))
+                        .disabled(!settings.suggestionPanelEnabled)
                     Text("Configure the original single-stream suggestion panel. The multi-persona sidebar lives in the Sidecast tab.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)

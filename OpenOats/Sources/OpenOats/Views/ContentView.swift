@@ -392,6 +392,9 @@ struct ContentView: View {
         .onChange(of: settings.calendarIntegrationEnabled) {
             container.updateCalendarIntegration(enabled: settings.calendarIntegrationEnabled)
         }
+        .onChange(of: settings.suggestionsAlwaysOnTop) {
+            overlayManager.updateAlwaysOnTop(settings.suggestionsAlwaysOnTop)
+        }
         .onChange(of: settings.sidebarMode) {
             if settings.sidebarMode == .classicSuggestions {
                 coordinator.suggestionEngine?.startPreFetching()

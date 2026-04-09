@@ -3,7 +3,7 @@ import SwiftUI
 
 /// A floating NSPanel that is invisible to screen sharing.
 final class OverlayPanel: NSPanel {
-    init(contentRect: NSRect, defaults: UserDefaults = .standard) {
+    init(contentRect: NSRect, defaults: UserDefaults = .standard, alwaysOnTop: Bool = true) {
         super.init(
             contentRect: contentRect,
             styleMask: [.nonactivatingPanel, .titled, .closable, .resizable, .fullSizeContentView],
@@ -11,8 +11,8 @@ final class OverlayPanel: NSPanel {
             defer: false
         )
 
-        isFloatingPanel = true
-        level = .floating
+        isFloatingPanel = alwaysOnTop
+        level = alwaysOnTop ? .floating : .normal
         let hidden = defaults.object(forKey: "hideFromScreenShare") == nil
             ? true
             : defaults.bool(forKey: "hideFromScreenShare")
@@ -28,6 +28,12 @@ final class OverlayPanel: NSPanel {
 
         // Remember position
         setFrameAutosaveName("OverlayPanel")
+    }
+
+    /// Update the always-on-top state of an existing panel.
+    func applyAlwaysOnTop(_ enabled: Bool) {
+        isFloatingPanel = enabled
+        level = enabled ? .floating : .normal
     }
 }
 
@@ -63,7 +69,10 @@ final class OverlayManager: ObservableObject {
                 width: Self.classicWidth,
                 height: Self.classicMaxHeight
             )
-            let newPanel = OverlayPanel(contentRect: rect, defaults: defaults)
+            let alwaysOnTop = defaults.object(forKey: "suggestionsAlwaysOnTop") == nil
+                ? true
+                : defaults.bool(forKey: "suggestionsAlwaysOnTop")
+            let newPanel = OverlayPanel(contentRect: rect, defaults: defaults, alwaysOnTop: alwaysOnTop)
             newPanel.minSize = NSSize(width: Self.classicWidth, height: Self.classicMinHeight)
             newPanel.maxSize = NSSize(width: Self.classicWidth + 100, height: Self.classicMaxHeight)
             newPanel.setFrameAutosaveName("SuggestionSidePanel")
@@ -141,6 +150,11 @@ final class OverlayManager: ObservableObject {
 
     var isVisible: Bool {
         panel?.isVisible == true || sidecastPanel?.isVisible == true
+    }
+
+    /// Update the always-on-top state for the classic suggestions panel.
+    func updateAlwaysOnTop(_ enabled: Bool) {
+        panel?.applyAlwaysOnTop(enabled)
     }
 
     /// Hide after a delay (used for session end).
