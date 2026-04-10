@@ -7,7 +7,8 @@ struct ContentView: View {
         case confirmDownload
     }
 
-    private let compactHeaderVerticalPadding: CGFloat = 10
+    private let compactHeaderTopPadding: CGFloat = 8
+    private let compactHeaderBottomPadding: CGFloat = 10
 
     @Bindable var settings: AppSettings
     @Environment(AppContainer.self) private var container
@@ -17,24 +18,41 @@ struct ContentView: View {
     @State private var miniBarManager = MiniBarManager()
     @State private var liveSessionController: LiveSessionController?
     @AppStorage("isTranscriptExpanded") private var isTranscriptExpanded = true
+    @AppStorage("isScratchpadExpanded") private var isScratchpadExpanded = true
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var showOnboarding = false
     @State private var showConsentSheet = false
     @State private var pendingControlBarAction: ControlBarAction?
-    @State private var windowChromeTopInset: CGFloat = 0
 
     var body: some View {
         bodyWithModifiers
     }
 
-    private var rootContent: some View {
-        let controllerState = liveSessionController?.state ?? LiveSessionState()
+    private var controllerState: LiveSessionState {
+        liveSessionController?.state ?? LiveSessionState()
+    }
 
+    private var minimumContentHeight: CGFloat {
+        var height: CGFloat = 400
+
+        if controllerState.showLiveTranscript && isTranscriptExpanded {
+            height += 40
+        }
+
+        if controllerState.isRunning && isScratchpadExpanded {
+            height += 100
+        }
+
+        return height
+    }
+
+    private var rootContent: some View {
         return VStack(spacing: 0) {
             // Compact header
             HStack {
                 Text("OpenOats")
                     .font(.system(size: 13, weight: .semibold))
+                    .accessibilityIdentifier("app.headerTitle")
 
                 Spacer()
 
@@ -75,7 +93,8 @@ struct ContentView: View {
                 .accessibilityIdentifier("app.settingsButton")
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, compactHeaderVerticalPadding)
+            .padding(.top, compactHeaderTopPadding)
+            .padding(.bottom, compactHeaderBottomPadding)
 
             Divider()
 
@@ -244,6 +263,7 @@ struct ContentView: View {
             if controllerState.isRunning {
                 Divider()
                 ScratchpadSection(
+                    isExpanded: $isScratchpadExpanded,
                     text: Binding(
                         get: { controllerState.scratchpadText },
                         set: { liveSessionController?.updateScratchpad($0) }
@@ -267,7 +287,6 @@ struct ContentView: View {
                 }
             )
         }
-        .padding(.top, max(windowChromeTopInset - compactHeaderVerticalPadding, 0))
     }
 
     private var bodyWithModifiers: some View {
@@ -276,10 +295,7 @@ struct ContentView: View {
 
     private var sizedRootContent: some View {
         rootContent
-            .background {
-                WindowChromeTopInsetReader(topInset: $windowChromeTopInset)
-            }
-            .frame(minWidth: 360, maxWidth: 600, minHeight: 400)
+            .frame(minWidth: 360, maxWidth: 600, minHeight: minimumContentHeight, idealHeight: minimumContentHeight)
             .background(.ultraThinMaterial)
     }
 
@@ -496,35 +512,11 @@ struct ContentView: View {
     }
 }
 
-private struct WindowChromeTopInsetReader: NSViewRepresentable {
-    @Binding var topInset: CGFloat
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        updateTopInset(for: view)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        updateTopInset(for: nsView)
-    }
-
-    private func updateTopInset(for view: NSView) {
-        let binding = _topInset
-        DispatchQueue.main.async { [weak view] in
-            guard let window = view?.window else { return }
-            let chromeHeight = max(window.frame.height - window.contentLayoutRect.height, 0)
-            guard abs(binding.wrappedValue - chromeHeight) > 0.5 else { return }
-            binding.wrappedValue = chromeHeight
-        }
-    }
-}
-
 // MARK: - Scratchpad Section
 
 private struct ScratchpadSection: View {
+    @Binding var isExpanded: Bool
     @Binding var text: String
-    @AppStorage("isScratchpadExpanded") private var isExpanded = true
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {

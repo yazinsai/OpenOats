@@ -60,7 +60,6 @@ public struct OpenOatsRootApp: App {
                     }
                 }
         }
-        .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultSize(width: 320, height: 560)
         .commands {
@@ -277,6 +276,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         for window in NSApp.windows {
             window.sharingType = sharingType
+            if window.identifier?.rawValue == OpenOatsRootApp.mainWindowID {
+                configureMainWindowAppearance(window)
+            }
         }
 
         if !isUITest {
@@ -297,6 +299,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 let type: NSWindow.SharingType = hide ? .none : .readOnly
                 for window in NSApp.windows {
                     window.sharingType = type
+                    if window.identifier?.rawValue == OpenOatsRootApp.mainWindowID {
+                        self.configureMainWindowAppearance(window)
+                    }
                 }
             }
         }
@@ -363,6 +368,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     // MARK: - One-Shot Background Notification
+
+    private func configureMainWindowAppearance(_ window: NSWindow) {
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
+    }
 
     private func showBackgroundModeHintIfNeeded() {
         guard !defaults.bool(forKey: "hasShownBackgroundModeHint") else { return }

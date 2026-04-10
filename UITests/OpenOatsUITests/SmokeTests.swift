@@ -14,6 +14,23 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(element(in: app, identifier: "app.pastMeetingsButton").waitForExistence(timeout: 5))
     }
 
+    func testLaunchSmokePlacesHeaderNearWindowChrome() {
+        let app = launchApp(scenario: "launchSmoke")
+
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 5))
+
+        let header = element(in: app, identifier: "app.headerTitle")
+        XCTAssertTrue(header.waitForExistence(timeout: 5))
+
+        XCTAssertTrue(waitForCondition(timeout: 5) {
+            let headerFrame = header.frame
+            let windowFrame = window.frame
+            let distanceFromTop = abs(windowFrame.maxY - headerFrame.maxY)
+            return distanceFromTop >= 8 && distanceFromTop <= 50
+        })
+    }
+
     func testSettingsSmokeShowsCorePickers() {
         let app = launchApp(scenario: "launchSmoke")
         app.activate()
