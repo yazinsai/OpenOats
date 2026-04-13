@@ -57,7 +57,7 @@ final class WhisperKitManager: @unchecked Sendable {
     /// Returns the transcribed text (empty string if nothing recognized).
     /// - Parameter previousContext: Trailing words from the prior segment, encoded as prompt
     ///   tokens to prime the Whisper decoder for cross-segment continuity.
-    func transcribe(_ samples: [Float], previousContext: String? = nil) async throws -> String {
+    func transcribe(_ samples: [Float], locale: Locale? = nil, previousContext: String? = nil) async throws -> String {
         guard let pipe else {
             throw WhisperKitManagerError.notInitialized
         }
@@ -70,9 +70,13 @@ final class WhisperKitManager: @unchecked Sendable {
                 promptTokens = encoded
             }
         }
+        // Extract 2-letter language code (e.g. "he", "en") from locale.
+        // When nil, Whisper auto-detects — but auto-detect often outputs
+        // Latin transliteration for non-Latin scripts like Hebrew/Arabic.
+        let languageCode = locale?.language.languageCode?.identifier
+
         let options = DecodingOptions(
-            // Let Whisper auto-detect the language
-            language: nil,
+            language: languageCode,
             wordTimestamps: false,
             promptTokens: promptTokens
         )

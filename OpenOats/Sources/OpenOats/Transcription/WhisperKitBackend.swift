@@ -50,6 +50,6 @@ final class WhisperKitBackend: TranscriptionBackend, @unchecked Sendable {
         guard let whisperManager else {
             throw TranscriptionBackendError.notPrepared
         }
-        return try await whisperManager.transcribe(samples, previousContext: previousContext)
+        return try await whisperManager.transcribe(samples, locale: locale, previousContext: previousContext)
     }
 }
