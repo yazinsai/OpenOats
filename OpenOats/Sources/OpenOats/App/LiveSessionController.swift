@@ -23,6 +23,7 @@ final class LiveSessionState {
     var kbIndexingProgress: String = ""
     var statusMessage: String? = nil
     var errorMessage: String? = nil
+    var matchedCalendarEvent: CalendarEvent? = nil
     var needsDownload: Bool = false
     var downloadProgress: Double? = nil
     var downloadDetail: DownloadProgressDetail? = nil
@@ -350,15 +351,16 @@ final class LiveSessionController {
         }
         let utterancesSnapshot = coordinator.transcriptStore.utterances
         let utteranceCount = utterancesSnapshot.count
-        let title = coordinator.transcriptStore.conversationState.currentTopic.isEmpty
-            ? nil : coordinator.transcriptStore.conversationState.currentTopic
-
-        let meetingAppName: String?
+        let endingMetadata: MeetingMetadata?
         if case .ending(let metadata) = coordinator.state {
-            meetingAppName = metadata.detectionContext?.meetingApp?.name
+            endingMetadata = metadata
         } else {
-            meetingAppName = nil
+            endingMetadata = nil
         }
+        let metadataTitle = endingMetadata?.title ?? endingMetadata?.calendarEvent?.title
+        let title = coordinator.transcriptStore.conversationState.currentTopic.isEmpty
+            ? metadataTitle : coordinator.transcriptStore.conversationState.currentTopic
+        let meetingAppName = endingMetadata?.detectionContext?.meetingApp?.name
 
         let engineName = settings?.transcriptionModel.rawValue
         let transcriptionLanguage: String? = {
@@ -539,6 +541,13 @@ final class LiveSessionController {
         }
 
         let isRunning = coordinator.transcriptionEngine?.isRunning ?? false
+        let matchedCalendarEvent: CalendarEvent?
+        switch coordinator.state {
+        case .recording(let metadata), .ending(let metadata):
+            matchedCalendarEvent = metadata.calendarEvent
+        case .idle:
+            matchedCalendarEvent = nil
+        }
 
         // Use set(_:_:) for all Equatable fields: only fires @Observable withMutation
         // when the value actually changed, preventing spurious layout passes on NSHostingView.
@@ -555,6 +564,7 @@ final class LiveSessionController {
         set(\.kbIndexingProgress, coordinator.knowledgeBase?.indexingProgress ?? "")
         set(\.statusMessage, coordinator.transcriptionEngine?.assetStatus)
         set(\.errorMessage, coordinator.transcriptionEngine?.lastError)
+        set(\.matchedCalendarEvent, matchedCalendarEvent)
         set(\.needsDownload, coordinator.transcriptionEngine?.needsModelDownload ?? false)
         set(\.downloadProgress, coordinator.transcriptionEngine?.downloadProgress)
         set(\.transcriptionPrompt, settings.transcriptionModel.downloadPrompt)

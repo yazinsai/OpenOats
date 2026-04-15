@@ -167,6 +167,12 @@ struct ContentView: View {
                 Divider()
             }
 
+            if controllerState.isRunning, let event = controllerState.matchedCalendarEvent {
+                MatchedCalendarEventBanner(event: event)
+
+                Divider()
+            }
+
             // Suggestion panel status
             if controllerState.isRunning {
                 HStack(spacing: 6) {

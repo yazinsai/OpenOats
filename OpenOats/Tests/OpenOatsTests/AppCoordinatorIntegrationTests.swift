@@ -59,6 +59,19 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
         return (root, notesDirectory)
     }
 
+    private func makeCalendarEvent(title: String = "Calendar Planning") -> CalendarEvent {
+        CalendarEvent(
+            id: UUID().uuidString,
+            title: title,
+            startDate: Date().addingTimeInterval(-300),
+            endDate: Date().addingTimeInterval(1_800),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: true,
+            meetingURL: URL(string: "https://meet.example.com/calendar-planning")
+        )
+    }
+
     func testUserStoppedFinalizesSessionAndRefreshesHistory() async {
         let dirs = makeTempDirs()
         let (coordinator, _controller, settings, sessionRepository) = makeTestHarness(
@@ -116,6 +129,45 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
         XCTAssertFalse(persisted?.hasNotes ?? true)
 
         // Keep controller alive for the duration of the test (weak ref in coordinator)
+        withExtendedLifetime(_controller) {}
+    }
+
+    func testFinalizationFallsBackToCalendarEventTitle() async {
+        let dirs = makeTempDirs()
+        let (coordinator, _controller, settings, sessionRepository) = makeTestHarness(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            scripted: [
+                Utterance(text: "Let's start with the project timeline.", speaker: .you),
+            ]
+        )
+
+        let event = makeCalendarEvent(title: "Calendar Planning")
+        coordinator.handle(.userStarted(.manual(calendarEvent: event)), settings: settings)
+
+        for _ in 0..<20 {
+            if coordinator.transcriptionEngine?.isRunning == true { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        coordinator.handle(.userStopped, settings: settings)
+
+        for _ in 0..<50 {
+            if case .idle = coordinator.state, coordinator.lastEndedSession != nil { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+
+        guard let endedSession = coordinator.lastEndedSession else {
+            XCTFail("Expected finalized session")
+            return
+        }
+
+        XCTAssertEqual(endedSession.title, "Calendar Planning")
+
+        let indices = await sessionRepository.listSessions()
+        let persisted = indices.first(where: { $0.id == endedSession.id })
+        XCTAssertEqual(persisted?.title, "Calendar Planning")
+
         withExtendedLifetime(_controller) {}
     }
 
