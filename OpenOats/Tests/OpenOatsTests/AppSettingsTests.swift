@@ -3,6 +3,20 @@ import XCTest
 
 @MainActor
 final class AppSettingsTests: XCTestCase {
+    private func makeSettings() -> AppSettings {
+        let suiteName = "com.openoats.test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let storage = AppSettingsStorage(
+            defaults: defaults,
+            secretStore: .ephemeral,
+            defaultNotesDirectory: URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("AppSettingsTests"),
+            runMigrations: false
+        )
+        return AppSettings(storage: storage)
+    }
 
     // MARK: - LLMProvider
 
@@ -115,19 +129,19 @@ final class AppSettingsTests: XCTestCase {
     // MARK: - AppSettings Defaults
 
     func testAppSettingsDefaultTranscriptionLocale() {
-        let settings = AppSettings()
+        let settings = makeSettings()
         // Default locale should be en-US unless previously set
         XCTAssertFalse(settings.transcriptionLocale.isEmpty)
     }
 
     func testAppSettingsLocaleProperty() {
-        let settings = AppSettings()
+        let settings = makeSettings()
         let locale = settings.locale
         XCTAssertFalse(locale.identifier.isEmpty)
     }
 
     func testAppSettingsKbFolderURLWhenEmpty() {
-        let settings = AppSettings()
+        let settings = makeSettings()
         let originalPath = settings.kbFolderPath
         settings.kbFolderPath = ""
         XCTAssertNil(settings.kbFolderURL)
@@ -135,7 +149,7 @@ final class AppSettingsTests: XCTestCase {
     }
 
     func testAppSettingsKbFolderURLWhenSet() {
-        let settings = AppSettings()
+        let settings = makeSettings()
         let originalPath = settings.kbFolderPath
         settings.kbFolderPath = "/tmp/test-kb"
         XCTAssertNotNil(settings.kbFolderURL)
