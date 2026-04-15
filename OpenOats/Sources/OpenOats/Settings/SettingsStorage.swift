@@ -65,6 +65,19 @@ enum KeychainHelper {
         SecItemAdd(query as CFDictionary, nil)
     }
 
+    static func saveIfMissing(key: String, value: String) {
+        guard let data = value.data(using: .utf8) else { return }
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecValueData as String: data,
+        ]
+
+        SecItemAdd(query as CFDictionary, nil)
+    }
+
     static func load(key: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

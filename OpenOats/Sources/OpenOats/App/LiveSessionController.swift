@@ -617,9 +617,13 @@ final class LiveSessionController {
             }
         }
 
-        if settings.voyageApiKey != observedVoyageApiKey {
+        if !settings.kbFolderPath.isEmpty,
+           settings.embeddingProvider == .voyageAI,
+           settings.voyageApiKey != observedVoyageApiKey {
             observedVoyageApiKey = settings.voyageApiKey
             indexKBIfNeeded(settings: settings)
+        } else if settings.kbFolderPath.isEmpty || settings.embeddingProvider != .voyageAI {
+            observedVoyageApiKey = ""
         }
 
         if settings.transcriptionModel != observedTranscriptionModel {

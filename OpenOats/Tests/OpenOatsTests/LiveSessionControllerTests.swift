@@ -3,6 +3,9 @@ import XCTest
 
 @MainActor
 final class LiveSessionControllerTests: XCTestCase {
+    private final class SecretLoadTracker: @unchecked Sendable {
+        var loadedKeys: [String] = []
+    }
 
     // MARK: - Helpers
 
@@ -16,7 +19,10 @@ final class LiveSessionControllerTests: XCTestCase {
         return (root, notesDirectory)
     }
 
-    private func makeSettings(notesDirectory: URL) -> AppSettings {
+    private func makeSettings(
+        notesDirectory: URL,
+        secretStore: AppSecretStore = .ephemeral
+    ) -> AppSettings {
         let suiteName = "com.openoats.tests.livesession.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName) ?? .standard
         defaults.removePersistentDomain(forName: suiteName)
@@ -24,7 +30,7 @@ final class LiveSessionControllerTests: XCTestCase {
         defaults.set(true, forKey: "hasAcknowledgedRecordingConsent")
         let storage = AppSettingsStorage(
             defaults: defaults,
-            secretStore: .ephemeral,
+            secretStore: secretStore,
             defaultNotesDirectory: notesDirectory,
             runMigrations: false
         )
@@ -242,6 +248,32 @@ final class LiveSessionControllerTests: XCTestCase {
         controller.confirmDownloadAndStart(settings: settings)
 
         XCTAssertTrue(coordinator.transcriptionEngine?.downloadConfirmed ?? false)
+    }
+
+    func testPollingDoesNotReadVoyageKeyWhenKnowledgeBaseFolderUnset() async {
+        let dirs = makeTempDirs()
+        let tracker = SecretLoadTracker()
+        let secretStore = AppSecretStore(
+            loadValue: { key in
+                tracker.loadedKeys.append(key)
+                return key == "voyageApiKey" ? "pa-existing" : nil
+            },
+            saveValue: { _, _ in }
+        )
+        let settings = makeSettings(notesDirectory: dirs.notes, secretStore: secretStore)
+        let (controller, _) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+
+        let task = Task {
+            await controller.runPollingLoop(settings: settings)
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+        task.cancel()
+
+        XCTAssertFalse(tracker.loadedKeys.contains("voyageApiKey"))
     }
 
     func testFullSessionLifecycle() async {

@@ -3,6 +3,10 @@ import XCTest
 
 @MainActor
 final class SettingsStoreTests: XCTestCase {
+    private final class LoadTracker: @unchecked Sendable {
+        var loadedKeys: [String] = []
+        var savedValues: [String: String] = [:]
+    }
 
     /// Build a SettingsStore backed by an ephemeral UserDefaults suite.
     private func makeStore(
@@ -381,6 +385,36 @@ final class SettingsStoreTests: XCTestCase {
 
     func testStorageTypealiasCompiles() {
         let _: AppSettingsStorage.Type = SettingsStorage.self
+    }
+
+    func testSecretsLoadLazily() {
+        let tracker = LoadTracker()
+        let secretStore = AppSecretStore(
+            loadValue: { key in
+                tracker.loadedKeys.append(key)
+                return key == "openRouterApiKey" ? "sk-existing" : nil
+            },
+            saveValue: { key, value in
+                tracker.savedValues[key] = value
+            }
+        )
+
+        let store = makeStore(secretStore: secretStore)
+
+        XCTAssertTrue(tracker.loadedKeys.isEmpty)
+        XCTAssertEqual(store.llmProvider, .openRouter)
+        XCTAssertTrue(tracker.loadedKeys.isEmpty)
+
+        XCTAssertEqual(store.openRouterApiKey, "sk-existing")
+        XCTAssertEqual(tracker.loadedKeys, ["openRouterApiKey"])
+
+        XCTAssertEqual(store.openRouterApiKey, "sk-existing")
+        XCTAssertEqual(tracker.loadedKeys, ["openRouterApiKey"])
+
+        store.openRouterApiKey = " sk-updated "
+        XCTAssertEqual(store.openRouterApiKey, "sk-updated")
+        XCTAssertEqual(tracker.loadedKeys, ["openRouterApiKey"])
+        XCTAssertEqual(tracker.savedValues["openRouterApiKey"], "sk-updated")
     }
 
     // MARK: - Cloud ASR API Keys

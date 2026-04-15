@@ -11,6 +11,23 @@ final class SettingsStore {
     private let secretStore: AppSecretStore
     private static let enableLiveTranscriptCleanupLegacyKey = "enableTranscriptRefinement"
     private static let enableBatchRetranscriptionLegacyKey = "enableBatchRefinement"
+    @ObservationIgnored private var loadedSecretKeys: Set<String> = []
+
+    private func loadSecretIfNeeded(
+        key: String,
+        currentValue: String,
+        assign: (String) -> Void
+    ) -> String {
+        guard !loadedSecretKeys.contains(key) else { return currentValue }
+        let value = secretStore.load(key: key) ?? ""
+        loadedSecretKeys.insert(key)
+        assign(value)
+        return value
+    }
+
+    private func markSecretLoaded(_ key: String) {
+        loadedSecretKeys.insert(key)
+    }
 
     // MARK: - AI Settings
 
@@ -27,11 +44,17 @@ final class SettingsStore {
 
     @ObservationIgnored nonisolated(unsafe) private var _openRouterApiKey: String
     var openRouterApiKey: String {
-        get { access(keyPath: \.openRouterApiKey); return _openRouterApiKey }
+        get {
+            access(keyPath: \.openRouterApiKey)
+            return loadSecretIfNeeded(key: "openRouterApiKey", currentValue: _openRouterApiKey) {
+                _openRouterApiKey = $0
+            }
+        }
         set {
             withMutation(keyPath: \.openRouterApiKey) {
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 _openRouterApiKey = trimmed
+                markSecretLoaded("openRouterApiKey")
                 secretStore.save(key: "openRouterApiKey", value: trimmed)
             }
         }
@@ -39,11 +62,17 @@ final class SettingsStore {
 
     @ObservationIgnored nonisolated(unsafe) private var _assemblyAIApiKey: String
     var assemblyAIApiKey: String {
-        get { access(keyPath: \.assemblyAIApiKey); return _assemblyAIApiKey }
+        get {
+            access(keyPath: \.assemblyAIApiKey)
+            return loadSecretIfNeeded(key: "assemblyAIApiKey", currentValue: _assemblyAIApiKey) {
+                _assemblyAIApiKey = $0
+            }
+        }
         set {
             withMutation(keyPath: \.assemblyAIApiKey) {
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 _assemblyAIApiKey = trimmed
+                markSecretLoaded("assemblyAIApiKey")
                 secretStore.save(key: "assemblyAIApiKey", value: trimmed)
             }
         }
@@ -51,11 +80,17 @@ final class SettingsStore {
 
     @ObservationIgnored nonisolated(unsafe) private var _elevenLabsApiKey: String
     var elevenLabsApiKey: String {
-        get { access(keyPath: \.elevenLabsApiKey); return _elevenLabsApiKey }
+        get {
+            access(keyPath: \.elevenLabsApiKey)
+            return loadSecretIfNeeded(key: "elevenLabsApiKey", currentValue: _elevenLabsApiKey) {
+                _elevenLabsApiKey = $0
+            }
+        }
         set {
             withMutation(keyPath: \.elevenLabsApiKey) {
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 _elevenLabsApiKey = trimmed
+                markSecretLoaded("elevenLabsApiKey")
                 secretStore.save(key: "elevenLabsApiKey", value: trimmed)
             }
         }
@@ -129,11 +164,17 @@ final class SettingsStore {
 
     @ObservationIgnored nonisolated(unsafe) private var _openAILLMApiKey: String
     var openAILLMApiKey: String {
-        get { access(keyPath: \.openAILLMApiKey); return _openAILLMApiKey }
+        get {
+            access(keyPath: \.openAILLMApiKey)
+            return loadSecretIfNeeded(key: "openAILLMApiKey", currentValue: _openAILLMApiKey) {
+                _openAILLMApiKey = $0
+            }
+        }
         set {
             withMutation(keyPath: \.openAILLMApiKey) {
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 _openAILLMApiKey = trimmed
+                markSecretLoaded("openAILLMApiKey")
                 secretStore.save(key: "openAILLMApiKey", value: trimmed)
             }
         }
@@ -163,11 +204,17 @@ final class SettingsStore {
 
     @ObservationIgnored nonisolated(unsafe) private var _openAIEmbedApiKey: String
     var openAIEmbedApiKey: String {
-        get { access(keyPath: \.openAIEmbedApiKey); return _openAIEmbedApiKey }
+        get {
+            access(keyPath: \.openAIEmbedApiKey)
+            return loadSecretIfNeeded(key: "openAIEmbedApiKey", currentValue: _openAIEmbedApiKey) {
+                _openAIEmbedApiKey = $0
+            }
+        }
         set {
             withMutation(keyPath: \.openAIEmbedApiKey) {
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 _openAIEmbedApiKey = trimmed
+                markSecretLoaded("openAIEmbedApiKey")
                 secretStore.save(key: "openAIEmbedApiKey", value: trimmed)
             }
         }
@@ -208,11 +255,17 @@ final class SettingsStore {
 
     @ObservationIgnored nonisolated(unsafe) private var _voyageApiKey: String
     var voyageApiKey: String {
-        get { access(keyPath: \.voyageApiKey); return _voyageApiKey }
+        get {
+            access(keyPath: \.voyageApiKey)
+            return loadSecretIfNeeded(key: "voyageApiKey", currentValue: _voyageApiKey) {
+                _voyageApiKey = $0
+            }
+        }
         set {
             withMutation(keyPath: \.voyageApiKey) {
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 _voyageApiKey = trimmed
+                markSecretLoaded("voyageApiKey")
                 secretStore.save(key: "voyageApiKey", value: trimmed)
             }
         }
@@ -668,10 +721,16 @@ final class SettingsStore {
 
     @ObservationIgnored nonisolated(unsafe) private var _granolaApiKey: String
     var granolaApiKey: String {
-        get { access(keyPath: \.granolaApiKey); return _granolaApiKey }
+        get {
+            access(keyPath: \.granolaApiKey)
+            return loadSecretIfNeeded(key: "granolaApiKey", currentValue: _granolaApiKey) {
+                _granolaApiKey = $0
+            }
+        }
         set {
             withMutation(keyPath: \.granolaApiKey) {
                 _granolaApiKey = newValue
+                markSecretLoaded("granolaApiKey")
                 secretStore.save(key: "granolaApiKey", value: newValue)
             }
         }
@@ -703,10 +762,16 @@ final class SettingsStore {
 
     @ObservationIgnored nonisolated(unsafe) private var _webhookSecret: String
     var webhookSecret: String {
-        get { access(keyPath: \.webhookSecret); return _webhookSecret }
+        get {
+            access(keyPath: \.webhookSecret)
+            return loadSecretIfNeeded(key: "webhookSecret", currentValue: _webhookSecret) {
+                _webhookSecret = $0
+            }
+        }
         set {
             withMutation(keyPath: \.webhookSecret) {
                 _webhookSecret = newValue
+                markSecretLoaded("webhookSecret")
                 secretStore.save(key: "webhookSecret", value: newValue)
             }
         }
@@ -823,23 +888,23 @@ final class SettingsStore {
 
         // AI Settings
         self._llmProvider = LLMProvider(rawValue: defaults.string(forKey: "llmProvider") ?? "") ?? .openRouter
-        self._openRouterApiKey = storage.secretStore.load(key: "openRouterApiKey") ?? ""
-        self._assemblyAIApiKey = storage.secretStore.load(key: "assemblyAIApiKey") ?? ""
-        self._elevenLabsApiKey = storage.secretStore.load(key: "elevenLabsApiKey") ?? ""
+        self._openRouterApiKey = ""
+        self._assemblyAIApiKey = ""
+        self._elevenLabsApiKey = ""
         self._ollamaBaseURL = defaults.string(forKey: "ollamaBaseURL") ?? "http://localhost:11434"
         self._ollamaLLMModel = defaults.string(forKey: "ollamaLLMModel") ?? "qwen3:8b"
         self._ollamaEmbedModel = defaults.string(forKey: "ollamaEmbedModel") ?? "nomic-embed-text"
         self._mlxBaseURL = defaults.string(forKey: "mlxBaseURL") ?? "http://localhost:8080"
         self._mlxModel = defaults.string(forKey: "mlxModel") ?? "mlx-community/Llama-3.2-3B-Instruct-4bit"
         self._openAILLMBaseURL = defaults.string(forKey: "openAILLMBaseURL") ?? "http://localhost:4000"
-        self._openAILLMApiKey = storage.secretStore.load(key: "openAILLMApiKey") ?? ""
+        self._openAILLMApiKey = ""
         self._openAILLMModel = defaults.string(forKey: "openAILLMModel") ?? ""
         self._openAIEmbedBaseURL = defaults.string(forKey: "openAIEmbedBaseURL") ?? "http://localhost:8080"
-        self._openAIEmbedApiKey = storage.secretStore.load(key: "openAIEmbedApiKey") ?? ""
+        self._openAIEmbedApiKey = ""
         self._openAIEmbedModel = defaults.string(forKey: "openAIEmbedModel") ?? "text-embedding-3-small"
         self._selectedModel = defaults.string(forKey: "selectedModel") ?? "google/gemini-3-flash-preview"
         self._embeddingProvider = EmbeddingProvider(rawValue: defaults.string(forKey: "embeddingProvider") ?? "") ?? .voyageAI
-        self._voyageApiKey = storage.secretStore.load(key: "voyageApiKey") ?? ""
+        self._voyageApiKey = ""
         self._suggestionVerbosity = SuggestionVerbosity(
             rawValue: defaults.string(forKey: "suggestionVerbosity") ?? ""
         ) ?? .quiet
@@ -936,12 +1001,12 @@ final class SettingsStore {
         }
 
         // Import Settings
-        self._granolaApiKey = storage.secretStore.load(key: "granolaApiKey") ?? ""
+        self._granolaApiKey = ""
 
         // Webhook Settings
         self._webhookEnabled = defaults.bool(forKey: "webhookEnabled")
         self._webhookURL = defaults.string(forKey: "webhookURL") ?? ""
-        self._webhookSecret = storage.secretStore.load(key: "webhookSecret") ?? ""
+        self._webhookSecret = ""
 
         // UI Settings
         if defaults.object(forKey: "showLiveTranscript") == nil {
@@ -1083,9 +1148,8 @@ extension SettingsStore {
         let oldService = "com.onthespot.app"
         let keychainKeys = ["openRouterApiKey", "voyageApiKey"]
         for key in keychainKeys {
-            if KeychainHelper.load(key: key) == nil,
-               let oldValue = Self.loadKeychain(service: oldService, key: key) {
-                KeychainHelper.save(key: key, value: oldValue)
+            if let oldValue = Self.loadKeychain(service: oldService, key: key) {
+                KeychainHelper.saveIfMissing(key: key, value: oldValue)
             }
         }
     }
@@ -1117,9 +1181,8 @@ extension SettingsStore {
         let oldService = "com.opengranola.app"
         let keychainKeys = ["openRouterApiKey", "voyageApiKey"]
         for key in keychainKeys {
-            if KeychainHelper.load(key: key) == nil,
-               let oldValue = Self.loadKeychain(service: oldService, key: key) {
-                KeychainHelper.save(key: key, value: oldValue)
+            if let oldValue = Self.loadKeychain(service: oldService, key: key) {
+                KeychainHelper.saveIfMissing(key: key, value: oldValue)
             }
         }
 
@@ -1196,9 +1259,8 @@ extension SettingsStore {
         let oldService = "com.opengranola.app"
         let keychainKeys = ["openRouterApiKey", "voyageApiKey", "openAIEmbedApiKey", "openAILLMApiKey"]
         for key in keychainKeys {
-            if KeychainHelper.load(key: key) == nil,
-               let oldValue = loadKeychain(service: oldService, key: key) {
-                KeychainHelper.save(key: key, value: oldValue)
+            if let oldValue = loadKeychain(service: oldService, key: key) {
+                KeychainHelper.saveIfMissing(key: key, value: oldValue)
             }
         }
     }
