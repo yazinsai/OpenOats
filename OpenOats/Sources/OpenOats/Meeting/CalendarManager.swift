@@ -5,8 +5,9 @@ import Foundation
 /// All access is gated behind the `calendarIntegrationEnabled` setting — the app
 /// only requests calendar permission when the user explicitly enables the feature.
 @MainActor
+@Observable
 final class CalendarManager {
-    private let store = EKEventStore()
+    @ObservationIgnored private let store = EKEventStore()
 
     enum AccessState {
         case notDetermined
@@ -65,6 +66,29 @@ final class CalendarManager {
 
         guard let best else { return nil }
         return CalendarEvent(from: best)
+    }
+
+    /// Upcoming calendar events starting within the given time window, ordered by start date.
+    /// Returns an empty array if access is not authorized.
+    func upcomingEvents(
+        from date: Date = Date(),
+        within window: TimeInterval = 12 * 60 * 60,
+        limit: Int = 5
+    ) -> [CalendarEvent] {
+        guard accessState == .authorized else { return [] }
+
+        let windowEnd = date.addingTimeInterval(window)
+        let predicate = store.predicateForEvents(
+            withStart: date,
+            end: windowEnd,
+            calendars: nil
+        )
+        let events = store.events(matching: predicate)
+            .filter { !$0.isAllDay && $0.startDate >= date }
+            .sorted { $0.startDate < $1.startDate }
+            .prefix(limit)
+
+        return events.map { CalendarEvent(from: $0) }
     }
 
     // MARK: - Helpers
