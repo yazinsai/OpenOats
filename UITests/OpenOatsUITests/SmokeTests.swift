@@ -64,6 +64,32 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(element(in: app, identifier: "notes.renderedMarkdown").waitForExistence(timeout: 5))
     }
 
+    func testNotesSmokeSupportsRenamingFromContextMenu() async {
+        let app = launchApp(scenario: "notesSmoke")
+
+        let deepLink = URL(string: "openoats://notes?sessionID=session_ui_test_notes")!
+        await openDeepLink(deepLink)
+
+        let sessionRow = element(in: app, identifier: "notes.session.session_ui_test_notes")
+        XCTAssertTrue(sessionRow.waitForExistence(timeout: 5))
+
+        sessionRow.rightClick()
+
+        let renameMenuItem = app.menuItems["Rename..."]
+        XCTAssertTrue(renameMenuItem.waitForExistence(timeout: 5))
+        renameMenuItem.click()
+
+        let renameField = app.textFields.firstMatch
+        XCTAssertTrue(renameField.waitForExistence(timeout: 5))
+        renameField.click()
+        renameField.typeKey("a", modifierFlags: .command)
+        renameField.typeText("Renamed Discovery Call")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        let titleLabel = app.staticTexts["Renamed Discovery Call"]
+        XCTAssertTrue(titleLabel.waitForExistence(timeout: 5))
+    }
+
     private func launchApp(scenario: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["OPENOATS_UI_TEST"] = "1"
