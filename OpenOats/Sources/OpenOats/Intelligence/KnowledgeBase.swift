@@ -54,6 +54,15 @@ enum KnowledgeBaseIndexingStatus: Equatable, Sendable {
         self != .idle
     }
 
+    var needsFrequentPolling: Bool {
+        switch self {
+        case .scanning, .embedding, .completed:
+            return true
+        case .idle, .blocked, .failed:
+            return false
+        }
+    }
+
     var title: String {
         switch self {
         case .idle:
@@ -225,7 +234,11 @@ final class KnowledgeBase {
 
             let result = await embedInBatches(texts: allTextsToEmbed)
             guard let embeddings = result.embeddings else {
-                failIndexing(message: result.error ?? "Embedding failed before any chunks were indexed.")
+                failIndexing(
+                    message: result.error ?? "Embedding failed before any chunks were indexed.",
+                    availableChunks: allChunks,
+                    fileCount: scanResult.fileCount
+                )
                 return
             }
 
@@ -657,7 +670,19 @@ final class KnowledgeBase {
         showCompletedStatus(total: chunks.count)
     }
 
-    func failIndexing(message: String) {
+    func failIndexing(message: String, availableChunks: [KBChunk] = [], fileCount: Int? = nil) {
+        if let fileCount {
+            self.fileCount = fileCount
+        }
+
+        if availableChunks.isEmpty {
+            chunks.removeAll()
+            isIndexed = false
+        } else {
+            chunks = availableChunks
+            isIndexed = true
+        }
+
         indexingStatus = .failed(message: message)
     }
 

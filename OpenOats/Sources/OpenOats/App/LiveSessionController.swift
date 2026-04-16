@@ -89,7 +89,7 @@ final class LiveSessionController {
         while !Task.isCancelled {
             let isActive = coordinator.transcriptionEngine?.isRunning == true
                 || coordinator.batchStatus != .idle
-                || coordinator.knowledgeBase?.indexingStatus.isVisible == true
+                || coordinator.knowledgeBase?.indexingStatus.needsFrequentPolling == true
             try? await Task.sleep(for: isActive ? .milliseconds(250) : .seconds(2))
 
             // Poll batch engine status (actor-isolated)

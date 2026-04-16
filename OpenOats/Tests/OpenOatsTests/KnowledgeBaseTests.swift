@@ -57,6 +57,14 @@ final class KnowledgeBaseTests: XCTestCase {
         XCTAssertNil(status.percentText)
     }
 
+    func testOnlyActiveKBStatesNeedFrequentPolling() {
+        XCTAssertTrue(KnowledgeBaseIndexingStatus.scanning.needsFrequentPolling)
+        XCTAssertTrue(KnowledgeBaseIndexingStatus.embedding(completed: 0, total: 128, activeRange: 1...32).needsFrequentPolling)
+        XCTAssertTrue(KnowledgeBaseIndexingStatus.completed(total: 128).needsFrequentPolling)
+        XCTAssertFalse(KnowledgeBaseIndexingStatus.blocked(message: "missing key").needsFrequentPolling)
+        XCTAssertFalse(KnowledgeBaseIndexingStatus.failed(message: "boom").needsFrequentPolling)
+    }
+
     @MainActor
     func testFailedIndexingDoesNotMarkKnowledgeBaseReady() {
         let kb = KnowledgeBase(settings: makeSettings())
@@ -66,6 +74,28 @@ final class KnowledgeBaseTests: XCTestCase {
         XCTAssertEqual(kb.indexingStatus, .failed(message: "One or more embedding batches failed"))
         XCTAssertFalse(kb.isIndexed)
         XCTAssertTrue(kb.chunks.isEmpty)
+    }
+
+    @MainActor
+    func testFailedIndexingPreservesAvailableCachedChunks() {
+        let kb = KnowledgeBase(settings: makeSettings())
+        let cachedChunk = KBChunk(
+            text: "Cached text",
+            sourceFile: "notes.md",
+            headerContext: "Section",
+            embedding: [0.1, 0.2, 0.3]
+        )
+
+        kb.failIndexing(
+            message: "One or more embedding batches failed",
+            availableChunks: [cachedChunk],
+            fileCount: 3
+        )
+
+        XCTAssertEqual(kb.indexingStatus, .failed(message: "One or more embedding batches failed"))
+        XCTAssertTrue(kb.isIndexed)
+        XCTAssertEqual(kb.fileCount, 3)
+        XCTAssertEqual(kb.chunks.map(\.text), ["Cached text"])
     }
 
     func testBlockedStatusUsesActionableMessage() {
