@@ -85,7 +85,7 @@ struct LanguagePrivacyStepView: View {
                         )
 
                         if viewModel.privacy == .cloud {
-                            Text("Transcription always stays on your Mac. Only text summaries are sent to the cloud.")
+                            Text("Transcription always stays on your Mac. Cloud notes and summaries send text only, and may include enabled calendar titles or participant names as meeting context.")
                                 .font(.system(size: 10))
                                 .foregroundStyle(.tertiary)
                                 .padding(.horizontal, 14)

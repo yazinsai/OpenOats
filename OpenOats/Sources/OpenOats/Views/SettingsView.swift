@@ -176,10 +176,10 @@ private struct GeneralSettingsTab: View {
                 }
 
                 Section("Calendar") {
-                    Toggle("Auto-title sessions from calendar", isOn: $settings.calendarIntegrationEnabled)
+                    Toggle("Use calendar context for meetings", isOn: $settings.calendarIntegrationEnabled)
                         .font(.system(size: 12))
 
-                    Text("When enabled, OpenOats looks up your calendar for a matching event and uses its title for the session. Calendar access is requested only when you enable this.")
+                    Text("When enabled, OpenOats looks up your calendar for a matching event and uses it to title sessions and improve meeting notes. Calendar access is requested only when you enable this. With cloud note generation, matching event titles and participant names may be sent as text context.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 

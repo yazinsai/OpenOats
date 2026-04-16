@@ -521,6 +521,10 @@ struct NotesView: View {
             VStack(spacing: 0) {
                 detailToolbar(controller: controller, state: state)
                 Divider()
+                if let calendarEvent = state.loadedCalendarEvent {
+                    notesCalendarContextStrip(calendarEvent)
+                    Divider()
+                }
                 detailBody(controller: controller, state: state, sessionID: sessionID)
             }
             .background {
@@ -592,6 +596,102 @@ struct NotesView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private func notesCalendarContextStrip(_ event: CalendarEvent) -> some View {
+        let participants = notesContextParticipants(for: event)
+
+        VStack(alignment: .leading, spacing: 8) {
+            CalendarEventSummaryRow(
+                event: event,
+                badge: nil,
+                iconName: event.isOnlineMeeting ? "video.fill" : "calendar.badge.checkmark"
+            )
+
+            if let organizer = event.organizer?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !organizer.isEmpty {
+                Label(organizer, systemImage: "person.crop.circle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            if !participants.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "person.2")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16, alignment: .center)
+
+                    Text(participantsLabel(for: participants))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                .help(participants.joined(separator: "\n"))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+    }
+
+    private func notesContextParticipants(for event: CalendarEvent) -> [String] {
+        let organizerKey = normalizedParticipantKey(event.organizer)
+
+        var named: [String] = []
+        var seenNamed: Set<String> = []
+        var emails: [String] = []
+        var seenEmails: Set<String> = []
+
+        for participant in event.participants {
+            let name = participant.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let name, !name.isEmpty {
+                let key = normalizedParticipantKey(name)
+                if key != organizerKey, seenNamed.insert(key).inserted {
+                    named.append(name)
+                }
+                continue
+            }
+
+            let email = participant.email?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let email, !email.isEmpty {
+                let key = email.lowercased()
+                if seenEmails.insert(key).inserted {
+                    emails.append(email)
+                }
+            }
+        }
+
+        return !named.isEmpty ? named : emails
+    }
+
+    private func normalizedParticipantKey(_ value: String?) -> String {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+    }
+
+    private func participantsLabel(for participants: [String]) -> String {
+        if participants.allSatisfy({ $0.contains("@") }) {
+            if participants.count == 1 {
+                return "Invited participant: 1 guest"
+            }
+            return "Invited participants: \(participants.count) guests"
+        }
+
+        switch participants.count {
+        case 0:
+            return ""
+        case 1:
+            return "Invited participant: \(participants[0])"
+        case 2:
+            return "Invited participants: \(participants[0]), \(participants[1])"
+        case 3:
+            return "Invited participants: \(participants[0]), \(participants[1]), \(participants[2])"
+        default:
+            return "Invited participants: \(participants[0]), \(participants[1]), +\(participants.count - 2) more"
+        }
     }
 
     @ViewBuilder

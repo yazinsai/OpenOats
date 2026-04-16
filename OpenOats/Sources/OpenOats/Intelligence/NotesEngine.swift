@@ -42,6 +42,7 @@ final class NotesEngine {
         transcript: [SessionRecord],
         template: MeetingTemplate,
         settings: AppSettings,
+        calendarEvent: CalendarEvent? = nil,
         scratchpad: String? = nil,
         onFinished: @escaping @MainActor () -> Void = {}
     ) {
@@ -98,14 +99,17 @@ final class NotesEngine {
             model = settings.openAILLMModel
         }
 
-        let transcriptText = formatTranscript(transcript)
-        var userContent = "Here is the meeting transcript:\n\n\(transcriptText)"
-        if let scratchpad, !scratchpad.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            userContent += "\n\nThe user also took the following notes during the meeting. Treat these as high-signal context — they may contain decisions, action items, or emphasis that the transcript alone may miss:\n\n\(scratchpad)"
-        }
-        userContent += "\n\nGenerate the meeting notes in markdown:"
+        let userContent = Self.buildUserContent(
+            transcript: transcript,
+            calendarEvent: calendarEvent,
+            scratchpad: scratchpad
+        )
+        let systemPrompt = Self.resolvedSystemPrompt(
+            from: template,
+            calendarEvent: calendarEvent
+        )
         let messages: [OpenRouterClient.Message] = [
-            .init(role: "system", content: template.systemPrompt),
+            .init(role: "system", content: systemPrompt),
             .init(role: "user", content: userContent)
         ]
 
@@ -145,7 +149,57 @@ final class NotesEngine {
         isGenerating = false
     }
 
-    private func formatTranscript(_ records: [SessionRecord]) -> String {
+    nonisolated static func buildUserContent(
+        transcript: [SessionRecord],
+        calendarEvent: CalendarEvent? = nil,
+        scratchpad: String? = nil
+    ) -> String {
+        var sections: [String] = []
+
+        if let calendarContext = formatCalendarContext(calendarEvent) {
+            sections.append(
+                """
+                Here is meeting context from the user's calendar:
+
+                \(calendarContext)
+
+                Use this to identify likely participants and meeting framing, but do not claim someone attended or spoke unless the transcript or user notes support it.
+                """
+            )
+        }
+
+        sections.append("Here is the meeting transcript:\n\n\(formatTranscript(transcript))")
+
+        if let scratchpad, !scratchpad.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sections.append(
+                """
+                The user also took the following notes during the meeting. Treat these as high-signal context — they may contain decisions, action items, or emphasis that the transcript alone may miss:
+
+                \(scratchpad)
+                """
+            )
+        }
+
+        sections.append("Generate the meeting notes in markdown:")
+        return sections.joined(separator: "\n\n")
+    }
+
+    nonisolated static func resolvedSystemPrompt(
+        from template: MeetingTemplate,
+        calendarEvent: CalendarEvent? = nil
+    ) -> String {
+        guard calendarEvent != nil, template.id == TemplateStore.genericID else {
+            return template.systemPrompt
+        }
+
+        return template.systemPrompt + """
+
+
+        When calendar context is available, add a brief `## Meeting Context` section near the top of the notes that includes the scheduled time and invited participants when those details help orient the reader. Label them as invited participants, not attendees.
+        """
+    }
+
+    private nonisolated static func formatTranscript(_ records: [SessionRecord]) -> String {
         let timeFmt = DateFormatter()
         timeFmt.dateFormat = "HH:mm:ss"
 
@@ -171,5 +225,35 @@ final class NotesEngine {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    private nonisolated static func formatCalendarContext(_ calendarEvent: CalendarEvent?) -> String? {
+        guard let calendarEvent else { return nil }
+
+        var lines = [
+            "- Title: \(calendarEvent.title)",
+            "- Scheduled: \(formatCalendarTimeRange(start: calendarEvent.startDate, end: calendarEvent.endDate))",
+        ]
+
+        if let organizer = calendarEvent.organizer?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !organizer.isEmpty {
+            lines.append("- Organizer: \(organizer)")
+        }
+
+        let participantNames = calendarEvent.invitedParticipantDisplayNames
+        if !participantNames.isEmpty {
+            lines.append("- Invited participants:")
+            for participant in participantNames {
+                lines.append("  - \(participant)")
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+    private nonisolated static func formatCalendarTimeRange(start: Date, end: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return "\(formatter.string(from: start)) - \(formatter.string(from: end))"
     }
 }

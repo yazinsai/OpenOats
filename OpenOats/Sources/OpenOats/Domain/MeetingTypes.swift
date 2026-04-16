@@ -60,6 +60,41 @@ struct Participant: Sendable, Hashable, Codable {
     let email: String?
 }
 
+extension Participant {
+    var displayName: String? {
+        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedName, !trimmedName.isEmpty {
+            return trimmedName
+        }
+
+        let trimmedEmail = email?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedEmail, !trimmedEmail.isEmpty {
+            return trimmedEmail
+        }
+
+        return nil
+    }
+}
+
+extension CalendarEvent {
+    var invitedParticipantDisplayNames: [String] {
+        var results: [String] = []
+        var seen: Set<String> = []
+
+        for participant in participants {
+            guard let displayName = participant.displayName else { continue }
+            let key = participant.email?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() ?? displayName.lowercased()
+            if seen.insert(key).inserted {
+                results.append(displayName)
+            }
+        }
+
+        return results
+    }
+}
+
 // MARK: - Meeting Metadata
 
 /// Metadata assembled during a meeting session (detection context + calendar info).

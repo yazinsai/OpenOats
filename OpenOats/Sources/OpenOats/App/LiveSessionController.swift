@@ -383,7 +383,8 @@ final class LiveSessionController {
                 meetingApp: meetingAppName,
                 engine: engineName,
                 templateSnapshot: coordinator.sessionTemplateSnapshot,
-                utterances: utterancesSnapshot
+                utterances: utterancesSnapshot,
+                calendarEvent: endingMetadata?.calendarEvent
             )
         )
 
