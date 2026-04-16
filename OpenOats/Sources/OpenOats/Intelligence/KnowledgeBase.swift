@@ -42,6 +42,106 @@ private struct KBCache: Codable, Sendable {
     var embeddingConfigFingerprint: String?
 }
 
+enum KnowledgeBaseIndexingStatus: Equatable, Sendable {
+    case idle
+    case scanning
+    case embedding(completed: Int, total: Int, activeRange: ClosedRange<Int>?)
+    case completed(total: Int)
+    case blocked(message: String)
+    case failed(message: String)
+
+    var isVisible: Bool {
+        self != .idle
+    }
+
+    var needsFrequentPolling: Bool {
+        switch self {
+        case .scanning, .embedding, .completed:
+            return true
+        case .idle, .blocked, .failed:
+            return false
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .idle:
+            return ""
+        case .scanning:
+            return "Preparing knowledge base..."
+        case .embedding:
+            return "Indexing knowledge base..."
+        case .completed:
+            return "Knowledge base ready"
+        case .blocked:
+            return "Knowledge base indexing paused"
+        case .failed:
+            return "Knowledge base indexing failed"
+        }
+    }
+
+    var detailText: String? {
+        switch self {
+        case .scanning:
+            return "Scanning files and checking cached chunks"
+        case .embedding(let completed, let total, let activeRange):
+            if completed == 0 {
+                if let activeRange {
+                    return "Processing chunks \(activeRange.lowerBound.formatted())-\(activeRange.upperBound.formatted()) of \(total.formatted())"
+                }
+                return "\(total.formatted()) chunks queued"
+            }
+            return "\(completed.formatted()) of \(total.formatted()) chunks"
+        case .completed(let total):
+            return "\(total.formatted()) chunks indexed"
+        case .blocked(let message), .failed(let message):
+            return message
+        case .idle:
+            return nil
+        }
+    }
+
+    var progress: Double? {
+        guard case .embedding(let completed, let total, _) = self, total > 0, completed > 0 else {
+            return nil
+        }
+
+        return min(max(Double(completed) / Double(total), 0), 1)
+    }
+
+    var percentText: String? {
+        guard case .embedding(let completed, let total, _) = self, total > 0 else {
+            return nil
+        }
+
+        if completed <= 0 {
+            return nil
+        }
+
+        let progress = Double(completed) / Double(total)
+        if progress < 0.01 {
+            return "<1%"
+        }
+
+        return "\(Int(progress * 100))%"
+    }
+
+    var helpText: String {
+        switch self {
+        case .idle:
+            return ""
+        case .scanning:
+            return "OpenOats is scanning your Knowledge Base folder so it can prepare meeting context."
+        case .embedding:
+            return "OpenOats is indexing your Knowledge Base folder so it can surface relevant context during meetings."
+        case .completed:
+            return "OpenOats finished indexing your Knowledge Base folder and can use it during meetings."
+        case .blocked(let message), .failed(let message):
+            return message
+        }
+    }
+}
+
 /// Embedding-based knowledge base search using Voyage AI or Ollama.
 @Observable
 @MainActor
@@ -64,10 +164,10 @@ final class KnowledgeBase {
         set { withMutation(keyPath: \.fileCount) { _fileCount = newValue } }
     }
 
-    @ObservationIgnored nonisolated(unsafe) private var _indexingProgress = ""
-    private(set) var indexingProgress: String {
-        get { access(keyPath: \.indexingProgress); return _indexingProgress }
-        set { withMutation(keyPath: \.indexingProgress) { _indexingProgress = newValue } }
+    @ObservationIgnored nonisolated(unsafe) private var _indexingStatus: KnowledgeBaseIndexingStatus = .idle
+    private(set) var indexingStatus: KnowledgeBaseIndexingStatus {
+        get { access(keyPath: \.indexingStatus); return _indexingStatus }
+        set { withMutation(keyPath: \.indexingStatus) { _indexingStatus = newValue } }
     }
 
     private let settings: AppSettings
@@ -91,12 +191,12 @@ final class KnowledgeBase {
         // Validate credentials based on provider
         if provider == .voyageAI {
             guard !settings.voyageApiKey.isEmpty else {
-                indexingProgress = "No Voyage AI API key"
+                indexingStatus = .blocked(message: "Add a Voyage AI API key in Settings to index your knowledge base.")
                 return
             }
         }
 
-        indexingProgress = "Scanning files..."
+        indexingStatus = .scanning
 
         // Load existing cache; invalidate if embedding config changed
         let fingerprint = embeddingConfigFingerprint()
@@ -112,13 +212,13 @@ final class KnowledgeBase {
         }.value
 
         guard !scanResult.fileURLs.isEmpty else {
-            indexingProgress = ""
+            indexingStatus = .idle
             isIndexed = true
             return
         }
 
         var allChunks = scanResult.cachedChunks
-        var filesToEmbed = scanResult.filesToEmbed
+        let filesToEmbed = scanResult.filesToEmbed
 
         // Embed new/changed files in batches
         if !filesToEmbed.isEmpty {
@@ -130,44 +230,45 @@ final class KnowledgeBase {
                 }
             }
 
-            indexingProgress = "Embedding \(allTextsToEmbed.count) chunks..."
+            indexingStatus = .embedding(completed: 0, total: allTextsToEmbed.count, activeRange: nil)
 
             let result = await embedInBatches(texts: allTextsToEmbed)
-            let embeddings = result.embeddings
-
-            if embeddings == nil, let errMsg = result.error {
-                indexingProgress = "Embed error: \(errMsg)"
+            guard let embeddings = result.embeddings else {
+                failIndexing(
+                    message: result.error ?? "Embedding failed before any chunks were indexed.",
+                    availableChunks: allChunks,
+                    fileCount: scanResult.fileCount
+                )
+                return
             }
 
-            if let embeddings {
-                var offset = 0
-                for entry in filesToEmbed {
-                    var fileChunks: [KBChunk] = []
-                    for chunk in entry.chunks {
-                        let embedding = embeddings[offset]
-                        let fileName = entry.key.components(separatedBy: ":").first ?? ""
-                        let kbChunk = KBChunk(
-                            text: chunk.text,
-                            sourceFile: fileName,
-                            headerContext: chunk.header,
-                            embedding: Self.normalizeEmbedding(embedding),
-                            relativePath: entry.relativePath,
-                            folderBreadcrumb: entry.folderBreadcrumb,
-                            documentTitle: entry.documentTitle
-                        )
-                        fileChunks.append(kbChunk)
-                        offset += 1
-                    }
-                    cache.entries[entry.key] = fileChunks
-                    allChunks.append(contentsOf: fileChunks)
+            var offset = 0
+            for entry in filesToEmbed {
+                var fileChunks: [KBChunk] = []
+                for chunk in entry.chunks {
+                    let embedding = embeddings[offset]
+                    let fileName = entry.key.components(separatedBy: ":").first ?? ""
+                    let kbChunk = KBChunk(
+                        text: chunk.text,
+                        sourceFile: fileName,
+                        headerContext: chunk.header,
+                        embedding: Self.normalizeEmbedding(embedding),
+                        relativePath: entry.relativePath,
+                        folderBreadcrumb: entry.folderBreadcrumb,
+                        documentTitle: entry.documentTitle
+                    )
+                    fileChunks.append(kbChunk)
+                    offset += 1
                 }
-
-                // Prune stale cache entries using pre-computed keys
-                let allRelevantKeys = Set(filesToEmbed.map(\.key)).union(scanResult.currentCacheKeys)
-                cache.entries = cache.entries.filter { allRelevantKeys.contains($0.key) }
-
-                saveCache(cache)
+                cache.entries[entry.key] = fileChunks
+                allChunks.append(contentsOf: fileChunks)
             }
+
+            // Prune stale cache entries using pre-computed keys
+            let allRelevantKeys = Set(filesToEmbed.map(\.key)).union(scanResult.currentCacheKeys)
+            cache.entries = cache.entries.filter { allRelevantKeys.contains($0.key) }
+
+            saveCache(cache)
         } else {
             // All files were cached — still prune stale entries
             if cache.entries.keys.count != scanResult.currentCacheKeys.count {
@@ -176,10 +277,7 @@ final class KnowledgeBase {
             }
         }
 
-        self.chunks = allChunks
-        self.fileCount = scanResult.fileCount
-        self.isIndexed = true
-        self.indexingProgress = ""
+        finishIndexing(chunks: allChunks, fileCount: scanResult.fileCount)
     }
 
     // MARK: - Background File Scanning
@@ -356,7 +454,7 @@ final class KnowledgeBase {
         chunks.removeAll()
         isIndexed = false
         fileCount = 0
-        indexingProgress = ""
+        indexingStatus = .idle
     }
 
     // MARK: - File Collection
@@ -565,6 +663,40 @@ final class KnowledgeBase {
 
     // MARK: - Embedding Batches
 
+    func finishIndexing(chunks: [KBChunk], fileCount: Int) {
+        self.chunks = chunks
+        self.fileCount = fileCount
+        self.isIndexed = true
+        showCompletedStatus(total: chunks.count)
+    }
+
+    func failIndexing(message: String, availableChunks: [KBChunk] = [], fileCount: Int? = nil) {
+        if let fileCount {
+            self.fileCount = fileCount
+        }
+
+        if availableChunks.isEmpty {
+            chunks.removeAll()
+            isIndexed = false
+        } else {
+            chunks = availableChunks
+            isIndexed = true
+        }
+
+        indexingStatus = .failed(message: message)
+    }
+
+    private func showCompletedStatus(total: Int) {
+        let completedStatus = KnowledgeBaseIndexingStatus.completed(total: total)
+        indexingStatus = completedStatus
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, self.indexingStatus == completedStatus else { return }
+            self.indexingStatus = .idle
+        }
+    }
+
     private func embedInBatches(texts: [String]) async -> (embeddings: [[Float]]?, error: String?) {
         let batchSize = 32
         let batches = stride(from: 0, to: texts.count, by: batchSize).map { start in
@@ -581,7 +713,9 @@ final class KnowledgeBase {
     }
 
     private func embedBatchesConcurrently(_ batches: [[String]], total: Int) async -> (embeddings: [[Float]]?, error: String?) {
-        indexingProgress = "Embedding \(total) chunks..."
+        if total > 0 {
+            indexingStatus = .embedding(completed: 0, total: total, activeRange: 1...min(32, total))
+        }
         typealias Indexed = (order: Int, embeddings: [[Float]]?)
         let results: [Indexed] = await withTaskGroup(of: Indexed.self) { group in
             for (i, batch) in batches.enumerated() {
@@ -596,7 +730,14 @@ final class KnowledgeBase {
                 }
             }
             var collected: [Indexed] = []
-            for await r in group { collected.append(r) }
+            var completed = 0
+            for await r in group {
+                collected.append(r)
+                if let embeddings = r.embeddings {
+                    completed += embeddings.count
+                    indexingStatus = .embedding(completed: min(completed, total), total: total, activeRange: nil)
+                }
+            }
             return collected.sorted { $0.order < $1.order }
         }
         guard !results.contains(where: { $0.embeddings == nil }) else {
@@ -609,13 +750,16 @@ final class KnowledgeBase {
         var allEmbeddings: [[Float]] = []
         var offset = 0
         for batch in batches {
-            let end = offset + batch.count
-            indexingProgress = "Embedding \(offset + 1)-\(end) of \(total)..."
+            let rangeStart = offset + 1
+            let rangeEnd = offset + batch.count
+            indexingStatus = .embedding(completed: offset, total: total, activeRange: rangeStart...rangeEnd)
             var retried = false
             while true {
                 do {
                     let embeddings = try await embedTexts(batch, inputType: "document")
                     allEmbeddings.append(contentsOf: embeddings)
+                    offset += embeddings.count
+                    indexingStatus = .embedding(completed: min(offset, total), total: total, activeRange: nil)
                     break
                 } catch {
                     if !retried {
@@ -626,7 +770,6 @@ final class KnowledgeBase {
                     return (nil, error.localizedDescription)
                 }
             }
-            offset = end
         }
         return (allEmbeddings, nil)
     }

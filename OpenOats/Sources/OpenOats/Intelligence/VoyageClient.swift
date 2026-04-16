@@ -77,6 +77,29 @@ actor VoyageClient {
 
     // MARK: - HTTP
 
+    nonisolated static func describeHTTPError(statusCode: Int, data: Data) -> (message: String, retryable: Bool) {
+        let detail = extractErrorDetail(from: data)
+        let normalized = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercased = normalized?.lowercased() ?? ""
+
+        if statusCode == 429 {
+            if lowercased.contains("payment method") || lowercased.contains("billing") || lowercased.contains("balance") {
+                return ("Add a payment method in Voyage AI billing to enable knowledge base indexing.", false)
+            }
+            return ("Voyage AI is rate limiting requests. Try again in a moment.", true)
+        }
+
+        if statusCode == 401 || statusCode == 403 {
+            return ("Check your Voyage AI API key and account access.", false)
+        }
+
+        if let normalized, !normalized.isEmpty {
+            return (normalized, false)
+        }
+
+        return ("Unknown error", false)
+    }
+
     private func post<T: Encodable>(
         path: String,
         apiKey: String,
@@ -96,17 +119,26 @@ actor VoyageClient {
             throw VoyageError.httpError(-1, "No HTTP response")
         }
 
-        if http.statusCode == 429, retryOn429 {
+        let errorInfo = Self.describeHTTPError(statusCode: http.statusCode, data: data)
+
+        if http.statusCode == 429, retryOn429, errorInfo.retryable {
             try await Task.sleep(for: .seconds(20))
             return try await post(path: path, apiKey: apiKey, body: body, retryOn429: false)
         }
 
         guard (200...299).contains(http.statusCode) else {
-            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw VoyageError.httpError(http.statusCode, msg)
+            throw VoyageError.httpError(http.statusCode, errorInfo.message)
         }
 
         return data
+    }
+
+    private nonisolated static func extractErrorDetail(from data: Data) -> String? {
+        if let response = try? JSONDecoder().decode(APIErrorResponse.self, from: data) {
+            return response.detail ?? response.message ?? response.error
+        }
+
+        return String(data: data, encoding: .utf8)
     }
 
     // MARK: - Request/Response Types
@@ -141,5 +173,11 @@ actor VoyageClient {
             let index: Int
             let relevance_score: Double
         }
+    }
+
+    private struct APIErrorResponse: Decodable {
+        let detail: String?
+        let message: String?
+        let error: String?
     }
 }

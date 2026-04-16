@@ -38,14 +38,6 @@ struct ContentView: View {
 
                 Spacer()
 
-                // KB indexing status (subtle, read-only)
-                if !controllerState.kbIndexingProgress.isEmpty {
-                    Text(controllerState.kbIndexingProgress)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
                 Button {
                     openWindow(id: "notes")
                 } label: {
@@ -585,6 +577,7 @@ private struct IsolatedControlBarWrapper: View {
             isMicMuted: state.isMicMuted,
             modelDisplayName: state.modelDisplayName,
             transcriptionPrompt: state.transcriptionPrompt,
+            kbIndexingStatus: state.kbIndexingStatus,
             statusMessage: state.statusMessage,
             errorMessage: state.errorMessage,
             needsDownload: state.needsDownload,

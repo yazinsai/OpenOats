@@ -20,7 +20,7 @@ final class LiveSessionState {
     var batchIsImporting: Bool = false
     var lastEndedSession: SessionIndex? = nil
     var lastSessionHasNotes: Bool = false
-    var kbIndexingProgress: String = ""
+    var kbIndexingStatus: KnowledgeBaseIndexingStatus = .idle
     var statusMessage: String? = nil
     var errorMessage: String? = nil
     var matchedCalendarEvent: CalendarEvent? = nil
@@ -89,6 +89,7 @@ final class LiveSessionController {
         while !Task.isCancelled {
             let isActive = coordinator.transcriptionEngine?.isRunning == true
                 || coordinator.batchStatus != .idle
+                || coordinator.knowledgeBase?.indexingStatus.needsFrequentPolling == true
             try? await Task.sleep(for: isActive ? .milliseconds(250) : .seconds(2))
 
             // Poll batch engine status (actor-isolated)
@@ -173,6 +174,9 @@ final class LiveSessionController {
     func indexKBIfNeeded(settings: AppSettings) {
         guard let url = settings.kbFolderURL, let kb = coordinator.knowledgeBase else { return }
         Task {
+            // TODO: Coalesce repeated startup/settings-triggered reindex requests into a
+            // single in-flight task. Today ContentView startup, kbFolderPath changes, and
+            // Voyage key changes can all arrive close together and redo the same cold-start scan.
             kb.clear()
             await kb.index(folderURL: url)
         }
@@ -561,7 +565,7 @@ final class LiveSessionController {
         set(\.batchIsImporting, coordinator.batchIsImporting)
         if state.lastEndedSession?.id != lastEndedSession?.id { state.lastEndedSession = lastEndedSession }
         set(\.lastSessionHasNotes, lastSessionHasNotes)
-        set(\.kbIndexingProgress, coordinator.knowledgeBase?.indexingProgress ?? "")
+        set(\.kbIndexingStatus, coordinator.knowledgeBase?.indexingStatus ?? .idle)
         set(\.statusMessage, coordinator.transcriptionEngine?.assetStatus)
         set(\.errorMessage, coordinator.transcriptionEngine?.lastError)
         set(\.matchedCalendarEvent, matchedCalendarEvent)

@@ -3,6 +3,110 @@ import XCTest
 
 final class KnowledgeBaseTests: XCTestCase {
 
+    @MainActor
+    private func makeSettings() -> AppSettings {
+        let suiteName = "com.openoats.kbtest.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let storage = AppSettingsStorage(
+            defaults: defaults,
+            secretStore: .ephemeral,
+            defaultNotesDirectory: URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("KnowledgeBaseTests"),
+            runMigrations: false
+        )
+        return AppSettings(storage: storage)
+    }
+
+    // MARK: - KnowledgeBaseIndexingStatus
+
+    func testScanningStatusShowsStableDetailLine() {
+        let status = KnowledgeBaseIndexingStatus.scanning
+
+        XCTAssertEqual(status.title, "Preparing knowledge base...")
+        XCTAssertEqual(status.detailText, "Scanning files and checking cached chunks")
+        XCTAssertNil(status.percentText)
+    }
+
+    func testEmbeddingStatusFormatsCountsAndTinyPercent() {
+        let status = KnowledgeBaseIndexingStatus.embedding(completed: 32, total: 14_598, activeRange: nil)
+
+        XCTAssertEqual(status.title, "Indexing knowledge base...")
+        XCTAssertEqual(status.detailText, "32 of 14,598 chunks")
+        XCTAssertEqual(status.percentText, "<1%")
+        XCTAssertEqual(status.progress ?? -1, Double(32) / Double(14_598), accuracy: 0.0001)
+    }
+
+    func testInitialEmbeddingStatusShowsActiveFirstBatch() {
+        let status = KnowledgeBaseIndexingStatus.embedding(completed: 0, total: 128, activeRange: 1...32)
+
+        XCTAssertEqual(status.title, "Indexing knowledge base...")
+        XCTAssertNil(status.percentText)
+        XCTAssertEqual(status.detailText, "Processing chunks 1-32 of 128")
+        XCTAssertNil(status.progress)
+    }
+
+    func testCompletedStatusShowsIndexedChunkCount() {
+        let status = KnowledgeBaseIndexingStatus.completed(total: 14_634)
+
+        XCTAssertTrue(status.isVisible)
+        XCTAssertEqual(status.title, "Knowledge base ready")
+        XCTAssertEqual(status.detailText, "14,634 chunks indexed")
+        XCTAssertNil(status.progress)
+        XCTAssertNil(status.percentText)
+    }
+
+    func testOnlyActiveKBStatesNeedFrequentPolling() {
+        XCTAssertTrue(KnowledgeBaseIndexingStatus.scanning.needsFrequentPolling)
+        XCTAssertTrue(KnowledgeBaseIndexingStatus.embedding(completed: 0, total: 128, activeRange: 1...32).needsFrequentPolling)
+        XCTAssertTrue(KnowledgeBaseIndexingStatus.completed(total: 128).needsFrequentPolling)
+        XCTAssertFalse(KnowledgeBaseIndexingStatus.blocked(message: "missing key").needsFrequentPolling)
+        XCTAssertFalse(KnowledgeBaseIndexingStatus.failed(message: "boom").needsFrequentPolling)
+    }
+
+    @MainActor
+    func testFailedIndexingDoesNotMarkKnowledgeBaseReady() {
+        let kb = KnowledgeBase(settings: makeSettings())
+
+        kb.failIndexing(message: "One or more embedding batches failed")
+
+        XCTAssertEqual(kb.indexingStatus, .failed(message: "One or more embedding batches failed"))
+        XCTAssertFalse(kb.isIndexed)
+        XCTAssertTrue(kb.chunks.isEmpty)
+    }
+
+    @MainActor
+    func testFailedIndexingPreservesAvailableCachedChunks() {
+        let kb = KnowledgeBase(settings: makeSettings())
+        let cachedChunk = KBChunk(
+            text: "Cached text",
+            sourceFile: "notes.md",
+            headerContext: "Section",
+            embedding: [0.1, 0.2, 0.3]
+        )
+
+        kb.failIndexing(
+            message: "One or more embedding batches failed",
+            availableChunks: [cachedChunk],
+            fileCount: 3
+        )
+
+        XCTAssertEqual(kb.indexingStatus, .failed(message: "One or more embedding batches failed"))
+        XCTAssertTrue(kb.isIndexed)
+        XCTAssertEqual(kb.fileCount, 3)
+        XCTAssertEqual(kb.chunks.map(\.text), ["Cached text"])
+    }
+
+    func testBlockedStatusUsesActionableMessage() {
+        let status = KnowledgeBaseIndexingStatus.blocked(message: "Add a Voyage AI API key in Settings to index your knowledge base.")
+
+        XCTAssertTrue(status.isVisible)
+        XCTAssertEqual(status.title, "Knowledge base indexing paused")
+        XCTAssertEqual(status.detailText, "Add a Voyage AI API key in Settings to index your knowledge base.")
+        XCTAssertNil(status.progress)
+    }
+
     // MARK: - TextSimilarity.normalizedWords
 
     func testNormalizedWordsLowercases() {
