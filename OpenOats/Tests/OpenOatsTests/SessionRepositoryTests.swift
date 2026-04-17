@@ -6,6 +6,22 @@ final class SessionRepositoryTests: XCTestCase {
     private var repo: SessionRepository!
     private var rootDir: URL!
 
+    private func makeCalendarEvent() -> CalendarEvent {
+        CalendarEvent(
+            id: "event-123",
+            title: "Customer Sync",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: "Aly",
+            participants: [
+                Participant(name: "Aly", email: "aly@example.com"),
+                Participant(name: "Nima", email: "nima@example.com"),
+            ],
+            isOnlineMeeting: true,
+            meetingURL: URL(string: "https://meet.example.com/customer-sync")
+        )
+    }
+
     override func setUp() async throws {
         rootDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("OpenOatsRepoTests", isDirectory: true)
@@ -97,6 +113,7 @@ final class SessionRepositoryTests: XCTestCase {
         let handle = await repo.startSession()
         let sessionID = handle.sessionID
         let startDate = Date()
+        let calendarEvent = makeCalendarEvent()
 
         let utterance = Utterance(text: "Test", speaker: .you, timestamp: startDate)
         await repo.appendLiveUtterance(sessionID: sessionID, utterance: utterance)
@@ -111,7 +128,8 @@ final class SessionRepositoryTests: XCTestCase {
                 meetingApp: "Zoom",
                 engine: "parakeetV2",
                 templateSnapshot: nil,
-                utterances: [utterance]
+                utterances: [utterance],
+                calendarEvent: calendarEvent
             )
         )
 
@@ -124,6 +142,10 @@ final class SessionRepositoryTests: XCTestCase {
         XCTAssertEqual(found?.engine, "parakeetV2")
         XCTAssertEqual(found?.utteranceCount, 1)
         XCTAssertNotNil(found?.endedAt)
+
+        let session = await repo.loadSession(id: sessionID)
+        XCTAssertEqual(session.calendarEvent?.title, "Customer Sync")
+        XCTAssertEqual(session.calendarEvent?.participants.count, 2)
 
         await repo.deleteSession(sessionID: sessionID)
     }

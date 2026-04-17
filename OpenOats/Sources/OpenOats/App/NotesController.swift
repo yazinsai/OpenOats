@@ -10,6 +10,7 @@ struct NotesState {
     var selectedSessionID: String?
     var loadedTranscript: [SessionRecord] = []
     var loadedNotes: GeneratedNotes?
+    var loadedCalendarEvent: CalendarEvent?
     var notesGenerationStatus: GenerationStatus = .idle
     var cleanupStatus: CleanupStatus = .idle
     var selectedTemplate: MeetingTemplate?
@@ -124,6 +125,7 @@ final class NotesController {
         guard let sessionID else {
             state.loadedNotes = nil
             state.loadedTranscript = []
+            state.loadedCalendarEvent = nil
             state.selectedSessionDirectory = nil
             state.audioFileURL = nil
             return
@@ -131,6 +133,7 @@ final class NotesController {
 
         state.loadedNotes = nil
         state.loadedTranscript = []
+        state.loadedCalendarEvent = nil
         state.audioFileURL = nil
         state.selectedSessionDirectory = coordinator.sessionRepository.sessionsDirectoryURL
             .appendingPathComponent(sessionID, isDirectory: true)
@@ -150,6 +153,7 @@ final class NotesController {
 
             state.loadedNotes = data.notes
             state.loadedTranscript = data.transcript
+            state.loadedCalendarEvent = data.calendarEvent
             state.audioFileURL = data.audioURL
 
             let session = state.sessionHistory.first { $0.id == sessionID }
@@ -217,6 +221,7 @@ final class NotesController {
         // Capture transcript immediately — before any suspension — so session switches
         // mid-load don't swap in the wrong session's records.
         let capturedTranscript = state.loadedTranscript
+        let capturedCalendarEvent = state.loadedCalendarEvent
 
         generatingSessionID = sessionID
         state.notesGenerationStatus = .generating
@@ -229,6 +234,7 @@ final class NotesController {
                 transcript: capturedTranscript,
                 template: template,
                 settings: settings,
+                calendarEvent: capturedCalendarEvent,
                 scratchpad: scratchpad.isEmpty ? nil : scratchpad
             ) { [weak self] in
                 guard let self else { return }
@@ -255,8 +261,11 @@ final class NotesController {
         if !coordinator.notesEngine.generatedMarkdown.isEmpty {
             let generatedMarkdown = coordinator.notesEngine.generatedMarkdown
             let session = state.sessionHistory.first { $0.id == sessionID }
-            let heading = Self.notesHeading(title: session?.title, date: session?.startedAt ?? Date())
-            let markdown = heading + generatedMarkdown
+            let markdown = Self.normalizedNotesMarkdown(
+                generatedMarkdown,
+                title: session?.title,
+                date: session?.startedAt ?? Date()
+            )
 
             let notes = GeneratedNotes(
                 template: coordinator.templateStore.snapshot(of: template),
@@ -381,6 +390,7 @@ final class NotesController {
                 state.selectedSessionID = nil
                 state.loadedNotes = nil
                 state.loadedTranscript = []
+                state.loadedCalendarEvent = nil
             }
             await loadHistory()
         }
@@ -395,6 +405,7 @@ final class NotesController {
                 state.selectedSessionID = nil
                 state.loadedNotes = nil
                 state.loadedTranscript = []
+                state.loadedCalendarEvent = nil
             }
             await loadHistory()
         }
@@ -529,7 +540,24 @@ final class NotesController {
         state.sessionHistory = await coordinator.sessionRepository.listSessions()
     }
 
-    /// Builds a markdown heading for generated notes.
+    static func normalizedNotesMarkdown(_ markdown: String, title: String?, date: Date) -> String {
+        let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return notesHeading(title: title, date: date)
+        }
+
+        let firstLine = trimmed
+            .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if firstLine.hasPrefix("# ") {
+            return trimmed
+        }
+
+        return notesHeading(title: title, date: date) + trimmed
+    }
+
+    /// Builds a markdown heading for generated notes when the model does not provide one.
     static func notesHeading(title: String?, date: Date) -> String {
         let displayTitle: String
         if let title, !title.isEmpty {

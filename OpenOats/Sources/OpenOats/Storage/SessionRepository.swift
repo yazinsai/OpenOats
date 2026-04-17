@@ -53,6 +53,29 @@ struct SessionFinalizeMetadata: Sendable {
     let engine: String?
     let templateSnapshot: TemplateSnapshot?
     let utterances: [Utterance]
+    let calendarEvent: CalendarEvent?
+
+    init(
+        endedAt: Date,
+        utteranceCount: Int,
+        title: String?,
+        language: String?,
+        meetingApp: String?,
+        engine: String?,
+        templateSnapshot: TemplateSnapshot?,
+        utterances: [Utterance],
+        calendarEvent: CalendarEvent? = nil
+    ) {
+        self.endedAt = endedAt
+        self.utteranceCount = utteranceCount
+        self.title = title
+        self.language = language
+        self.meetingApp = meetingApp
+        self.engine = engine
+        self.templateSnapshot = templateSnapshot
+        self.utterances = utterances
+        self.calendarEvent = calendarEvent
+    }
 }
 
 /// Full session detail for loading.
@@ -62,6 +85,23 @@ struct SessionDetail: Sendable {
     let liveTranscript: [SessionRecord]
     let notes: GeneratedNotes?
     let notesMeta: NotesMeta?
+    let calendarEvent: CalendarEvent?
+
+    init(
+        index: SessionIndex,
+        transcript: [SessionRecord],
+        liveTranscript: [SessionRecord],
+        notes: GeneratedNotes?,
+        notesMeta: NotesMeta?,
+        calendarEvent: CalendarEvent? = nil
+    ) {
+        self.index = index
+        self.transcript = transcript
+        self.liveTranscript = liveTranscript
+        self.notes = notes
+        self.notesMeta = notesMeta
+        self.calendarEvent = calendarEvent
+    }
 }
 
 /// Metadata persisted alongside notes.
@@ -87,6 +127,7 @@ struct SessionMetadata: Codable, Sendable {
     var tags: [String]?
     /// How the session was created (nil for live sessions, "imported" for imported audio).
     var source: String?
+    var calendarEvent: CalendarEvent?
 }
 
 // MARK: - SessionRepository
@@ -345,7 +386,8 @@ actor SessionRepository {
             hasNotes: false,
             language: metadata.language,
             meetingApp: metadata.meetingApp,
-            engine: metadata.engine
+            engine: metadata.engine,
+            calendarEvent: metadata.calendarEvent
         )
         writeSessionMetadata(sessionMeta, sessionID: sessionID)
     }
@@ -627,7 +669,8 @@ actor SessionRepository {
                 transcript: transcript,
                 liveTranscript: liveTranscript,
                 notes: notes,
-                notesMeta: nil
+                notesMeta: nil,
+                calendarEvent: meta.calendarEvent
             )
         }
 
@@ -1058,9 +1101,11 @@ actor SessionRepository {
 
     // MARK: - Concurrent Session Loading
 
-    /// Loads notes, transcript, and audio URL concurrently off the actor, then returns all three.
-    /// Prefer this over three separate awaited calls to avoid sequential actor hops.
-    nonisolated func loadSessionData(sessionID: String) async -> (notes: GeneratedNotes?, transcript: [SessionRecord], audioURL: URL?) {
+    /// Loads notes, transcript, audio URL, and persisted calendar context concurrently off the actor.
+    /// Prefer this over separate awaited calls to avoid sequential actor hops.
+    nonisolated func loadSessionData(
+        sessionID: String
+    ) async -> (notes: GeneratedNotes?, transcript: [SessionRecord], audioURL: URL?, calendarEvent: CalendarEvent?) {
         let sessDir = sessionsDirectoryURL
         let dir = sessDir.appendingPathComponent(sessionID, isDirectory: true)
 
@@ -1073,8 +1118,11 @@ actor SessionRepository {
         async let audioURL = Task.detached(priority: .userInitiated) {
             SessionRepository.readAudioFileURL(dir: dir)
         }.value
+        async let calendarEvent = Task.detached(priority: .userInitiated) {
+            SessionRepository.readCalendarEvent(dir: dir)
+        }.value
 
-        return await (notes, transcript, audioURL)
+        return await (notes, transcript, audioURL, calendarEvent)
     }
 
     private nonisolated static func readNotes(sessionID: String, dir: URL, sessionsDirectory: URL) -> GeneratedNotes? {
@@ -1090,6 +1138,17 @@ actor SessionRepository {
         }
 
         return LegacySessionReader.loadNotes(sessionID: sessionID, sessionsDirectory: sessionsDirectory)
+    }
+
+    private nonisolated static func readCalendarEvent(dir: URL) -> CalendarEvent? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let metaURL = dir.appendingPathComponent("session.json")
+        guard let data = try? Data(contentsOf: metaURL),
+              let meta = try? decoder.decode(SessionMetadata.self, from: data) else {
+            return nil
+        }
+        return meta.calendarEvent
     }
 
     private nonisolated static func readTranscript(sessionID: String, dir: URL, sessionsDirectory: URL) -> [SessionRecord] {

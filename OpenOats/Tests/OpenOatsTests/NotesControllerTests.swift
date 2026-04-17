@@ -35,7 +35,8 @@ final class NotesControllerTests: XCTestCase {
         coordinator: AppCoordinator,
         sessionID: String = "session_test_001",
         title: String = "Test Meeting",
-        utterances: [SessionRecord]? = nil
+        utterances: [SessionRecord]? = nil,
+        calendarEvent: CalendarEvent? = nil
     ) async {
         let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let records = utterances ?? [
@@ -54,6 +55,31 @@ final class NotesControllerTests: XCTestCase {
             ),
             title: title
         )
+        if let calendarEvent {
+            await coordinator.sessionRepository.finalizeSession(
+                sessionID: sessionID,
+                metadata: SessionFinalizeMetadata(
+                    endedAt: startedAt.addingTimeInterval(60),
+                    utteranceCount: records.count,
+                    title: title,
+                    language: nil,
+                    meetingApp: nil,
+                    engine: nil,
+                    templateSnapshot: coordinator.templateStore.snapshot(
+                        of: coordinator.templateStore.template(for: TemplateStore.genericID) ?? TemplateStore.builtInTemplates.first!
+                    ),
+                    utterances: records.map {
+                        Utterance(
+                            text: $0.text,
+                            speaker: $0.speaker,
+                            timestamp: $0.timestamp,
+                            cleanedText: $0.cleanedText
+                        )
+                    },
+                    calendarEvent: calendarEvent
+                )
+            )
+        }
         await coordinator.loadHistory()
     }
 
@@ -85,6 +111,38 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.selectedSessionID, sessionID)
         XCTAssertEqual(controller.state.loadedTranscript.count, 3)
         XCTAssertNil(controller.state.loadedNotes, "No notes should exist before generation")
+    }
+
+    func testSelectSessionLoadsCalendarContext() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_calendar_context"
+        let calendarEvent = CalendarEvent(
+            id: "evt-1",
+            title: "Design Review",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: "Alice",
+            participants: [
+                Participant(name: "Alice", email: "alice@example.com"),
+                Participant(name: "Bob", email: "bob@example.com"),
+            ],
+            isOnlineMeeting: true,
+            meetingURL: URL(string: "https://meet.example.com/design-review")
+        )
+
+        await seedSession(
+            coordinator: coordinator,
+            sessionID: sessionID,
+            title: "Design Review",
+            calendarEvent: calendarEvent
+        )
+
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(controller.state.loadedCalendarEvent?.title, "Design Review")
+        XCTAssertEqual(controller.state.loadedCalendarEvent?.participants.count, 2)
     }
 
     func testGenerateNotesUpdatesStatus() async {
@@ -220,7 +278,7 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.selectedSessionID, sessionID)
     }
 
-    func testGenerateNotesPrependsTitleHeading() async {
+    func testGenerateNotesPreservesGeneratedTopHeading() async {
         let (root, notes) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)
         let settings = makeSettings(notesDirectory: notes)
@@ -235,38 +293,39 @@ final class NotesControllerTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(500))
 
         let markdown = controller.state.loadedNotes?.markdown ?? ""
-        XCTAssertTrue(markdown.hasPrefix("# Meeting Notes: Q4 Planning\n\n"))
+        XCTAssertTrue(markdown.hasPrefix("# Test Notes\n\n"))
+        XCTAssertFalse(markdown.contains("# Meeting Notes: Q4 Planning\n\n# Test Notes"))
     }
 
-    func testGenerateNotesHeadingFallsBackToDate() async {
-        let (root, notes) = makeTempDirs()
-        let (controller, coordinator) = makeController(root: root)
-        let settings = makeSettings(notesDirectory: notes)
-        let sessionID = "session_test_heading_fallback"
+    func testNormalizedNotesMarkdownPrependsFallbackHeadingWhenMissing() {
+        let markdown = NotesController.normalizedNotesMarkdown(
+            "## Summary\nHello",
+            title: "Standup",
+            date: Date(timeIntervalSince1970: 1_700_000_000)
+        )
 
-        await seedSession(coordinator: coordinator, sessionID: sessionID, title: "")
-        await controller.loadHistory()
-        controller.selectSession(sessionID)
-        try? await Task.sleep(for: .milliseconds(200))
-
-        controller.generateNotes(sessionID: sessionID, settings: settings)
-        try? await Task.sleep(for: .milliseconds(500))
-
-        let markdown = controller.state.loadedNotes?.markdown ?? ""
-        XCTAssertTrue(markdown.hasPrefix("# Meeting Notes: "), "Should have heading with date fallback")
-        XCTAssertFalse(markdown.hasPrefix("# Meeting Notes: \n"), "Should not have empty title")
+        XCTAssertTrue(markdown.hasPrefix("# Meeting Notes: Standup\n\n## Summary\nHello"))
     }
 
-    func testNotesHeadingStaticHelper() {
-        let withTitle = NotesController.notesHeading(title: "Standup", date: Date())
-        XCTAssertEqual(withTitle, "# Meeting Notes: Standup\n\n")
+    func testNormalizedNotesMarkdownFallsBackToDateForMissingTitle() {
+        let markdown = NotesController.normalizedNotesMarkdown(
+            "## Summary\nHello",
+            title: "",
+            date: Date(timeIntervalSince1970: 1_700_000_000)
+        )
 
-        let withEmpty = NotesController.notesHeading(title: "", date: Date(timeIntervalSince1970: 1_700_000_000))
-        XCTAssertTrue(withEmpty.hasPrefix("# Meeting Notes: "))
-        XCTAssertFalse(withEmpty.contains("# Meeting Notes: \n"))
+        XCTAssertTrue(markdown.hasPrefix("# Meeting Notes: "))
+        XCTAssertFalse(markdown.hasPrefix("# Meeting Notes: \n"))
+    }
 
-        let withNil = NotesController.notesHeading(title: nil, date: Date(timeIntervalSince1970: 1_700_000_000))
-        XCTAssertTrue(withNil.hasPrefix("# Meeting Notes: "))
+    func testNormalizedNotesMarkdownPreservesExistingHeading() {
+        let markdown = NotesController.normalizedNotesMarkdown(
+            "# Test Notes\n\n## Summary\nHello",
+            title: "Standup",
+            date: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        XCTAssertEqual(markdown, "# Test Notes\n\n## Summary\nHello")
     }
 
     func testOriginalTranscriptToggle() async {

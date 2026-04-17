@@ -17,6 +17,11 @@ actor OpenRouterClient {
         return URL(string: base + "/v1/chat/completions")
     }
 
+    static func isLocalHost(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0"
+    }
+
     struct Message: Codable, Sendable {
         let role: String
         let content: String

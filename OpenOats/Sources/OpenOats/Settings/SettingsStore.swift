@@ -692,6 +692,17 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _shareCalendarContextWithCloudNotes: Bool
+    var shareCalendarContextWithCloudNotes: Bool {
+        get { access(keyPath: \.shareCalendarContextWithCloudNotes); return _shareCalendarContextWithCloudNotes }
+        set {
+            withMutation(keyPath: \.shareCalendarContextWithCloudNotes) {
+                _shareCalendarContextWithCloudNotes = newValue
+                defaults.set(newValue, forKey: "shareCalendarContextWithCloudNotes")
+            }
+        }
+    }
+
     // MARK: - Privacy Settings
 
     @ObservationIgnored nonisolated(unsafe) private var _hasAcknowledgedRecordingConsent: Bool
@@ -991,6 +1002,7 @@ final class SettingsStore {
         self._hasShownAutoDetectExplanation = defaults.bool(forKey: "hasShownAutoDetectExplanation")
         self._hasShownCameraDetectExplanation = defaults.bool(forKey: "hasShownCameraDetectExplanation")
         self._calendarIntegrationEnabled = defaults.bool(forKey: "calendarIntegrationEnabled")
+        self._shareCalendarContextWithCloudNotes = defaults.bool(forKey: "shareCalendarContextWithCloudNotes")
 
         // Privacy Settings
         self._hasAcknowledgedRecordingConsent = defaults.bool(forKey: "hasAcknowledgedRecordingConsent")

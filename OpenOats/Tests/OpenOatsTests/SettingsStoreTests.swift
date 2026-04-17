@@ -278,6 +278,17 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertFalse(store.detectionLogEnabled)
     }
 
+    func testDefaultShareCalendarContextWithCloudNotes() {
+        let store = makeStore()
+        XCTAssertFalse(store.shareCalendarContextWithCloudNotes)
+    }
+
+    func testShareCalendarContextWithCloudNotesRoundTrip() {
+        let store = makeStore()
+        store.shareCalendarContextWithCloudNotes = true
+        XCTAssertTrue(store.shareCalendarContextWithCloudNotes)
+    }
+
     // MARK: - Privacy Settings Group
 
     func testDefaultHasAcknowledgedRecordingConsent() {
