@@ -124,8 +124,20 @@ struct NotesView: View {
             }
 
             if bulkDeleteMode {
-                List(controller.filteredSessions, selection: $bulkDeleteSelection) { session in
-                    sessionRow(controller: controller, session: session)
+                List(selection: $bulkDeleteSelection) {
+                    if controller.showsSourceSections {
+                        ForEach(controller.sessionSourceGroups) { group in
+                            Section(group.title) {
+                                ForEach(group.sessions) { session in
+                                    sessionRow(controller: controller, session: session)
+                                }
+                            }
+                        }
+                    } else {
+                        ForEach(controller.filteredSessions) { session in
+                            sessionRow(controller: controller, session: session)
+                        }
+                    }
                 }
                 .listStyle(.sidebar)
             } else {
@@ -133,37 +145,78 @@ struct NotesView: View {
                     get: { state.selectedSessionID },
                     set: { controller.selectSession($0) }
                 )
-                List(controller.filteredSessions, selection: selectedBinding) { session in
-                    sessionRow(controller: controller, session: session)
-                        .contextMenu {
-                            Button("Rename...") {
-                                beginRenaming(session)
-                            }
-                            Button("Edit Tags...") {
-                                editingTags = session.tags ?? []
-                                newTagText = ""
-                                editingTagsSessionID = session.id
-                                Task {
-                                    availableTags = await controller.allTags()
+                List(selection: selectedBinding) {
+                    if controller.showsSourceSections {
+                        ForEach(controller.sessionSourceGroups) { group in
+                            Section(group.title) {
+                                ForEach(group.sessions) { session in
+                                    sessionRow(controller: controller, session: session)
+                                        .contextMenu {
+                                            Button("Rename...") {
+                                                beginRenaming(session)
+                                            }
+                                            Button("Edit Tags...") {
+                                                editingTags = NotesController.visibleTags(for: session)
+                                                newTagText = ""
+                                                editingTagsSessionID = session.id
+                                                Task {
+                                                    availableTags = await controller.allTags()
+                                                }
+                                            }
+                                            Divider()
+                                            Button("Select Multiple...") {
+                                                bulkDeleteMode = true
+                                                bulkDeleteSelection = [session.id]
+                                            }
+                                            Divider()
+                                            Button("Delete", role: .destructive) {
+                                                sessionToDelete = session.id
+                                                showDeleteConfirmation = true
+                                            }
+                                        }
+                                        .popover(isPresented: Binding(
+                                            get: { editingTagsSessionID == session.id },
+                                            set: { if !$0 { editingTagsSessionID = nil } }
+                                        )) {
+                                            tagEditorPopover(controller: controller, sessionID: session.id)
+                                        }
                                 }
                             }
-                            Divider()
-                            Button("Select Multiple...") {
-                                bulkDeleteMode = true
-                                bulkDeleteSelection = [session.id]
-                            }
-                            Divider()
-                            Button("Delete", role: .destructive) {
-                                sessionToDelete = session.id
-                                showDeleteConfirmation = true
-                            }
                         }
-                        .popover(isPresented: Binding(
-                            get: { editingTagsSessionID == session.id },
-                            set: { if !$0 { editingTagsSessionID = nil } }
-                        )) {
-                            tagEditorPopover(controller: controller, sessionID: session.id)
+                    } else {
+                        ForEach(controller.filteredSessions) { session in
+                            sessionRow(controller: controller, session: session)
+                                .contextMenu {
+                                    Button("Rename...") {
+                                        beginRenaming(session)
+                                    }
+                                    Button("Edit Tags...") {
+                                        editingTags = NotesController.visibleTags(for: session)
+                                        newTagText = ""
+                                        editingTagsSessionID = session.id
+                                        Task {
+                                            availableTags = await controller.allTags()
+                                        }
+                                    }
+                                    Divider()
+                                    Button("Select Multiple...") {
+                                        bulkDeleteMode = true
+                                        bulkDeleteSelection = [session.id]
+                                    }
+                                    Divider()
+                                    Button("Delete", role: .destructive) {
+                                        sessionToDelete = session.id
+                                        showDeleteConfirmation = true
+                                    }
+                                }
+                                .popover(isPresented: Binding(
+                                    get: { editingTagsSessionID == session.id },
+                                    set: { if !$0 { editingTagsSessionID = nil } }
+                                )) {
+                                    tagEditorPopover(controller: controller, sessionID: session.id)
+                                }
                         }
+                    }
                 }
                 .listStyle(.sidebar)
             }
@@ -193,6 +246,7 @@ struct NotesView: View {
 
     @ViewBuilder
     private func sessionRow(controller: NotesController, session: SessionIndex) -> some View {
+        let visibleTags = NotesController.visibleTags(for: session)
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 if let snap = session.templateSnapshot {
@@ -227,9 +281,9 @@ struct NotesView: View {
             .font(.system(size: 11))
             .foregroundStyle(.tertiary)
 
-            if let tags = session.tags, !tags.isEmpty {
+            if !visibleTags.isEmpty {
                 HStack(spacing: 4) {
-                    ForEach(tags, id: \.self) { tag in
+                    ForEach(visibleTags, id: \.self) { tag in
                         Text(tag)
                             .font(.system(size: 10))
                             .padding(.horizontal, 5)
@@ -349,7 +403,7 @@ struct NotesView: View {
         var seen = Set<String>()
         var result: [String] = []
         for session in sessions {
-            for tag in session.tags ?? [] {
+            for tag in NotesController.visibleTags(for: session) {
                 let key = tag.lowercased()
                 if !seen.contains(key) {
                     seen.insert(key)

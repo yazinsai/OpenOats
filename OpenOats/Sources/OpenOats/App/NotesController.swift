@@ -43,6 +43,12 @@ enum GenerationStatus: Equatable {
     case error(String)
 }
 
+struct SessionSourceGroup: Identifiable {
+    let id: String
+    let title: String
+    let sessions: [SessionIndex]
+}
+
 // MARK: - Controller
 
 /// Owns all notes/history business logic previously embedded in NotesView.
@@ -400,8 +406,35 @@ final class NotesController {
     var filteredSessions: [SessionIndex] {
         guard let filter = state.tagFilter else { return state.sessionHistory }
         return state.sessionHistory.filter { session in
-            session.tags?.contains(where: { $0.localizedCaseInsensitiveCompare(filter) == .orderedSame }) ?? false
+            Self.visibleTags(for: session).contains {
+                $0.localizedCaseInsensitiveCompare(filter) == .orderedSame
+            }
         }
+    }
+
+    var sessionSourceGroups: [SessionSourceGroup] {
+        let grouped = Dictionary(grouping: filteredSessions, by: Self.sourceGroupKey(for:))
+        let orderedKeys = grouped.keys.sorted { lhs, rhs in
+            let lhsOrder = Self.sourceGroupSortOrder(for: lhs)
+            let rhsOrder = Self.sourceGroupSortOrder(for: rhs)
+            if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
+            return Self.sourceDisplayName(for: lhs).localizedCaseInsensitiveCompare(
+                Self.sourceDisplayName(for: rhs)
+            ) == .orderedAscending
+        }
+        return orderedKeys.map { key in
+            SessionSourceGroup(
+                id: key,
+                title: Self.sourceDisplayName(for: key),
+                sessions: grouped[key] ?? []
+            )
+        }
+    }
+
+    var showsSourceSections: Bool {
+        let groups = sessionSourceGroups
+        guard !groups.isEmpty else { return false }
+        return groups.count > 1 || groups.first?.id != "openoats"
     }
 
     func updateSessionTags(sessionID: String, tags: [String]) {
@@ -416,7 +449,49 @@ final class NotesController {
     }
 
     func allTags() async -> [String] {
-        await coordinator.sessionRepository.allTags()
+        await coordinator.sessionRepository.allTags().filter(Self.isUserVisibleSessionTag(_:))
+    }
+
+    static func visibleTags(for session: SessionIndex) -> [String] {
+        visibleTags(from: session.tags)
+    }
+
+    static func visibleTags(from tags: [String]?) -> [String] {
+        (tags ?? []).filter(isUserVisibleSessionTag)
+    }
+
+    static func isUserVisibleSessionTag(_ tag: String) -> Bool {
+        !tag.lowercased().hasPrefix("granola:")
+    }
+
+    static func sourceGroupKey(for session: SessionIndex) -> String {
+        guard let rawSource = session.source?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawSource.isEmpty else {
+            return "openoats"
+        }
+        return rawSource.lowercased()
+    }
+
+    static func sourceDisplayName(for sourceKey: String) -> String {
+        switch sourceKey {
+        case "openoats":
+            "OpenOats"
+        case "granola":
+            "Granola"
+        default:
+            sourceKey.replacingOccurrences(of: "-", with: " ").capitalized
+        }
+    }
+
+    private static func sourceGroupSortOrder(for sourceKey: String) -> Int {
+        switch sourceKey {
+        case "openoats":
+            0
+        case "granola":
+            1
+        default:
+            2
+        }
     }
 
     // MARK: - Accessors

@@ -340,4 +340,56 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertFalse(controller.state.freshlyGeneratedSessionIDs.contains(sessionID), "Should clear the fresh badge when selected")
         XCTAssertNotNil(controller.state.loadedNotes, "Should load the generated notes")
     }
+
+    func testAllTagsHidesGranolaImportMetadataTags() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+
+        await seedSession(coordinator: coordinator, sessionID: "session_local", title: "Local")
+        await coordinator.sessionRepository.updateSessionTags(
+            sessionID: "session_local",
+            tags: ["follow-up"]
+        )
+
+        await seedSession(coordinator: coordinator, sessionID: "session_granola", title: "Imported")
+        await coordinator.sessionRepository.updateSessionSource(
+            sessionID: "session_granola",
+            source: "granola",
+            tags: ["granola:not_123"]
+        )
+        await coordinator.sessionRepository.updateSessionTags(
+            sessionID: "session_granola",
+            tags: ["customer"]
+        )
+
+        await controller.loadHistory()
+
+        let tags = await controller.allTags()
+
+        XCTAssertEqual(tags, ["customer", "follow-up"])
+        XCTAssertFalse(tags.contains(where: { $0.hasPrefix("granola:") }))
+    }
+
+    func testSessionSourceGroupsKeepGranolaSeparateFromOpenOats() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+
+        await seedSession(coordinator: coordinator, sessionID: "session_local", title: "Local")
+
+        await seedSession(coordinator: coordinator, sessionID: "session_granola", title: "Imported")
+        await coordinator.sessionRepository.updateSessionSource(
+            sessionID: "session_granola",
+            source: "granola",
+            tags: ["granola:not_456"]
+        )
+
+        await controller.loadHistory()
+
+        let groups = controller.sessionSourceGroups
+
+        XCTAssertEqual(groups.map(\.title), ["OpenOats", "Granola"])
+        XCTAssertEqual(groups.first?.sessions.map(\.id), ["session_local"])
+        XCTAssertEqual(groups.last?.sessions.map(\.id), ["session_granola"])
+        XCTAssertTrue(controller.showsSourceSections)
+    }
 }

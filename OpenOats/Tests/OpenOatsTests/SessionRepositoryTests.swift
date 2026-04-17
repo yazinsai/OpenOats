@@ -483,6 +483,30 @@ final class SessionRepositoryTests: XCTestCase {
         await repo.deleteSession(sessionID: sessionID)
     }
 
+    func testUpdateSessionTagsPreservesInternalGranolaTag() async {
+        let sessionID = "session_granola_tags"
+        await repo.seedSession(
+            id: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Live", timestamp: Date())],
+            startedAt: Date()
+        )
+
+        await repo.updateSessionSource(
+            sessionID: sessionID,
+            source: "granola",
+            tags: ["granola:not_123"]
+        )
+        await repo.updateSessionTags(sessionID: sessionID, tags: ["team", "follow-up"])
+
+        let sessions = await repo.listSessions()
+        let saved = sessions.first(where: { $0.id == sessionID })
+
+        XCTAssertEqual(saved?.source, "granola")
+        XCTAssertEqual(saved?.tags ?? [], ["granola:not_123", "team", "follow-up"])
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
     func testInitRetainsRecentBatchAudioForRerunWindow() async throws {
         let sessionID = "session_recent_batch_audio"
         let sessionDir = try makeSessionWithBatchAudio(sessionID: sessionID)

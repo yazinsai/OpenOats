@@ -690,11 +690,13 @@ actor SessionRepository {
     }
 
     func updateSessionTags(sessionID: String, tags: [String]) {
-        let normalized = Self.normalizeTags(tags)
+        let normalizedVisibleTags = Self.normalizeUserVisibleTags(tags)
 
         // Try canonical first
         if var meta = loadSessionMetadataFile(sessionID: sessionID) {
-            meta.tags = normalized.isEmpty ? nil : normalized
+            let preservedInternalTags = Self.internalSessionTags(from: meta.tags ?? [])
+            let combinedTags = preservedInternalTags + normalizedVisibleTags
+            meta.tags = combinedTags.isEmpty ? nil : combinedTags
             writeSessionMetadata(meta, sessionID: sessionID)
             return
         }
@@ -712,7 +714,8 @@ actor SessionRepository {
             language: index.language,
             meetingApp: index.meetingApp,
             engine: index.engine,
-            tags: normalized.isEmpty ? nil : normalized
+            tags: normalizedVisibleTags.isEmpty ? nil : normalizedVisibleTags,
+            source: index.source
         )
         let dir = sessionDirectory(for: sessionID)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -723,8 +726,10 @@ actor SessionRepository {
     func updateSessionSource(sessionID: String, source: String, tags: [String]) {
         guard var meta = loadSessionMetadataFile(sessionID: sessionID) else { return }
         meta.source = source
-        let existing = meta.tags ?? []
-        meta.tags = Self.normalizeTags(existing + tags)
+        let existingVisibleTags = Self.userVisibleSessionTags(from: meta.tags ?? [])
+        let preservedInternalTags = Self.normalizeInternalSessionTags((meta.tags ?? []) + tags)
+        let combinedTags = preservedInternalTags + Self.normalizeUserVisibleTags(existingVisibleTags)
+        meta.tags = combinedTags.isEmpty ? nil : combinedTags
         writeSessionMetadata(meta, sessionID: sessionID)
     }
 
@@ -759,6 +764,34 @@ actor SessionRepository {
             if result.count >= 5 { break }
         }
         return result
+    }
+
+    private static func normalizeUserVisibleTags(_ tags: [String]) -> [String] {
+        normalizeTags(userVisibleSessionTags(from: tags))
+    }
+
+    private static func normalizeInternalSessionTags(_ tags: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for tag in internalSessionTags(from: tags) {
+            let key = tag.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            result.append(tag)
+        }
+        return result
+    }
+
+    private static func userVisibleSessionTags(from tags: [String]) -> [String] {
+        tags.filter { !isInternalSessionTag($0) }
+    }
+
+    private static func internalSessionTags(from tags: [String]) -> [String] {
+        tags.filter(isInternalSessionTag)
+    }
+
+    private static func isInternalSessionTag(_ tag: String) -> Bool {
+        tag.lowercased().hasPrefix("granola:")
     }
 
     func deleteSession(sessionID: String) {
