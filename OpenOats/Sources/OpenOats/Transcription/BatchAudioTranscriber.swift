@@ -297,16 +297,14 @@ actor BatchAudioTranscriber {
 
         guard !allRecords.isEmpty else {
             Log.batchTranscription.warning("Batch transcription produced no records for \(sessionID, privacy: .public)")
-            await sessionRepository.cleanupBatchAudio(sessionID: sessionID)
             status = .completed(sessionID: sessionID)
             return
         }
 
         // Atomic write of final transcript + full markdown regeneration via mirroring
         await sessionRepository.saveFinalTranscript(sessionID: sessionID, records: allRecords)
-
-        // Cleanup audio files
-        await sessionRepository.cleanupBatchAudio(sessionID: sessionID)
+        // Retain batch stems/metadata for a bounded rerun/debug window.
+        // SessionRepository purges expired retained assets on startup.
 
         status = .completed(sessionID: sessionID)
         Log.batchTranscription.info("Batch transcription completed for \(sessionID, privacy: .public): \(allRecords.count, privacy: .public) records")
@@ -570,7 +568,7 @@ actor BatchAudioTranscriber {
             micStartDate: meta.micStartDate,
             sysStartDate: meta.sysStartDate,
             micSampleRate: nil,
-            sysSampleRate: nil
+            sysSampleRate: meta.sysEffectiveSampleRate
         )
     }
 

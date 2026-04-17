@@ -448,7 +448,8 @@ final class LiveSessionController {
                         micStartDate: anchorsData.micStartDate,
                         sysStartDate: anchorsData.sysStartDate,
                         micAnchors: anchorsData.micAnchors,
-                        sysAnchors: anchorsData.sysAnchors
+                        sysAnchors: anchorsData.sysAnchors,
+                        sysEffectiveSampleRate: anchorsData.sysEffectiveSampleRate
                     )
                 )
 
@@ -463,7 +464,8 @@ final class LiveSessionController {
                         micStartDate: sealed.micStartDate,
                         sysStartDate: sealed.sysStartDate,
                         micAnchors: sealed.micAnchors,
-                        sysAnchors: sealed.sysAnchors
+                        sysAnchors: sealed.sysAnchors,
+                        sysEffectiveSampleRate: sealed.sysEffectiveSampleRate
                     )
                 )
             } else if wantsExport {

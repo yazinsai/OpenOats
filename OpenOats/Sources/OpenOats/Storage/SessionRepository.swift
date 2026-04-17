@@ -103,6 +103,9 @@ struct SessionMetadata: Codable, Sendable {
 /// sessions/<id>/audio/
 /// ```
 actor SessionRepository {
+    /// Retain batch stems/metadata long enough to support true reruns and debugging.
+    private static let retainedBatchAudioLifetime: TimeInterval = 7 * 24 * 3600
+
     private let sessionsDirectory: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -150,7 +153,7 @@ actor SessionRepository {
         try? FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
         Self.dropMetadataNeverIndex(in: sessionsDirectory)
 
-        Self.cleanupOrphanedBatchAudio(in: sessionsDirectory)
+        Self.cleanupExpiredRetainedBatchAudio(in: sessionsDirectory)
     }
 
     // MARK: - Configuration
@@ -440,6 +443,24 @@ actor SessionRepository {
             try fm.moveItem(at: tempURL, to: finalURL)
         } catch {
             Log.sessionRepository.error("Failed to write final transcript: \(error, privacy: .public)")
+        }
+
+        if let meta = loadSessionMetadataFile(sessionID: sessionID) {
+            let refreshedMeta = SessionMetadata(
+                id: meta.id,
+                startedAt: records.first?.timestamp ?? meta.startedAt,
+                endedAt: records.last?.timestamp ?? meta.endedAt,
+                templateSnapshot: meta.templateSnapshot,
+                title: meta.title,
+                utteranceCount: records.count,
+                hasNotes: meta.hasNotes,
+                language: meta.language,
+                meetingApp: meta.meetingApp,
+                engine: meta.engine,
+                tags: meta.tags,
+                source: meta.source
+            )
+            writeSessionMetadata(refreshedMeta, sessionID: sessionID)
         }
 
         // Mirror to notesFolderPath
@@ -838,7 +859,8 @@ actor SessionRepository {
             micStartDate: anchors.micStartDate,
             sysStartDate: anchors.sysStartDate,
             micAnchors: anchors.micAnchors.map { .init(frame: $0.frame, date: $0.date) },
-            sysAnchors: anchors.sysAnchors.map { .init(frame: $0.frame, date: $0.date) }
+            sysAnchors: anchors.sysAnchors.map { .init(frame: $0.frame, date: $0.date) },
+            sysEffectiveSampleRate: anchors.sysEffectiveSampleRate
         )
         if let data = try? JSONEncoder.iso8601Encoder.encode(meta) {
             try? data.write(to: audioDir.appendingPathComponent("batch-meta.json"), options: .atomic)
@@ -1254,14 +1276,14 @@ actor SessionRepository {
 
     // MARK: - Orphan Cleanup
 
-    private static func cleanupOrphanedBatchAudio(in sessionsDirectory: URL) {
+    private static func cleanupExpiredRetainedBatchAudio(in sessionsDirectory: URL) {
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(
             at: sessionsDirectory,
             includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey]
         ) else { return }
 
-        let cutoff = Date().addingTimeInterval(-24 * 3600)
+        let cutoff = Date().addingTimeInterval(-retainedBatchAudioLifetime)
 
         for item in contents {
             guard let values = try? item.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey]),
@@ -1291,7 +1313,7 @@ actor SessionRepository {
                 try? fm.removeItem(at: micLegacy)
                 try? fm.removeItem(at: sysLegacy)
                 try? fm.removeItem(at: item.appendingPathComponent("batch-meta.json"))
-                Log.sessionRepository.info("Cleaned up orphaned batch audio in \(name, privacy: .public)")
+                Log.sessionRepository.info("Cleaned up expired retained batch audio in \(name, privacy: .public)")
             }
         }
     }
@@ -1305,6 +1327,7 @@ struct BatchAnchors: Sendable {
     let sysStartDate: Date?
     let micAnchors: [(frame: Int64, date: Date)]
     let sysAnchors: [(frame: Int64, date: Date)]
+    let sysEffectiveSampleRate: Double?
 }
 
 /// Codable batch metadata persisted as batch-meta.json.
@@ -1313,6 +1336,7 @@ struct BatchMeta: Codable, Sendable {
     let sysStartDate: Date?
     let micAnchors: [TimingAnchor]
     let sysAnchors: [TimingAnchor]
+    let sysEffectiveSampleRate: Double?
 
     struct TimingAnchor: Codable, Sendable {
         let frame: Int64

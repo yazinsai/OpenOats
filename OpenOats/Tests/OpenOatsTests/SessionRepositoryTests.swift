@@ -416,15 +416,17 @@ final class SessionRepositoryTests: XCTestCase {
 
     func testSaveFinalTranscript() async {
         let sessionID = "session_final_test"
+        let initialStart = Date(timeIntervalSince1970: 100)
         await repo.seedSession(
             id: sessionID,
-            records: [SessionRecord(speaker: .you, text: "Live", timestamp: Date())],
-            startedAt: Date()
+            records: [SessionRecord(speaker: .you, text: "Live", timestamp: initialStart)],
+            startedAt: initialStart
         )
 
+        let finalStart = Date(timeIntervalSince1970: 200)
         let finalRecords = [
-            SessionRecord(speaker: .you, text: "Final A", timestamp: Date()),
-            SessionRecord(speaker: .them, text: "Final B", timestamp: Date()),
+            SessionRecord(speaker: .you, text: "Final A", timestamp: finalStart),
+            SessionRecord(speaker: .them, text: "Final B", timestamp: finalStart.addingTimeInterval(12)),
         ]
         await repo.saveFinalTranscript(sessionID: sessionID, records: finalRecords)
 
@@ -438,7 +440,81 @@ final class SessionRepositoryTests: XCTestCase {
         XCTAssertEqual(live.count, 1)
         XCTAssertEqual(live[0].text, "Live")
 
+        let sessions = await repo.listSessions()
+        let saved = sessions.first(where: { $0.id == sessionID })
+        XCTAssertEqual(saved?.utteranceCount, finalRecords.count)
+        XCTAssertEqual(saved?.startedAt, finalStart)
+        XCTAssertEqual(saved?.endedAt, finalStart.addingTimeInterval(12))
+
         await repo.deleteSession(sessionID: sessionID)
+    }
+
+    func testBatchMetaPersistsEffectiveSystemSampleRate() async {
+        let sessionID = "session_batch_meta"
+        await repo.seedSession(
+            id: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Live", timestamp: Date())],
+            startedAt: Date()
+        )
+
+        let tempDir = rootDir.appendingPathComponent("batch_temp", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let micURL = tempDir.appendingPathComponent("mic.caf")
+        let sysURL = tempDir.appendingPathComponent("sys.caf")
+        FileManager.default.createFile(atPath: micURL.path, contents: Data())
+        FileManager.default.createFile(atPath: sysURL.path, contents: Data())
+
+        await repo.stashAudioForBatch(
+            sessionID: sessionID,
+            micURL: micURL,
+            sysURL: sysURL,
+            anchors: BatchAnchors(
+                micStartDate: Date(timeIntervalSince1970: 10),
+                sysStartDate: Date(timeIntervalSince1970: 20),
+                micAnchors: [(frame: 0, date: Date(timeIntervalSince1970: 10))],
+                sysAnchors: [(frame: 0, date: Date(timeIntervalSince1970: 20))],
+                sysEffectiveSampleRate: 24_000
+            )
+        )
+
+        let meta = await repo.loadBatchMeta(sessionID: sessionID)
+        XCTAssertEqual(meta?.sysEffectiveSampleRate, 24_000)
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
+    func testInitRetainsRecentBatchAudioForRerunWindow() async throws {
+        let sessionID = "session_recent_batch_audio"
+        let sessionDir = try makeSessionWithBatchAudio(sessionID: sessionID)
+        try setModificationDate(
+            Date().addingTimeInterval(-(6 * 24 * 3600)),
+            forSessionDirectory: sessionDir
+        )
+
+        let freshRepo = SessionRepository(rootDirectory: rootDir)
+        let urls = await freshRepo.batchAudioURLs(sessionID: sessionID)
+        let meta = await freshRepo.loadBatchMeta(sessionID: sessionID)
+
+        XCTAssertNotNil(urls.mic)
+        XCTAssertNotNil(urls.sys)
+        XCTAssertNotNil(meta)
+    }
+
+    func testInitCleansExpiredBatchAudioAfterRerunWindow() async throws {
+        let sessionID = "session_expired_batch_audio"
+        let sessionDir = try makeSessionWithBatchAudio(sessionID: sessionID)
+        try setModificationDate(
+            Date().addingTimeInterval(-(8 * 24 * 3600)),
+            forSessionDirectory: sessionDir
+        )
+
+        let freshRepo = SessionRepository(rootDirectory: rootDir)
+        let urls = await freshRepo.batchAudioURLs(sessionID: sessionID)
+        let meta = await freshRepo.loadBatchMeta(sessionID: sessionID)
+
+        XCTAssertNil(urls.mic)
+        XCTAssertNil(urls.sys)
+        XCTAssertNil(meta)
     }
 
     // MARK: - moveToRecentlyDeleted
@@ -455,6 +531,50 @@ final class SessionRepositoryTests: XCTestCase {
 
         let sessions = await repo.listSessions()
         XCTAssertFalse(sessions.contains(where: { $0.id == sessionID }))
+    }
+
+    private func makeSessionWithBatchAudio(sessionID: String) throws -> URL {
+        let sessionsDir = rootDir.appendingPathComponent("sessions", isDirectory: true)
+        let sessionDir = sessionsDir.appendingPathComponent(sessionID, isDirectory: true)
+        let audioDir = sessionDir.appendingPathComponent("audio", isDirectory: true)
+        try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+
+        let metadata = SessionMetadata(
+            id: sessionID,
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 20),
+            templateSnapshot: nil,
+            title: "Batch Audio",
+            utteranceCount: 1,
+            hasNotes: false,
+            language: "en-GB",
+            meetingApp: nil,
+            engine: "parakeetV2",
+            tags: nil,
+            source: nil
+        )
+        let data = try JSONEncoder.iso8601Encoder.encode(metadata)
+        try data.write(to: sessionDir.appendingPathComponent("session.json"), options: .atomic)
+        try Data().write(to: sessionDir.appendingPathComponent("transcript.live.jsonl"), options: .atomic)
+
+        try Data("mic".utf8).write(to: audioDir.appendingPathComponent("mic.caf"), options: .atomic)
+        try Data("sys".utf8).write(to: audioDir.appendingPathComponent("sys.caf"), options: .atomic)
+
+        let batchMeta = BatchMeta(
+            micStartDate: Date(timeIntervalSince1970: 10),
+            sysStartDate: Date(timeIntervalSince1970: 20),
+            micAnchors: [.init(frame: 0, date: Date(timeIntervalSince1970: 10))],
+            sysAnchors: [.init(frame: 0, date: Date(timeIntervalSince1970: 20))],
+            sysEffectiveSampleRate: 24_000
+        )
+        let metaData = try JSONEncoder.iso8601Encoder.encode(batchMeta)
+        try metaData.write(to: audioDir.appendingPathComponent("batch-meta.json"), options: .atomic)
+
+        return sessionDir
+    }
+
+    private func setModificationDate(_ date: Date, forSessionDirectory sessionDir: URL) throws {
+        try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: sessionDir.path)
     }
 
     // MARK: - End session clears state

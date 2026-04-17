@@ -223,10 +223,21 @@ final class AudioRecorder: @unchecked Sendable {
     func timingAnchors() -> (
         micStartDate: Date?, sysStartDate: Date?,
         micAnchors: [(frame: Int64, date: Date)],
-        sysAnchors: [(frame: Int64, date: Date)]
+        sysAnchors: [(frame: Int64, date: Date)],
+        sysEffectiveSampleRate: Double?
     ) {
         lock.withLock {
-            (micStartDate, sysStartDate, micAnchors, sysAnchors)
+            (
+                micStartDate,
+                sysStartDate,
+                micAnchors,
+                sysAnchors,
+                Self.effectiveSystemSampleRate(
+                    startDate: sysStartDate,
+                    endDate: sysEndDate,
+                    endFrame: sysEndFrame
+                )
+            )
         }
     }
 
@@ -236,7 +247,8 @@ final class AudioRecorder: @unchecked Sendable {
         mic: URL?, sys: URL?,
         micStartDate: Date?, sysStartDate: Date?,
         micAnchors: [(frame: Int64, date: Date)],
-        sysAnchors: [(frame: Int64, date: Date)]
+        sysAnchors: [(frame: Int64, date: Date)],
+        sysEffectiveSampleRate: Double?
     ) {
         lock.withLock {
             micFile = nil
@@ -244,7 +256,13 @@ final class AudioRecorder: @unchecked Sendable {
             let result = (
                 mic: micTempURL, sys: sysTempURL,
                 micStartDate: self.micStartDate, sysStartDate: self.sysStartDate,
-                micAnchors: self.micAnchors, sysAnchors: self.sysAnchors
+                micAnchors: self.micAnchors,
+                sysAnchors: self.sysAnchors,
+                sysEffectiveSampleRate: Self.effectiveSystemSampleRate(
+                    startDate: self.sysStartDate,
+                    endDate: self.sysEndDate,
+                    endFrame: self.sysEndFrame
+                )
             )
             micTempURL = nil
             sysTempURL = nil
@@ -294,14 +312,11 @@ final class AudioRecorder: @unchecked Sendable {
 
     private func mergeAndEncode() {
         let (micURL, sysURL, dir, timestamp, sysEffectiveRate, dirIsSecurityScoped) = lock.withLock {
-            // Effective sample rate: corrects for process tap delivering at lower rate than declared.
-            var effectiveRate: Double? = nil
-            if let start = sysStartDate, let end = sysEndDate, sysEndFrame > 0 {
-                let wallClockSeconds = end.timeIntervalSince(start)
-                if wallClockSeconds > 1.0 {
-                    effectiveRate = Double(sysEndFrame) / wallClockSeconds
-                }
-            }
+            let effectiveRate = Self.effectiveSystemSampleRate(
+                startDate: sysStartDate,
+                endDate: sysEndDate,
+                endFrame: sysEndFrame
+            )
             return (micTempURL, sysTempURL, outputDirectory, sessionTimestamp, effectiveRate, outputDirectoryIsSecurityScoped)
         }
 
@@ -501,5 +516,16 @@ final class AudioRecorder: @unchecked Sendable {
             for ch in 0..<channels { sum += data[ch][i] }
             return sum * scale
         }
+    }
+
+    private static func effectiveSystemSampleRate(
+        startDate: Date?,
+        endDate: Date?,
+        endFrame: Int64
+    ) -> Double? {
+        guard let startDate, let endDate, endFrame > 0 else { return nil }
+        let wallClockSeconds = endDate.timeIntervalSince(startDate)
+        guard wallClockSeconds > 1.0 else { return nil }
+        return Double(endFrame) / wallClockSeconds
     }
 }
