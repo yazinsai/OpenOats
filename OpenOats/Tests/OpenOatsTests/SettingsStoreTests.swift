@@ -322,6 +322,32 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertFalse(store.showLiveTranscript)
     }
 
+    func testDefaultNotesFolders() {
+        let store = makeStore()
+        XCTAssertEqual(store.notesFolders, [])
+    }
+
+    func testNotesFoldersRoundTrip() {
+        let store = makeStore()
+        store.notesFolders = [
+            NotesFolderDefinition(path: "Work/1:1s", color: .orange),
+            NotesFolderDefinition(path: "Personal", color: .purple),
+        ]
+        XCTAssertEqual(store.notesFolders.map(\.path), ["Personal", "Work/1:1s"])
+        XCTAssertEqual(store.notesFolders.map(\.color), [.purple, .orange])
+    }
+
+    func testNotesFoldersNormalizeAndDedupePaths() {
+        let store = makeStore()
+        store.notesFolders = [
+            NotesFolderDefinition(path: " Work // 1:1s / Bertie / ", color: .teal),
+            NotesFolderDefinition(path: "work/1:1s/bertie", color: .orange),
+            NotesFolderDefinition(path: " / ./ ", color: .purple),
+        ]
+        XCTAssertEqual(store.notesFolders.map(\.path), ["Work/1:1s/Bertie"])
+        XCTAssertEqual(store.notesFolders.map(\.color), [.teal])
+    }
+
     func testKbFolderURLWhenEmpty() {
         let store = makeStore()
         XCTAssertNil(store.kbFolderURL)

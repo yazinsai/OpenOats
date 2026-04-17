@@ -8,6 +8,10 @@ struct NotesView: View {
     @State private var renamingSessionID: String?
     @State private var renameText: String = ""
     @FocusState private var renameFieldFocused: Bool
+    @State private var creatingFolderForSessionID: String?
+    @State private var newFolderPath: String = ""
+    @State private var newFolderColor: NotesFolderColor = .orange
+    @FocusState private var newFolderFieldFocused: Bool
     @State private var sessionToDelete: String?
     @State private var showDeleteConfirmation = false
     @State private var bulkDeleteMode = false
@@ -83,6 +87,16 @@ struct NotesView: View {
                 renameSessionSheet(controller: controller, sessionID: sessionID)
             }
         }
+        .sheet(
+            isPresented: Binding(
+                get: { creatingFolderForSessionID != nil },
+                set: { if !$0 { cancelCreateFolder() } }
+            )
+        ) {
+            if let sessionID = creatingFolderForSessionID {
+                newFolderSheet(controller: controller, sessionID: sessionID)
+            }
+        }
     }
 
     // MARK: - Sidebar
@@ -125,7 +139,26 @@ struct NotesView: View {
 
             if bulkDeleteMode {
                 List(selection: $bulkDeleteSelection) {
-                    if controller.showsSourceSections {
+                    if controller.showsFolderSections {
+                        if !controller.rootFolderSessions.isEmpty {
+                            Section {
+                                ForEach(controller.rootFolderSessions) { session in
+                                    sessionRow(controller: controller, session: session)
+                                }
+                            } header: {
+                                rootFolderSectionHeader()
+                            }
+                        }
+                        ForEach(controller.folderGroups) { group in
+                            Section {
+                                ForEach(group.sessions) { session in
+                                    sessionRow(controller: controller, session: session)
+                                }
+                            } header: {
+                                folderSectionHeader(group)
+                            }
+                        }
+                    } else if controller.showsSourceSections {
                         ForEach(controller.sessionSourceGroups) { group in
                             Section(group.title) {
                                 ForEach(group.sessions) { session in
@@ -146,75 +179,36 @@ struct NotesView: View {
                     set: { controller.selectSession($0) }
                 )
                 List(selection: selectedBinding) {
-                    if controller.showsSourceSections {
+                    if controller.showsFolderSections {
+                        if !controller.rootFolderSessions.isEmpty {
+                            Section {
+                                ForEach(controller.rootFolderSessions) { session in
+                                    sessionListEntry(controller: controller, session: session)
+                                }
+                            } header: {
+                                rootFolderSectionHeader()
+                            }
+                        }
+                        ForEach(controller.folderGroups) { group in
+                            Section {
+                                ForEach(group.sessions) { session in
+                                    sessionListEntry(controller: controller, session: session)
+                                }
+                            } header: {
+                                folderSectionHeader(group)
+                            }
+                        }
+                    } else if controller.showsSourceSections {
                         ForEach(controller.sessionSourceGroups) { group in
                             Section(group.title) {
                                 ForEach(group.sessions) { session in
-                                    sessionRow(controller: controller, session: session)
-                                        .contextMenu {
-                                            Button("Rename...") {
-                                                beginRenaming(session)
-                                            }
-                                            Button("Edit Tags...") {
-                                                editingTags = NotesController.visibleTags(for: session)
-                                                newTagText = ""
-                                                editingTagsSessionID = session.id
-                                                Task {
-                                                    availableTags = await controller.allTags()
-                                                }
-                                            }
-                                            Divider()
-                                            Button("Select Multiple...") {
-                                                bulkDeleteMode = true
-                                                bulkDeleteSelection = [session.id]
-                                            }
-                                            Divider()
-                                            Button("Delete", role: .destructive) {
-                                                sessionToDelete = session.id
-                                                showDeleteConfirmation = true
-                                            }
-                                        }
-                                        .popover(isPresented: Binding(
-                                            get: { editingTagsSessionID == session.id },
-                                            set: { if !$0 { editingTagsSessionID = nil } }
-                                        )) {
-                                            tagEditorPopover(controller: controller, sessionID: session.id)
-                                        }
+                                    sessionListEntry(controller: controller, session: session)
                                 }
                             }
                         }
                     } else {
                         ForEach(controller.filteredSessions) { session in
-                            sessionRow(controller: controller, session: session)
-                                .contextMenu {
-                                    Button("Rename...") {
-                                        beginRenaming(session)
-                                    }
-                                    Button("Edit Tags...") {
-                                        editingTags = NotesController.visibleTags(for: session)
-                                        newTagText = ""
-                                        editingTagsSessionID = session.id
-                                        Task {
-                                            availableTags = await controller.allTags()
-                                        }
-                                    }
-                                    Divider()
-                                    Button("Select Multiple...") {
-                                        bulkDeleteMode = true
-                                        bulkDeleteSelection = [session.id]
-                                    }
-                                    Divider()
-                                    Button("Delete", role: .destructive) {
-                                        sessionToDelete = session.id
-                                        showDeleteConfirmation = true
-                                    }
-                                }
-                                .popover(isPresented: Binding(
-                                    get: { editingTagsSessionID == session.id },
-                                    set: { if !$0 { editingTagsSessionID = nil } }
-                                )) {
-                                    tagEditorPopover(controller: controller, sessionID: session.id)
-                                }
+                            sessionListEntry(controller: controller, session: session)
                         }
                     }
                 }
@@ -245,6 +239,48 @@ struct NotesView: View {
     }
 
     @ViewBuilder
+    private func sessionListEntry(controller: NotesController, session: SessionIndex) -> some View {
+        sessionRow(controller: controller, session: session)
+            .contextMenu {
+                sessionContextMenu(controller: controller, session: session)
+            }
+            .popover(isPresented: Binding(
+                get: { editingTagsSessionID == session.id },
+                set: { if !$0 { editingTagsSessionID = nil } }
+            )) {
+                tagEditorPopover(controller: controller, sessionID: session.id)
+            }
+    }
+
+    @ViewBuilder
+    private func sessionContextMenu(controller: NotesController, session: SessionIndex) -> some View {
+        Button("Rename...") {
+            beginRenaming(session)
+        }
+        Menu("Move to Folder") {
+            folderAssignmentMenu(controller: controller, session: session)
+        }
+        Button("Edit Tags...") {
+            editingTags = NotesController.visibleTags(for: session)
+            newTagText = ""
+            editingTagsSessionID = session.id
+            Task {
+                availableTags = await controller.allTags()
+            }
+        }
+        Divider()
+        Button("Select Multiple...") {
+            bulkDeleteMode = true
+            bulkDeleteSelection = [session.id]
+        }
+        Divider()
+        Button("Delete", role: .destructive) {
+            sessionToDelete = session.id
+            showDeleteConfirmation = true
+        }
+    }
+
+    @ViewBuilder
     private func sessionRow(controller: NotesController, session: SessionIndex) -> some View {
         let visibleTags = NotesController.visibleTags(for: session)
         VStack(alignment: .leading, spacing: 4) {
@@ -270,6 +306,18 @@ struct NotesView: View {
                                 : Color.secondary
                         )
                 }
+                Menu {
+                    folderAssignmentMenu(controller: controller, session: session)
+                } label: {
+                    Image(systemName: session.folderPath == nil ? "folder" : "folder.fill")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(folderColor(for: session.folderPath))
+                        .frame(width: 18, height: 18)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .help(session.folderPath.map { "Folder: \($0)" } ?? "Assign folder")
             }
 
             HStack(spacing: 6) {
@@ -352,9 +400,184 @@ struct NotesView: View {
         renameText = ""
     }
 
+    @ViewBuilder
+    private func newFolderSheet(controller: NotesController, sessionID: String) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("New Folder")
+                .font(.headline)
+
+            Text("Use `/` to create subfolders inside your Notes list.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+
+            TextField("e.g. Work/1:1s", text: $newFolderPath)
+                .textFieldStyle(.roundedBorder)
+                .focused($newFolderFieldFocused)
+                .accessibilityIdentifier("notes.newFolderSheet.field")
+                .onAppear {
+                    newFolderFieldFocused = true
+                }
+                .onSubmit {
+                    commitCreateFolder(controller: controller, sessionID: sessionID)
+                }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Color")
+                    .font(.system(size: 12, weight: .medium))
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(28), spacing: 8), count: 4), spacing: 8) {
+                    ForEach(NotesFolderColor.allCases) { color in
+                        Button {
+                            newFolderColor = color
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .fill(folderColor(for: color))
+                                    .frame(width: 18, height: 18)
+                                if newFolderColor == color {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundStyle(.white)
+                                }
+                            }
+                            .frame(width: 28, height: 28)
+                            .background(
+                                Circle()
+                                    .stroke(
+                                        newFolderColor == color ? Color.primary.opacity(0.35) : Color.secondary.opacity(0.15),
+                                        lineWidth: 1
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .help(color.displayName)
+                    }
+                }
+            }
+
+            HStack {
+                Spacer()
+
+                Button("Cancel") {
+                    cancelCreateFolder()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Create") {
+                    commitCreateFolder(controller: controller, sessionID: sessionID)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(NotesFolderDefinition.normalizePath(newFolderPath) == nil)
+                .accessibilityIdentifier("notes.newFolderSheet.saveButton")
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+        .accessibilityIdentifier("notes.newFolderSheet")
+    }
+
+    @ViewBuilder
+    private func folderAssignmentMenu(controller: NotesController, session: SessionIndex) -> some View {
+        Button {
+            controller.updateSessionFolder(sessionID: session.id, folderPath: nil)
+        } label: {
+            HStack {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
+                Text("My notes")
+                if session.folderPath == nil {
+                    Spacer()
+                    Image(systemName: "checkmark")
+                }
+            }
+        }
+
+        if !settings.notesFolders.isEmpty {
+            Divider()
+            ForEach(settings.notesFolders) { folder in
+                Button {
+                    controller.updateSessionFolder(sessionID: session.id, folderPath: folder.path)
+                } label: {
+                    HStack {
+                        Image(systemName: "folder.fill")
+                            .foregroundStyle(folderColor(for: folder.color))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(folder.displayName)
+                            if let breadcrumb = folder.breadcrumb {
+                                Text(breadcrumb)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        if session.folderPath == folder.path {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        }
+
+        Divider()
+
+        Button {
+            beginCreateFolder(for: session)
+        } label: {
+            HStack {
+                Image(systemName: "folder.badge.plus")
+                Text("New Folder…")
+            }
+        }
+    }
+
+    private func beginCreateFolder(for session: SessionIndex) {
+        newFolderPath = session.folderPath ?? ""
+        newFolderColor = folderDefinition(for: session.folderPath)?.color ?? .orange
+        creatingFolderForSessionID = session.id
+    }
+
+    private func commitCreateFolder(controller: NotesController, sessionID: String) {
+        guard let normalizedPath = NotesFolderDefinition.normalizePath(newFolderPath) else { return }
+        var folders = settings.notesFolders
+        if let existingIndex = folders.firstIndex(where: { $0.path.caseInsensitiveCompare(normalizedPath) == .orderedSame }) {
+            folders[existingIndex].color = newFolderColor
+        } else {
+            folders.append(NotesFolderDefinition(path: normalizedPath, color: newFolderColor))
+        }
+        settings.notesFolders = folders
+        controller.updateSessionFolder(sessionID: sessionID, folderPath: normalizedPath)
+        cancelCreateFolder()
+    }
+
+    private func cancelCreateFolder() {
+        creatingFolderForSessionID = nil
+        newFolderFieldFocused = false
+        newFolderPath = ""
+        newFolderColor = .orange
+    }
+
     private func sessionTitle(for session: SessionIndex) -> String {
         let title = session.title?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (title?.isEmpty == false ? title : nil) ?? "Untitled"
+    }
+
+    @ViewBuilder
+    private func folderSectionHeader(_ group: SessionFolderGroup) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "folder.fill")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(folderColor(for: group.id))
+            Text(group.title)
+        }
+    }
+
+    @ViewBuilder
+    private func rootFolderSectionHeader() -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "folder")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text("My notes")
+        }
     }
 
     private func renamePlaceholder(for sessionID: String, controller: NotesController) -> String {
@@ -412,6 +635,38 @@ struct NotesView: View {
             }
         }
         return result.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func folderDefinition(for folderPath: String?) -> NotesFolderDefinition? {
+        guard let folderPath else { return nil }
+        return settings.notesFolders.first {
+            $0.path.localizedCaseInsensitiveCompare(folderPath) == .orderedSame
+        }
+    }
+
+    private func folderColor(for folderPath: String?) -> Color {
+        folderColor(for: folderDefinition(for: folderPath)?.color ?? .gray)
+    }
+
+    private func folderColor(for color: NotesFolderColor) -> Color {
+        switch color {
+        case .gray:
+            return Color.secondary
+        case .orange:
+            return .orange
+        case .gold:
+            return Color(red: 0.74, green: 0.61, blue: 0.23)
+        case .purple:
+            return Color(red: 0.58, green: 0.48, blue: 0.86)
+        case .blue:
+            return .blue
+        case .teal:
+            return .teal
+        case .green:
+            return .green
+        case .red:
+            return .red
+        }
     }
 
     // MARK: - Tag Editor Popover

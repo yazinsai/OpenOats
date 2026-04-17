@@ -50,6 +50,12 @@ struct SessionSourceGroup: Identifiable {
     let sessions: [SessionIndex]
 }
 
+struct SessionFolderGroup: Identifiable {
+    let id: String
+    let title: String
+    let sessions: [SessionIndex]
+}
+
 // MARK: - Controller
 
 /// Owns all notes/history business logic previously embedded in NotesView.
@@ -448,9 +454,47 @@ final class NotesController {
         return groups.count > 1 || groups.first?.id != "openoats"
     }
 
+    var rootFolderSessions: [SessionIndex] {
+        guard showsFolderSections else { return [] }
+        return filteredSessions.filter { Self.normalizedFolderPath(for: $0)?.isEmpty != false }
+    }
+
+    var folderGroups: [SessionFolderGroup] {
+        let grouped = Dictionary(
+            grouping: filteredSessions.compactMap { session -> (String, SessionIndex)? in
+                guard let folderPath = Self.normalizedFolderPath(for: session), !folderPath.isEmpty else {
+                    return nil
+                }
+                return (folderPath, session)
+            },
+            by: \.0
+        )
+        let orderedKeys = grouped.keys.sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+        return orderedKeys.map { key in
+            SessionFolderGroup(
+                id: key,
+                title: Self.folderDisplayName(for: key),
+                sessions: (grouped[key] ?? []).map(\.1)
+            )
+        }
+    }
+
+    var showsFolderSections: Bool {
+        filteredSessions.contains { Self.normalizedFolderPath(for: $0)?.isEmpty == false }
+    }
+
     func updateSessionTags(sessionID: String, tags: [String]) {
         Task {
             await coordinator.sessionRepository.updateSessionTags(sessionID: sessionID, tags: tags)
+            await loadHistory()
+        }
+    }
+
+    func updateSessionFolder(sessionID: String, folderPath: String?) {
+        Task {
+            await coordinator.sessionRepository.updateSessionFolder(sessionID: sessionID, folderPath: folderPath)
             await loadHistory()
         }
     }
@@ -473,6 +517,17 @@ final class NotesController {
 
     static func isUserVisibleSessionTag(_ tag: String) -> Bool {
         !tag.lowercased().hasPrefix("granola:")
+    }
+
+    static func normalizedFolderPath(for session: SessionIndex) -> String? {
+        NotesFolderDefinition.normalizePath(session.folderPath ?? "")
+    }
+
+    static func folderDisplayName(for folderPath: String) -> String {
+        folderPath
+            .split(separator: "/")
+            .map(String.init)
+            .joined(separator: " › ")
     }
 
     static func sourceGroupKey(for session: SessionIndex) -> String {

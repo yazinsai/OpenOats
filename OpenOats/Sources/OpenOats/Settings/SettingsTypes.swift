@@ -1,5 +1,55 @@
 import Foundation
 
+enum NotesFolderColor: String, CaseIterable, Identifiable, Codable {
+    case gray
+    case orange
+    case gold
+    case purple
+    case blue
+    case teal
+    case green
+    case red
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        rawValue.capitalized
+    }
+}
+
+struct NotesFolderDefinition: Identifiable, Codable, Equatable, Sendable {
+    let id: UUID
+    var path: String
+    var color: NotesFolderColor
+
+    init(id: UUID = UUID(), path: String, color: NotesFolderColor) {
+        self.id = id
+        self.path = Self.normalizePath(path) ?? path
+        self.color = color
+    }
+
+    var displayName: String {
+        path.split(separator: "/").last.map(String.init) ?? path
+    }
+
+    var breadcrumb: String? {
+        let parts = path.split(separator: "/").map(String.init)
+        guard parts.count > 1 else { return nil }
+        return parts.dropLast().joined(separator: " › ")
+    }
+
+    static func normalizePath(_ rawPath: String) -> String? {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let components = trimmed
+            .split(separator: "/")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != "." && $0 != ".." }
+        guard !components.isEmpty else { return nil }
+        return components.joined(separator: "/")
+    }
+}
+
 /// Controls how eagerly the suggestion engine surfaces talking points.
 enum SuggestionVerbosity: String, CaseIterable, Identifiable {
     /// Mostly silent — surfaces suggestions only when highly relevant (current default behavior).

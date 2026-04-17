@@ -358,6 +358,8 @@ struct SessionIndex: Identifiable, Codable, Sendable {
     var engine: String?
     /// User-assigned tags for session organization.
     var tags: [String]?
+    /// Optional slash-separated folder path used to organize sessions in the Notes UI.
+    var folderPath: String? = nil
     /// How the session was created (nil for live sessions, "imported" for imported audio).
     var source: String?
 }

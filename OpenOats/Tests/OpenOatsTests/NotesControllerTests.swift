@@ -244,6 +244,23 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(renamedSession?.title, "New Title")
     }
 
+    func testFolderGroupsSessionsByPath() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+
+        await seedSession(coordinator: coordinator, sessionID: "session_root", title: "Inbox Meeting")
+        await seedSession(coordinator: coordinator, sessionID: "session_team", title: "Team Sync")
+        await seedSession(coordinator: coordinator, sessionID: "session_ones", title: "Bertie 1:1")
+        await coordinator.sessionRepository.updateSessionFolder(sessionID: "session_team", folderPath: "Work/Team")
+        await coordinator.sessionRepository.updateSessionFolder(sessionID: "session_ones", folderPath: "Work/1:1s")
+        await controller.loadHistory()
+
+        XCTAssertTrue(controller.showsFolderSections)
+        XCTAssertEqual(controller.rootFolderSessions.map(\.id), ["session_root"])
+        XCTAssertEqual(controller.folderGroups.map(\.id), ["Work/1:1s", "Work/Team"])
+        XCTAssertEqual(controller.folderGroups.map(\.title), ["Work › 1:1s", "Work › Team"])
+    }
+
     func testDeleteSessionRemovesFromHistory() async {
         let (root, _) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)
