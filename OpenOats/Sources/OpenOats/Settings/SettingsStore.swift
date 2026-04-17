@@ -812,6 +812,17 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _notesFolders: [NotesFolderDefinition]
+    var notesFolders: [NotesFolderDefinition] {
+        get { access(keyPath: \.notesFolders); return _notesFolders }
+        set {
+            withMutation(keyPath: \.notesFolders) {
+                _notesFolders = Self.normalizeNotesFolders(newValue)
+                defaults.set(Self.encodeNotesFolders(_notesFolders), forKey: "notesFolders")
+            }
+        }
+    }
+
     /// Save a security-scoped bookmark for the user-selected notes folder.
     func saveNotesFolderBookmark(from url: URL) {
         do {
@@ -1028,6 +1039,7 @@ final class SettingsStore {
         }
         let defaultNotesPath = storage.defaultNotesDirectory.path
         self._notesFolderPath = defaults.string(forKey: "notesFolderPath") ?? defaultNotesPath
+        self._notesFolders = Self.decodeNotesFolders(defaults.data(forKey: "notesFolders")) ?? []
         self._kbFolderPath = defaults.string(forKey: "kbFolderPath") ?? ""
         self._hasSeenLaunchAtLoginSuggestion = defaults.bool(forKey: "hasSeenLaunchAtLoginSuggestion")
 
@@ -1130,6 +1142,29 @@ final class SettingsStore {
     private static func decodePersonas(_ data: Data?) -> [SidecastPersona]? {
         guard let data else { return nil }
         return try? JSONDecoder().decode([SidecastPersona].self, from: data)
+    }
+
+    private static func encodeNotesFolders(_ folders: [NotesFolderDefinition]) -> Data? {
+        let encoder = JSONEncoder()
+        return try? encoder.encode(folders)
+    }
+
+    private static func decodeNotesFolders(_ data: Data?) -> [NotesFolderDefinition]? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode([NotesFolderDefinition].self, from: data)
+    }
+
+    private static func normalizeNotesFolders(_ folders: [NotesFolderDefinition]) -> [NotesFolderDefinition] {
+        var seen = Set<String>()
+        var result: [NotesFolderDefinition] = []
+        for folder in folders {
+            guard let normalizedPath = NotesFolderDefinition.normalizePath(folder.path) else { continue }
+            let key = normalizedPath.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            result.append(NotesFolderDefinition(id: folder.id, path: normalizedPath, color: folder.color))
+        }
+        return result.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
     }
 }
 

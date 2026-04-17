@@ -297,6 +297,23 @@ final class SessionRepositoryTests: XCTestCase {
         await repo.deleteSession(sessionID: sessionID)
     }
 
+    func testUpdateSessionFolderPersistsNormalizedPath() async {
+        let sessionID = "session_folder_test"
+        await repo.seedSession(
+            id: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Hello", timestamp: Date())],
+            startedAt: Date()
+        )
+
+        await repo.updateSessionFolder(sessionID: sessionID, folderPath: " Work // 1:1s / ./ Bertie / ")
+
+        let sessions = await repo.listSessions()
+        let found = sessions.first(where: { $0.id == sessionID })
+        XCTAssertEqual(found?.folderPath, "Work/1:1s/Bertie")
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
     // MARK: - renameSession updates metadata
 
     func testRenameSessionUpdatesMetadata() async {

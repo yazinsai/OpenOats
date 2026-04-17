@@ -125,6 +125,7 @@ struct SessionMetadata: Codable, Sendable {
     var meetingApp: String?
     var engine: String?
     var tags: [String]?
+    var folderPath: String? = nil
     /// How the session was created (nil for live sessions, "imported" for imported audio).
     var source: String?
     var calendarEvent: CalendarEvent?
@@ -500,6 +501,7 @@ actor SessionRepository {
                 meetingApp: meta.meetingApp,
                 engine: meta.engine,
                 tags: meta.tags,
+                folderPath: meta.folderPath,
                 source: meta.source
             )
             writeSessionMetadata(refreshedMeta, sessionID: sessionID)
@@ -620,6 +622,7 @@ actor SessionRepository {
                         meetingApp: meta.meetingApp,
                         engine: meta.engine,
                         tags: meta.tags,
+                        folderPath: meta.folderPath,
                         source: meta.source
                     ))
                     continue
@@ -657,6 +660,7 @@ actor SessionRepository {
                 meetingApp: meta.meetingApp,
                 engine: meta.engine,
                 tags: meta.tags,
+                folderPath: meta.folderPath,
                 source: meta.source
             )
 
@@ -758,6 +762,37 @@ actor SessionRepository {
             meetingApp: index.meetingApp,
             engine: index.engine,
             tags: normalizedVisibleTags.isEmpty ? nil : normalizedVisibleTags,
+            folderPath: index.folderPath,
+            source: index.source
+        )
+        let dir = sessionDirectory(for: sessionID)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        writeSessionMetadata(meta, sessionID: sessionID)
+    }
+
+    func updateSessionFolder(sessionID: String, folderPath: String?) {
+        let normalizedFolderPath = Self.normalizeSessionFolderPath(folderPath)
+
+        if var meta = loadSessionMetadataFile(sessionID: sessionID) {
+            meta.folderPath = normalizedFolderPath
+            writeSessionMetadata(meta, sessionID: sessionID)
+            return
+        }
+
+        let index = LegacySessionReader.loadIndex(sessionID: sessionID, sessionsDirectory: sessionsDirectory)
+        let meta = SessionMetadata(
+            id: index.id,
+            startedAt: index.startedAt,
+            endedAt: index.endedAt,
+            templateSnapshot: index.templateSnapshot,
+            title: index.title,
+            utteranceCount: index.utteranceCount,
+            hasNotes: index.hasNotes,
+            language: index.language,
+            meetingApp: index.meetingApp,
+            engine: index.engine,
+            tags: index.tags,
+            folderPath: normalizedFolderPath,
             source: index.source
         )
         let dir = sessionDirectory(for: sessionID)
@@ -831,6 +866,10 @@ actor SessionRepository {
 
     private static func internalSessionTags(from tags: [String]) -> [String] {
         tags.filter(isInternalSessionTag)
+    }
+
+    private static func normalizeSessionFolderPath(_ folderPath: String?) -> String? {
+        NotesFolderDefinition.normalizePath(folderPath ?? "")
     }
 
     private static func isInternalSessionTag(_ tag: String) -> Bool {
@@ -1346,6 +1385,7 @@ actor SessionRepository {
             meetingApp: meta?.meetingApp,
             engine: meta?.engine,
             tags: meta?.tags,
+            folderPath: meta?.folderPath,
             source: meta?.source
         )
 
