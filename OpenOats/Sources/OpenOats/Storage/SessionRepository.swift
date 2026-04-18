@@ -391,6 +391,8 @@ actor SessionRepository {
             calendarEvent: metadata.calendarEvent
         )
         writeSessionMetadata(sessionMeta, sessionID: sessionID)
+
+        scheduleMirror(sessionID: sessionID)
     }
 
     /// End a session without full finalization (discard path).
