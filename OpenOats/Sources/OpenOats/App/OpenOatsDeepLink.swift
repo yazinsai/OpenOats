@@ -15,7 +15,7 @@ enum OpenOatsDeepLink {
 
         switch host {
         case "start":
-            return .startSession
+            return .startSession()
         case "stop":
             return .stopSession
         case "notes":

@@ -823,6 +823,32 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _meetingPrepNotesByKey: [String: String]
+    var meetingPrepNotesByKey: [String: String] {
+        get { access(keyPath: \.meetingPrepNotesByKey); return _meetingPrepNotesByKey }
+        set {
+            withMutation(keyPath: \.meetingPrepNotesByKey) {
+                _meetingPrepNotesByKey = Self.normalizeMeetingPrepNotes(newValue)
+                defaults.set(Self.encodeMeetingPrepNotes(_meetingPrepNotesByKey), forKey: "meetingPrepNotesByKey")
+            }
+        }
+    }
+
+    func meetingPrepNotes(for event: CalendarEvent) -> String {
+        meetingPrepNotesByKey[MeetingHistoryResolver.historyKey(for: event)] ?? ""
+    }
+
+    func setMeetingPrepNotes(_ text: String, for event: CalendarEvent) {
+        let key = MeetingHistoryResolver.historyKey(for: event)
+        var notes = meetingPrepNotesByKey
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            notes.removeValue(forKey: key)
+        } else {
+            notes[key] = text
+        }
+        meetingPrepNotesByKey = notes
+    }
+
     /// Save a security-scoped bookmark for the user-selected notes folder.
     func saveNotesFolderBookmark(from url: URL) {
         do {
@@ -1040,6 +1066,7 @@ final class SettingsStore {
         let defaultNotesPath = storage.defaultNotesDirectory.path
         self._notesFolderPath = defaults.string(forKey: "notesFolderPath") ?? defaultNotesPath
         self._notesFolders = Self.decodeNotesFolders(defaults.data(forKey: "notesFolders")) ?? []
+        self._meetingPrepNotesByKey = Self.decodeMeetingPrepNotes(defaults.data(forKey: "meetingPrepNotesByKey")) ?? [:]
         self._kbFolderPath = defaults.string(forKey: "kbFolderPath") ?? ""
         self._hasSeenLaunchAtLoginSuggestion = defaults.bool(forKey: "hasSeenLaunchAtLoginSuggestion")
 
@@ -1165,6 +1192,27 @@ final class SettingsStore {
             result.append(NotesFolderDefinition(id: folder.id, path: normalizedPath, color: folder.color))
         }
         return result.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+    }
+
+    private static func encodeMeetingPrepNotes(_ notes: [String: String]) -> Data? {
+        let encoder = JSONEncoder()
+        return try? encoder.encode(notes)
+    }
+
+    private static func decodeMeetingPrepNotes(_ data: Data?) -> [String: String]? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode([String: String].self, from: data)
+    }
+
+    private static func normalizeMeetingPrepNotes(_ notes: [String: String]) -> [String: String] {
+        var result: [String: String] = [:]
+        for (rawKey, rawValue) in notes {
+            let normalizedKey = rawKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalizedKey.isEmpty else { continue }
+            guard !rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            result[normalizedKey] = rawValue
+        }
+        return result
     }
 }
 

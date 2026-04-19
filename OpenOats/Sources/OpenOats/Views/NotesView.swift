@@ -1,9 +1,11 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
 struct NotesView: View {
     @Bindable var settings: AppSettings
     @Environment(AppCoordinator.self) private var coordinator
+    @Environment(\.openWindow) private var openWindow
     @State private var notesController: NotesController?
     @State private var renamingSessionID: String?
     @State private var renameText: String = ""
@@ -838,21 +840,72 @@ struct NotesView: View {
 
     private func meetingHistoryOverviewCard(selection: MeetingHistorySelection) -> some View {
         let event = selection.event
+        let prepNotes = Binding(
+            get: { settings.meetingPrepNotes(for: event) },
+            set: { settings.setMeetingPrepNotes($0, for: event) }
+        )
 
         return VStack(alignment: .leading, spacing: 10) {
-            Text(event.title)
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(.primary)
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(event.title)
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(.primary)
 
-            HStack(spacing: 12) {
-                Text(CalendarEventDisplay.timeRange(for: event))
-                if let calendarTitle = event.calendarTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !calendarTitle.isEmpty {
-                    Text("Calendar: \(calendarTitle)")
+                    HStack(spacing: 12) {
+                        Text(CalendarEventDisplay.timeRange(for: event))
+                        if let calendarTitle = event.calendarTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+                           !calendarTitle.isEmpty {
+                            Text("Calendar: \(calendarTitle)")
+                        }
+                    }
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 8) {
+                    if event.meetingURL != nil {
+                        Button {
+                            joinMeeting(for: event)
+                        } label: {
+                            Label("Join", systemImage: "video.fill")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    Button {
+                        startRecording(for: event)
+                    } label: {
+                        Label("Start recording", systemImage: "mic.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(coordinator.isRecording)
                 }
             }
-            .font(.system(size: 13))
-            .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Text("Prep notes")
+                        .font(.system(size: 12, weight: .medium))
+                    if !prepNotes.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 5, height: 5)
+                    }
+                }
+
+                TextEditor(text: prepNotes)
+                    .font(.system(size: 12))
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 96)
+                    .padding(6)
+                    .background(Color(nsColor: .textBackgroundColor).opacity(0.65))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
         }
         .padding(18)
         .background(
@@ -951,6 +1004,23 @@ struct NotesView: View {
     private func openSessionFromMeetingHistory(_ session: SessionIndex, controller: NotesController) {
         controller.selectSession(session.id)
         detailViewMode = session.hasNotes ? .notes : .transcript
+    }
+
+    private func startRecording(for event: CalendarEvent) {
+        let prepNotes = settings.meetingPrepNotes(for: event)
+        coordinator.queueExternalCommand(
+            .startSession(
+                calendarEvent: event,
+                scratchpadSeed: prepNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : prepNotes
+            )
+        )
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: OpenOatsRootApp.mainWindowID)
+    }
+
+    private func joinMeeting(for event: CalendarEvent) {
+        guard let url = event.meetingURL else { return }
+        _ = NSWorkspace.shared.open(url)
     }
 
     private enum CleanupState {

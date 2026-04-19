@@ -8,9 +8,9 @@ final class ExternalCommandTests: XCTestCase {
         let coordinator = AppCoordinator()
         XCTAssertNil(coordinator.pendingExternalCommand)
 
-        coordinator.queueExternalCommand(.startSession)
+        coordinator.queueExternalCommand(.startSession())
         XCTAssertNotNil(coordinator.pendingExternalCommand)
-        XCTAssertEqual(coordinator.pendingExternalCommand?.command, .startSession)
+        XCTAssertEqual(coordinator.pendingExternalCommand?.command, .startSession())
     }
 
     func testCompleteExternalCommandClearsMatchingRequest() {
@@ -68,6 +68,27 @@ final class ExternalCommandTests: XCTestCase {
         coordinator.queueMeetingHistory(event)
 
         XCTAssertEqual(coordinator.requestedNotesNavigation?.target, .meetingHistory(event))
+    }
+
+    func testQueueExternalStartSessionCanCarryMeetingContextAndScratchpad() {
+        let coordinator = AppCoordinator()
+        let event = CalendarEvent(
+            id: "evt",
+            title: "Payment Ops",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: true,
+            meetingURL: URL(string: "https://meet.example.com/payment-ops")
+        )
+
+        coordinator.queueExternalCommand(.startSession(calendarEvent: event, scratchpadSeed: "Follow up on fees"))
+
+        XCTAssertEqual(
+            coordinator.pendingExternalCommand?.command,
+            .startSession(calendarEvent: event, scratchpadSeed: "Follow up on fees")
+        )
     }
 
     func testConsumeRequestedSessionSelectionReturnsNilWhenEmpty() {

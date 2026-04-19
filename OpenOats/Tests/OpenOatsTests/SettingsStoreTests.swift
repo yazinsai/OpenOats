@@ -348,6 +348,29 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.notesFolders.map(\.color), [.teal])
     }
 
+    func testMeetingPrepNotesRoundTripAndClear() {
+        let store = makeStore()
+        let event = CalendarEvent(
+            id: "evt",
+            title: "Payment Ops",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        XCTAssertEqual(store.meetingPrepNotes(for: event), "")
+
+        store.setMeetingPrepNotes("Follow up on merchant fees", for: event)
+        XCTAssertEqual(store.meetingPrepNotes(for: event), "Follow up on merchant fees")
+
+        store.setMeetingPrepNotes("   ", for: event)
+        XCTAssertEqual(store.meetingPrepNotes(for: event), "")
+        XCTAssertEqual(store.meetingPrepNotesByKey, [:])
+    }
+
     func testKbFolderURLWhenEmpty() {
         let store = makeStore()
         XCTAssertNil(store.kbFolderURL)

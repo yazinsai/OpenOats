@@ -4,7 +4,7 @@ import Foundation
 
 /// A command issued to the app from outside (deep link, menu bar, global hotkey).
 enum ExternalCommand: Equatable {
-    case startSession
+    case startSession(calendarEvent: CalendarEvent? = nil, scratchpadSeed: String? = nil)
     case stopSession
     case openNotes(sessionID: String?)
 }

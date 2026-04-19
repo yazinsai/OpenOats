@@ -48,6 +48,7 @@ final class LiveSessionController {
 
     private var downloadTask: Task<Void, Never>?
     private var scratchpadSaveTask: Task<Void, Never>?
+    private var pendingInitialScratchpad: String?
 
     // Tracked-change sentinels
     private var observedUtteranceCount = 0
@@ -124,12 +125,18 @@ final class LiveSessionController {
 
     // MARK: - Session Actions
 
-    func startSession(settings: AppSettings) {
+    func startSession(
+        settings: AppSettings,
+        calendarEventOverride: CalendarEvent? = nil,
+        initialScratchpad: String? = nil
+    ) {
+        guard !state.isRunning else { return }
         coordinator.suggestionEngine?.clear()
         coordinator.sidecastEngine?.clear()
-        let calEvent = settings.calendarIntegrationEnabled
+        let calEvent = calendarEventOverride ?? (settings.calendarIntegrationEnabled
             ? container.calendarManager?.currentEvent()
-            : nil
+            : nil)
+        pendingInitialScratchpad = initialScratchpad?.trimmingCharacters(in: .newlines)
         let metadata = MeetingMetadata.manual(calendarEvent: calEvent)
         coordinator.handle(.userStarted(metadata), settings: settings)
     }
@@ -189,11 +196,15 @@ final class LiveSessionController {
         let handled: Bool
 
         switch request.command {
-        case .startSession:
+        case .startSession(let calendarEvent, let scratchpadSeed):
             guard coordinator.transcriptionEngine != nil,
                   (coordinator.suggestionEngine != nil || coordinator.sidecastEngine != nil) else { return }
             if !state.isRunning {
-                startSession(settings: settings)
+                startSession(
+                    settings: settings,
+                    calendarEventOverride: calendarEvent,
+                    initialScratchpad: scratchpadSeed
+                )
             }
             handled = true
         case .stopSession:
@@ -308,7 +319,12 @@ final class LiveSessionController {
             )
         )
         _currentSessionID = handle.sessionID
-        state.scratchpadText = ""
+        let initialScratchpad = pendingInitialScratchpad?.trimmingCharacters(in: .whitespacesAndNewlines)
+        pendingInitialScratchpad = nil
+        state.scratchpadText = initialScratchpad ?? ""
+        if let initialScratchpad, !initialScratchpad.isEmpty {
+            await coordinator.sessionRepository.saveScratchpad(sessionID: handle.sessionID, text: initialScratchpad)
+        }
 
         if let settings {
             if settings.saveAudioRecording || settings.enableBatchRetranscription {

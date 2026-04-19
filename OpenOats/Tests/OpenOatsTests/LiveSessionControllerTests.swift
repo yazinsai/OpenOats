@@ -157,7 +157,7 @@ final class LiveSessionControllerTests: XCTestCase {
         coordinator.liveSessionController = controller
 
         // Queue a start command
-        coordinator.queueExternalCommand(.startSession)
+        coordinator.queueExternalCommand(.startSession())
 
         // Try handling - should not start because engines are not ready
         controller.handlePendingExternalCommandIfPossible(settings: settings, openNotesWindow: nil)
@@ -205,6 +205,70 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertTrue(notesOpened)
         XCTAssertNil(coordinator.pendingExternalCommand)
         XCTAssertEqual(coordinator.requestedNotesNavigation?.target, .session("test_session"))
+    }
+
+    func testExternalStartSessionSeedsCalendarEventAndScratchpad() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: [Utterance(text: "Hello", speaker: .you)]
+        )
+        let knowledgeBase = KnowledgeBase(settings: settings)
+        coordinator.setViewServices(
+            knowledgeBase: knowledgeBase,
+            suggestionEngine: SuggestionEngine(
+                transcriptStore: coordinator.transcriptStore,
+                knowledgeBase: knowledgeBase,
+                settings: settings
+            ),
+            sidecastEngine: SidecastEngine(
+                transcriptStore: coordinator.transcriptStore,
+                knowledgeBase: knowledgeBase,
+                settings: settings
+            )
+        )
+
+        let event = CalendarEvent(
+            id: "evt-123",
+            title: "Payment Ops",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: true,
+            meetingURL: URL(string: "https://meet.example.com/payment-ops")
+        )
+
+        coordinator.queueExternalCommand(
+            .startSession(calendarEvent: event, scratchpadSeed: "Talk through merchant fees")
+        )
+
+        controller.handlePendingExternalCommandIfPossible(settings: settings, openNotesWindow: nil)
+
+        for _ in 0..<20 {
+            if coordinator.transcriptionEngine?.isRunning == true { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        let sessionID = await coordinator.sessionRepository.getCurrentSessionID()
+        let savedScratchpad: String?
+        if let sessionID {
+            savedScratchpad = await coordinator.sessionRepository.loadScratchpad(sessionID: sessionID)
+        } else {
+            savedScratchpad = nil
+        }
+
+        if case .recording(let metadata) = coordinator.state {
+            XCTAssertEqual(metadata.calendarEvent?.id, event.id)
+        } else {
+            XCTFail("Expected recording state after external start command")
+        }
+        XCTAssertEqual(controller.state.scratchpadText, "Talk through merchant fees")
+        XCTAssertEqual(savedScratchpad, "Talk through merchant fees")
+        XCTAssertNil(coordinator.pendingExternalCommand)
     }
 
     func testRunningStateChangeCallbackFires() async {
