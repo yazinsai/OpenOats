@@ -109,6 +109,7 @@ final class NotesController {
 
     /// Observation polling task for engine state mapping.
     @ObservationIgnored nonisolated(unsafe) private var engineObservationTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var meetingHistoryPreviewTask: Task<Void, Never>?
 
     /// The session ID that triggered the currently in-progress generation, if any.
     /// Used to prevent bleeding status/content onto a different session when the user switches mid-generation.
@@ -126,6 +127,7 @@ final class NotesController {
 
     deinit {
         engineObservationTask?.cancel()
+        meetingHistoryPreviewTask?.cancel()
     }
 
     // MARK: - Lifecycle
@@ -182,6 +184,7 @@ final class NotesController {
     // MARK: - Session Selection
 
     func selectSession(_ sessionID: String?) {
+        cancelMeetingHistoryPreviewHydration()
         state.selectedSessionID = sessionID
         state.selectedMeetingFamily = nil
         state.meetingHistoryEntries = []
@@ -233,12 +236,7 @@ final class NotesController {
             if let session {
                 let familySelection = Self.meetingFamilySelection(for: session, calendarEvent: data.calendarEvent)
                 state.selectedMeetingFamily = familySelection
-                let entries = await loadMeetingHistoryEntries(for: familySelection)
-                state.meetingHistoryEntries = entries
-                state.relatedMeetingSuggestions = loadMeetingHistorySuggestions(
-                    for: familySelection,
-                    hasExactHistory: !entries.isEmpty
-                )
+                presentMeetingHistory(for: familySelection)
             }
 
             let hasAny = data.transcript.contains { $0.cleanedText != nil }
@@ -247,6 +245,7 @@ final class NotesController {
     }
 
     func showMeetingFamily(for event: CalendarEvent) {
+        cancelMeetingHistoryPreviewHydration()
         state.selectedSessionID = nil
         let selection = Self.meetingFamilySelection(for: event)
         state.selectedMeetingFamily = selection
@@ -263,14 +262,7 @@ final class NotesController {
         state.showingOriginal = false
         coordinator.batchTextCleaner.cancel()
         syncCleanupStatus()
-
-        Task {
-            let entries = await loadMeetingHistoryEntries(for: selection)
-            let suggestions = loadMeetingHistorySuggestions(for: selection, hasExactHistory: !entries.isEmpty)
-            guard state.selectedMeetingFamily?.key == selection.key else { return }
-            state.meetingHistoryEntries = entries
-            state.relatedMeetingSuggestions = suggestions
-        }
+        presentMeetingHistory(for: selection)
     }
 
     func showMeetingHistory(for event: CalendarEvent) {
@@ -283,11 +275,9 @@ final class NotesController {
         settings.linkMeetingHistoryAlias(from: suggestion.key, to: selection.key)
 
         Task {
-            let entries = await loadMeetingHistoryEntries(for: selection)
-            let suggestions = loadMeetingHistorySuggestions(for: selection, hasExactHistory: !entries.isEmpty)
+            await Task.yield()
             guard state.selectedMeetingFamily?.key == selection.key else { return }
-            state.meetingHistoryEntries = entries
-            state.relatedMeetingSuggestions = suggestions
+            presentMeetingHistory(for: selection)
             state.linkingMeetingSuggestionKey = nil
         }
     }
@@ -726,12 +716,7 @@ final class NotesController {
     func loadHistory() async {
         state.sessionHistory = await coordinator.sessionRepository.listSessions()
         if let selection = state.selectedMeetingFamily {
-            let entries = await loadMeetingHistoryEntries(for: selection)
-            state.meetingHistoryEntries = entries
-            state.relatedMeetingSuggestions = loadMeetingHistorySuggestions(
-                for: selection,
-                hasExactHistory: !entries.isEmpty
-            )
+            presentMeetingHistory(for: selection)
         }
     }
 
@@ -766,26 +751,60 @@ final class NotesController {
         return "# Meeting Notes: \(displayTitle)\n\n"
     }
 
-    private func loadMeetingHistoryEntries(for selection: MeetingFamilySelection) async -> [MeetingHistoryEntry] {
-        let sessions = MeetingHistoryResolver.matchingSessions(
+    private func matchingMeetingHistorySessions(for selection: MeetingFamilySelection) -> [SessionIndex] {
+        MeetingHistoryResolver.matchingSessions(
             forHistoryKey: selection.key,
             sessionHistory: state.sessionHistory,
             aliases: settings?.meetingHistoryAliasesByKey ?? [:]
         )
-        var entries: [MeetingHistoryEntry] = []
-        entries.reserveCapacity(sessions.count)
+    }
 
-        for session in sessions {
-            let preview: String?
-            if session.hasNotes, let notes = await coordinator.sessionRepository.loadNotes(sessionID: session.id) {
-                preview = Self.notesPreview(from: notes.markdown)
-            } else {
-                preview = nil
+    private func presentMeetingHistory(for selection: MeetingFamilySelection) {
+        cancelMeetingHistoryPreviewHydration()
+
+        let sessions = matchingMeetingHistorySessions(for: selection)
+        let entries = sessions.map { MeetingHistoryEntry(session: $0, notesPreview: nil) }
+        state.meetingHistoryEntries = entries
+        state.relatedMeetingSuggestions = loadMeetingHistorySuggestions(
+            for: selection,
+            hasExactHistory: !entries.isEmpty
+        )
+
+        guard !sessions.isEmpty else { return }
+        startMeetingHistoryPreviewHydration(for: selection, sessions: sessions)
+    }
+
+    private func startMeetingHistoryPreviewHydration(
+        for selection: MeetingFamilySelection,
+        sessions: [SessionIndex]
+    ) {
+        meetingHistoryPreviewTask = Task { [weak self] in
+            guard let self else { return }
+
+            for session in sessions {
+                if Task.isCancelled { return }
+
+                let notes = await coordinator.sessionRepository.loadNotes(sessionID: session.id)
+                let preview = notes.flatMap { Self.notesPreview(from: $0.markdown) }
+
+                guard state.selectedMeetingFamily?.key == selection.key else { return }
+                guard let index = state.meetingHistoryEntries.firstIndex(where: { $0.session.id == session.id }) else {
+                    continue
+                }
+
+                if state.meetingHistoryEntries[index].notesPreview != preview {
+                    state.meetingHistoryEntries[index] = MeetingHistoryEntry(
+                        session: state.meetingHistoryEntries[index].session,
+                        notesPreview: preview
+                    )
+                }
             }
-            entries.append(MeetingHistoryEntry(session: session, notesPreview: preview))
         }
+    }
 
-        return entries
+    private func cancelMeetingHistoryPreviewHydration() {
+        meetingHistoryPreviewTask?.cancel()
+        meetingHistoryPreviewTask = nil
     }
 
     private func loadMeetingHistorySuggestions(

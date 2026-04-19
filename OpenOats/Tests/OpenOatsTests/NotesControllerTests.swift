@@ -392,6 +392,44 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.meetingHistoryEntries.first?.notesPreview, "Reviewed payout issues and next steps.")
     }
 
+    func testShowMeetingHistoryPublishesEntriesBeforePreviewHydrationFinishes() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+
+        await seedSession(coordinator: coordinator, sessionID: "older", title: "Payment Ops Merchant stand up")
+        await seedSession(coordinator: coordinator, sessionID: "newer", title: "Payment Ops / Merchant stand up")
+
+        let template = coordinator.templateStore.snapshot(
+            of: coordinator.templateStore.template(for: TemplateStore.genericID) ?? TemplateStore.builtInTemplates.first!
+        )
+        let notes = GeneratedNotes(
+            template: template,
+            generatedAt: Date(),
+            markdown: "# Notes\n\n## Summary\nReviewed payout issues and next steps."
+        )
+        await coordinator.sessionRepository.saveNotes(sessionID: "newer", notes: notes)
+        await controller.loadHistory()
+
+        let event = CalendarEvent(
+            id: "evt_payment_ops_immediate",
+            title: "Payment Ops Merchant stand-up",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        controller.showMeetingHistory(for: event)
+
+        XCTAssertEqual(controller.state.meetingHistoryEntries.map(\.session.id), ["newer", "older"])
+        XCTAssertNil(controller.state.meetingHistoryEntries.first?.notesPreview)
+
+        try? await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(controller.state.meetingHistoryEntries.first?.notesPreview, "Reviewed payout issues and next steps.")
+    }
+
     func testShowMeetingHistorySuggestsRenamedMeetingSeriesWhenExactHistoryIsEmpty() async {
         let (root, notes) = makeTempDirs()
         let settings = makeSettings(notesDirectory: notes)
