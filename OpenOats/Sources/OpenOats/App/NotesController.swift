@@ -96,8 +96,14 @@ final class NotesController {
         await loadHistory()
 
         if let requested = coordinator.consumeRequestedSessionSelection() {
-            selectSession(requested)
-            return true
+            switch requested {
+            case .session(let sessionID):
+                selectSession(sessionID)
+                return true
+            case .clearSelection:
+                selectSession(nil)
+                return true
+            }
         } else if let last = coordinator.lastEndedSession {
             selectSession(last.id)
         }
@@ -116,7 +122,12 @@ final class NotesController {
     /// Returns true if a request was consumed (caller may want to switch to notes tab).
     func handleRequestedSessionSelection() -> Bool {
         if let requested = coordinator.consumeRequestedSessionSelection() {
-            selectSession(requested)
+            switch requested {
+            case .session(let sessionID):
+                selectSession(sessionID)
+            case .clearSelection:
+                selectSession(nil)
+            }
             return true
         }
         return false

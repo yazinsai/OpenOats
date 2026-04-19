@@ -109,6 +109,11 @@ final class CalendarManager {
 
 extension CalendarEvent {
     init(from event: EKEvent) {
+        let meetingURL = CalendarMeetingLinkResolver.meetingURL(
+            rawURL: event.url,
+            notes: event.notes,
+            location: event.location
+        )
         self.init(
             id: event.eventIdentifier ?? UUID().uuidString,
             title: event.title ?? "Untitled Event",
@@ -116,16 +121,13 @@ extension CalendarEvent {
             endDate: event.endDate,
             organizer: event.organizer?.name,
             participants: (event.attendees ?? []).map { Participant(from: $0) },
-            isOnlineMeeting: event.url != nil || Self.looksLikeOnlineMeeting(event),
-            meetingURL: event.url
+            isOnlineMeeting: CalendarMeetingLinkResolver.isOnlineMeeting(
+                rawURL: event.url,
+                notes: event.notes,
+                location: event.location
+            ),
+            meetingURL: meetingURL
         )
-    }
-
-    private static func looksLikeOnlineMeeting(_ event: EKEvent) -> Bool {
-        let notes = (event.notes ?? "").lowercased()
-        let location = (event.location ?? "").lowercased()
-        let keywords = ["zoom.us", "teams.microsoft", "meet.google", "facetime", "webex"]
-        return keywords.contains { notes.contains($0) || location.contains($0) }
     }
 }
 
@@ -136,5 +138,85 @@ extension Participant {
             email: attendee.url.absoluteString
                 .replacingOccurrences(of: "mailto:", with: "")
         )
+    }
+}
+
+enum CalendarMeetingLinkResolver {
+    private static let hostHints = [
+        "zoom.us",
+        "teams.microsoft",
+        "teams.live",
+        "meet.google",
+        "webex",
+        "whereby.com",
+        "around.co",
+        "jitsi",
+        "chime.aws",
+        "gotomeeting",
+        "bluejeans",
+        "facetime",
+    ]
+
+    private static let textHints = [
+        "zoom",
+        "teams",
+        "meet",
+        "webex",
+        "facetime",
+        "join",
+    ]
+
+    static func meetingURL(rawURL: URL?, notes: String?, location: String?) -> URL? {
+        if let rawURL {
+            return rawURL
+        }
+
+        let candidates = detectedURLs(in: notes) + detectedURLs(in: location)
+
+        if let preferred = candidates.first(where: isLikelyMeetingURL) {
+            return preferred
+        }
+
+        return nil
+    }
+
+    static func isOnlineMeeting(rawURL: URL?, notes: String?, location: String?) -> Bool {
+        if meetingURL(rawURL: rawURL, notes: notes, location: location) != nil {
+            return true
+        }
+
+        let haystack = "\(notes ?? "")\n\(location ?? "")".lowercased()
+        return textHints.contains { haystack.contains($0) }
+    }
+
+    private static func detectedURLs(in text: String?) -> [URL] {
+        guard let text, !text.isEmpty else { return [] }
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return []
+        }
+
+        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        return detector.matches(in: text, options: [], range: nsRange).compactMap { match in
+            guard let url = match.url else { return nil }
+            guard let scheme = url.scheme?.lowercased() else { return nil }
+            guard scheme == "http" || scheme == "https" || scheme == "facetime" else {
+                return nil
+            }
+            return url
+        }
+    }
+
+    private static func isLikelyMeetingURL(_ url: URL) -> Bool {
+        if url.scheme?.lowercased() == "facetime" {
+            return true
+        }
+
+        let host = url.host?.lowercased() ?? ""
+        if hostHints.contains(where: host.contains) {
+            return true
+        }
+
+        let absolute = url.absoluteString.lowercased()
+        return textHints.contains(where: absolute.contains)
     }
 }

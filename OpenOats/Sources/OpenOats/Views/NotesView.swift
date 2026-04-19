@@ -46,10 +46,16 @@ struct NotesView: View {
             // to ensure @State detailViewMode update happens in the same
             // transaction as session selection (matches pre-Phase 6 behavior).
             if let requested = coordinator.consumeRequestedSessionSelection() {
-                controller.selectSession(requested)
-                // Show Transcript tab for imported sessions (no notes generated yet)
-                let isImported = controller.state.sessionHistory.first(where: { $0.id == requested })?.source == "imported"
-                detailViewMode = isImported ? .transcript : .notes
+                switch requested {
+                case .session(let sessionID):
+                    controller.selectSession(sessionID)
+                    // Show Transcript tab for imported sessions (no notes generated yet)
+                    let isImported = controller.state.sessionHistory.first(where: { $0.id == sessionID })?.source == "imported"
+                    detailViewMode = isImported ? .transcript : .notes
+                case .clearSelection:
+                    controller.selectSession(nil)
+                    detailViewMode = .notes
+                }
             } else if let last = coordinator.lastEndedSession {
                 controller.selectSession(last.id)
             }
@@ -72,7 +78,7 @@ struct NotesView: View {
         .onChange(of: coordinator.sessionHistory.count) {
             Task { await controller.loadHistory() }
         }
-        .onChange(of: coordinator.requestedSessionSelectionID) {
+        .onChange(of: coordinator.requestedNotesNavigation?.id) {
             if controller.handleRequestedSessionSelection() {
                 detailViewMode = .notes
             }

@@ -4,6 +4,8 @@ import SwiftUI
 struct IdleHomeDashboardView: View {
     @Bindable var settings: AppSettings
     @Environment(AppContainer.self) private var container
+    @Environment(AppCoordinator.self) private var coordinator
+    @Environment(\.openWindow) private var openWindow
 
     @State private var events: [CalendarEvent] = []
     @State private var refreshTick = 0
@@ -109,7 +111,11 @@ struct IdleHomeDashboardView: View {
         let groups = UpcomingCalendarGrouping.groups(for: events)
         return VStack(alignment: .leading, spacing: 14) {
             ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
-                ComingUpDayGroupView(group: group)
+                ComingUpDayGroupView(
+                    group: group,
+                    onJoinEvent: joinMeeting(for:),
+                    onOpenRelatedNotes: openRelatedNotes(for:)
+                )
                 if index < groups.count - 1 {
                     Divider()
                         .padding(.top, 2)
@@ -197,10 +203,32 @@ struct IdleHomeDashboardView: View {
             if NSWorkspace.shared.open(url) { return }
         }
     }
+
+    private func joinMeeting(for event: CalendarEvent) {
+        guard let url = event.meetingURL else { return }
+        _ = NSWorkspace.shared.open(url)
+    }
+
+    private func openRelatedNotes(for event: CalendarEvent) {
+        Task {
+            await coordinator.loadHistory()
+            let matchedSession = UpcomingMeetingActionResolver.bestSessionMatch(
+                for: event,
+                sessionHistory: coordinator.sessionHistory
+            )
+
+            await MainActor.run {
+                coordinator.queueSessionSelection(matchedSession?.id)
+                openWindow(id: "notes")
+            }
+        }
+    }
 }
 
 private struct ComingUpDayGroupView: View {
     let group: UpcomingCalendarGrouping.DayGroup
+    let onJoinEvent: (CalendarEvent) -> Void
+    let onOpenRelatedNotes: (CalendarEvent) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -211,26 +239,112 @@ private struct ComingUpDayGroupView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(group.events) { event in
-                    HStack(alignment: .top, spacing: 10) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(Color.accentColor)
-                            .frame(width: 4, height: 34)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(event.title)
-                                .font(.system(size: 15, weight: .medium))
-                                .lineLimit(1)
-                            Text(CalendarEventDisplay.timeRange(for: event))
-                                .font(.system(size: 13))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-
-                        Spacer(minLength: 0)
-                    }
+                    ComingUpEventRow(
+                        event: event,
+                        onJoinEvent: onJoinEvent,
+                        onOpenRelatedNotes: onOpenRelatedNotes
+                    )
                 }
             }
         }
+    }
+}
+
+private struct ComingUpEventRow: View {
+    let event: CalendarEvent
+    let onJoinEvent: (CalendarEvent) -> Void
+    let onOpenRelatedNotes: (CalendarEvent) -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Button(action: {
+                onOpenRelatedNotes(event)
+            }) {
+                HStack(alignment: .top, spacing: 10) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.accentColor)
+                        .frame(width: 4, height: 34)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(event.title)
+                            .font(.system(size: 15, weight: .medium))
+                            .lineLimit(1)
+                        Text(CalendarEventDisplay.timeRange(for: event))
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .padding(.top, 2)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(isHovering ? Color.primary.opacity(0.05) : .clear)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                isHovering = hovering
+            }
+            .help("Open related notes")
+            .accessibilityIdentifier("idle.comingUp.event.\(event.id)")
+
+            if event.meetingURL != nil {
+                Button(action: {
+                    onJoinEvent(event)
+                }) {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.primary.opacity(0.05))
+                        )
+                }
+                .buttonStyle(.plain)
+                .help("Join meeting")
+                .accessibilityIdentifier("idle.comingUp.join.\(event.id)")
+            }
+        }
+    }
+}
+
+enum UpcomingMeetingActionResolver {
+    static func bestSessionMatch(for event: CalendarEvent, sessionHistory: [SessionIndex]) -> SessionIndex? {
+        let normalizedEventTitle = normalizedTitle(event.title)
+        guard !normalizedEventTitle.isEmpty else { return nil }
+
+        return sessionHistory
+            .filter { normalizedTitle($0.title ?? "") == normalizedEventTitle }
+            .sorted { lhs, rhs in
+                if lhs.hasNotes != rhs.hasNotes {
+                    return lhs.hasNotes && !rhs.hasNotes
+                }
+                return lhs.startedAt > rhs.startedAt
+            }
+            .first
+    }
+
+    static func normalizedTitle(_ title: String) -> String {
+        let folded = title
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .unicodeScalars
+            .map { CharacterSet.alphanumerics.contains($0) ? Character($0) : " " }
+        return String(folded)
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .lowercased()
     }
 }
 

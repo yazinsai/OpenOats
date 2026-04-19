@@ -295,6 +295,20 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.selectedSessionID, sessionID)
     }
 
+    func testOpenNotesCanExplicitlyClearSelection() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_clear_selection"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID)
+        coordinator.queueSessionSelection(nil)
+
+        await controller.onAppear()
+
+        XCTAssertNil(controller.state.selectedSessionID)
+        XCTAssertTrue(controller.state.loadedTranscript.isEmpty)
+    }
+
     func testGenerateNotesPreservesGeneratedTopHeading() async {
         let (root, notes) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)

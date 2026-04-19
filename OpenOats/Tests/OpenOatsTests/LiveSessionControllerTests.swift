@@ -204,7 +204,7 @@ final class LiveSessionControllerTests: XCTestCase {
 
         XCTAssertTrue(notesOpened)
         XCTAssertNil(coordinator.pendingExternalCommand)
-        XCTAssertEqual(coordinator.requestedSessionSelectionID, "test_session")
+        XCTAssertEqual(coordinator.requestedNotesNavigation?.target, .session("test_session"))
     }
 
     func testRunningStateChangeCallbackFires() async {

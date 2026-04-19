@@ -16,6 +16,16 @@ import Observation
 @Observable
 @MainActor
 final class AppCoordinator {
+    struct NotesNavigationRequest: Equatable {
+        enum Target: Equatable {
+            case session(String)
+            case clearSelection
+        }
+
+        let id = UUID()
+        let target: Target
+    }
+
     @ObservationIgnored private let _sessionRepository: SessionRepository
     nonisolated var sessionRepository: SessionRepository { _sessionRepository }
 
@@ -49,10 +59,10 @@ final class AppCoordinator {
         set { withMutation(keyPath: \.pendingExternalCommand) { _pendingExternalCommand = newValue } }
     }
 
-    @ObservationIgnored nonisolated(unsafe) private var _requestedSessionSelectionID: String?
-    var requestedSessionSelectionID: String? {
-        get { access(keyPath: \.requestedSessionSelectionID); return _requestedSessionSelectionID }
-        set { withMutation(keyPath: \.requestedSessionSelectionID) { _requestedSessionSelectionID = newValue } }
+    @ObservationIgnored nonisolated(unsafe) private var _requestedNotesNavigation: NotesNavigationRequest?
+    var requestedNotesNavigation: NotesNavigationRequest? {
+        get { access(keyPath: \.requestedNotesNavigation); return _requestedNotesNavigation }
+        set { withMutation(keyPath: \.requestedNotesNavigation) { _requestedNotesNavigation = newValue } }
     }
 
     var isRecording: Bool {
@@ -218,12 +228,16 @@ final class AppCoordinator {
     }
 
     func queueSessionSelection(_ sessionID: String?) {
-        requestedSessionSelectionID = sessionID
+        if let sessionID {
+            requestedNotesNavigation = NotesNavigationRequest(target: .session(sessionID))
+        } else {
+            requestedNotesNavigation = NotesNavigationRequest(target: .clearSelection)
+        }
     }
 
-    func consumeRequestedSessionSelection() -> String? {
-        defer { requestedSessionSelectionID = nil }
-        return requestedSessionSelectionID
+    func consumeRequestedSessionSelection() -> NotesNavigationRequest.Target? {
+        defer { requestedNotesNavigation = nil }
+        return requestedNotesNavigation?.target
     }
 
     // MARK: - Detection Event Loop

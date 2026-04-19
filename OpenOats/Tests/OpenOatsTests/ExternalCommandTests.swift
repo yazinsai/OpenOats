@@ -33,7 +33,7 @@ final class ExternalCommandTests: XCTestCase {
     func testOpenNotesQueuesSessionSelection() {
         let coordinator = AppCoordinator()
         coordinator.queueSessionSelection("session_abc")
-        XCTAssertEqual(coordinator.requestedSessionSelectionID, "session_abc")
+        XCTAssertEqual(coordinator.requestedNotesNavigation?.target, .session("session_abc"))
     }
 
     func testConsumeRequestedSessionSelectionClearsAfterRead() {
@@ -41,8 +41,15 @@ final class ExternalCommandTests: XCTestCase {
         coordinator.queueSessionSelection("session_abc")
 
         let consumed = coordinator.consumeRequestedSessionSelection()
-        XCTAssertEqual(consumed, "session_abc")
-        XCTAssertNil(coordinator.requestedSessionSelectionID)
+        XCTAssertEqual(consumed, .session("session_abc"))
+        XCTAssertNil(coordinator.requestedNotesNavigation)
+    }
+
+    func testQueueNilSessionSelectionRequestsClearSelection() {
+        let coordinator = AppCoordinator()
+        coordinator.queueSessionSelection(nil)
+
+        XCTAssertEqual(coordinator.requestedNotesNavigation?.target, .clearSelection)
     }
 
     func testConsumeRequestedSessionSelectionReturnsNilWhenEmpty() {
