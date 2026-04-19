@@ -8,7 +8,7 @@ import Observation
 struct NotesState {
     var sessionHistory: [SessionIndex] = []
     var selectedSessionID: String?
-    var selectedMeetingHistory: MeetingHistorySelection?
+    var selectedMeetingFamily: MeetingFamilySelection?
     var meetingHistoryEntries: [MeetingHistoryEntry] = []
     var relatedMeetingSuggestions: [MeetingHistorySuggestion] = []
     var linkingMeetingSuggestionKey: String?
@@ -32,6 +32,11 @@ struct NotesState {
     /// Sessions whose notes were freshly generated while the user was on a different session.
     /// Cleared when the user opens that session. Used to show the blue "unread" indicator.
     var freshlyGeneratedSessionIDs: Set<String> = []
+
+    var selectedMeetingHistory: MeetingHistorySelection? {
+        guard let event = selectedMeetingFamily?.upcomingEvent else { return nil }
+        return MeetingHistorySelection(event: event)
+    }
 }
 
 enum CleanupStatus: Equatable {
@@ -58,6 +63,13 @@ struct SessionFolderGroup: Identifiable {
     let id: String
     let title: String
     let sessions: [SessionIndex]
+}
+
+struct MeetingFamilySelection: Equatable {
+    let key: String
+    let title: String
+    let calendarTitle: String?
+    let upcomingEvent: CalendarEvent?
 }
 
 struct MeetingHistorySelection: Equatable {
@@ -130,7 +142,7 @@ final class NotesController {
                 selectSession(sessionID)
                 return true
             case .meetingHistory(let event):
-                showMeetingHistory(for: event)
+                showMeetingFamily(for: event)
                 return true
             case .clearSelection:
                 selectSession(nil)
@@ -158,7 +170,7 @@ final class NotesController {
             case .session(let sessionID):
                 selectSession(sessionID)
             case .meetingHistory(let event):
-                showMeetingHistory(for: event)
+                showMeetingFamily(for: event)
             case .clearSelection:
                 selectSession(nil)
             }
@@ -171,7 +183,7 @@ final class NotesController {
 
     func selectSession(_ sessionID: String?) {
         state.selectedSessionID = sessionID
-        state.selectedMeetingHistory = nil
+        state.selectedMeetingFamily = nil
         state.meetingHistoryEntries = []
         state.relatedMeetingSuggestions = []
         state.linkingMeetingSuggestionKey = nil
@@ -218,14 +230,26 @@ final class NotesController {
                 state.selectedTemplate = coordinator.templateStore.template(for: TemplateStore.genericID)
             }
 
+            if let session {
+                let familySelection = Self.meetingFamilySelection(for: session, calendarEvent: data.calendarEvent)
+                state.selectedMeetingFamily = familySelection
+                let entries = await loadMeetingHistoryEntries(for: familySelection)
+                state.meetingHistoryEntries = entries
+                state.relatedMeetingSuggestions = loadMeetingHistorySuggestions(
+                    for: familySelection,
+                    hasExactHistory: !entries.isEmpty
+                )
+            }
+
             let hasAny = data.transcript.contains { $0.cleanedText != nil }
             state.cleanupStatus = hasAny ? .completed : .idle
         }
     }
 
-    func showMeetingHistory(for event: CalendarEvent) {
+    func showMeetingFamily(for event: CalendarEvent) {
         state.selectedSessionID = nil
-        state.selectedMeetingHistory = MeetingHistorySelection(event: event)
+        let selection = Self.meetingFamilySelection(for: event)
+        state.selectedMeetingFamily = selection
         state.meetingHistoryEntries = []
         state.relatedMeetingSuggestions = []
         state.linkingMeetingSuggestionKey = nil
@@ -241,30 +265,45 @@ final class NotesController {
         syncCleanupStatus()
 
         Task {
-            let entries = await loadMeetingHistoryEntries(for: event)
-            let suggestions = loadMeetingHistorySuggestions(
-                for: MeetingHistorySelection(event: event),
-                hasExactHistory: !entries.isEmpty
-            )
-            guard state.selectedMeetingHistory?.event.id == event.id else { return }
+            let entries = await loadMeetingHistoryEntries(for: selection)
+            let suggestions = loadMeetingHistorySuggestions(for: selection, hasExactHistory: !entries.isEmpty)
+            guard state.selectedMeetingFamily?.key == selection.key else { return }
             state.meetingHistoryEntries = entries
             state.relatedMeetingSuggestions = suggestions
         }
     }
 
+    func showMeetingHistory(for event: CalendarEvent) {
+        showMeetingFamily(for: event)
+    }
+
     func linkMeetingHistorySuggestion(_ suggestion: MeetingHistorySuggestion) {
-        guard let settings, let selection = state.selectedMeetingHistory else { return }
+        guard let settings, let selection = state.selectedMeetingFamily else { return }
         state.linkingMeetingSuggestionKey = suggestion.key
         settings.linkMeetingHistoryAlias(from: suggestion.key, to: selection.key)
 
         Task {
-            let entries = await loadMeetingHistoryEntries(for: selection.event)
+            let entries = await loadMeetingHistoryEntries(for: selection)
             let suggestions = loadMeetingHistorySuggestions(for: selection, hasExactHistory: !entries.isEmpty)
-            guard state.selectedMeetingHistory?.event.id == selection.event.id else { return }
+            guard state.selectedMeetingFamily?.key == selection.key else { return }
             state.meetingHistoryEntries = entries
             state.relatedMeetingSuggestions = suggestions
             state.linkingMeetingSuggestionKey = nil
         }
+    }
+
+    func showCurrentMeetingFamilyOverview() {
+        guard state.selectedMeetingFamily != nil else { return }
+        state.selectedSessionID = nil
+        stopAudio()
+        state.loadedNotes = nil
+        state.loadedTranscript = []
+        state.loadedCalendarEvent = nil
+        state.audioFileURL = nil
+        state.selectedSessionDirectory = nil
+        state.showingOriginal = false
+        coordinator.batchTextCleaner.cancel()
+        syncCleanupStatus()
     }
 
     // MARK: - Audio Playback
@@ -686,8 +725,8 @@ final class NotesController {
 
     func loadHistory() async {
         state.sessionHistory = await coordinator.sessionRepository.listSessions()
-        if let selection = state.selectedMeetingHistory {
-            let entries = await loadMeetingHistoryEntries(for: selection.event)
+        if let selection = state.selectedMeetingFamily {
+            let entries = await loadMeetingHistoryEntries(for: selection)
             state.meetingHistoryEntries = entries
             state.relatedMeetingSuggestions = loadMeetingHistorySuggestions(
                 for: selection,
@@ -727,9 +766,9 @@ final class NotesController {
         return "# Meeting Notes: \(displayTitle)\n\n"
     }
 
-    private func loadMeetingHistoryEntries(for event: CalendarEvent) async -> [MeetingHistoryEntry] {
+    private func loadMeetingHistoryEntries(for selection: MeetingFamilySelection) async -> [MeetingHistoryEntry] {
         let sessions = MeetingHistoryResolver.matchingSessions(
-            forHistoryKey: MeetingHistoryResolver.historyKey(for: event),
+            forHistoryKey: selection.key,
             sessionHistory: state.sessionHistory,
             aliases: settings?.meetingHistoryAliasesByKey ?? [:]
         )
@@ -750,7 +789,7 @@ final class NotesController {
     }
 
     private func loadMeetingHistorySuggestions(
-        for selection: MeetingHistorySelection,
+        for selection: MeetingFamilySelection,
         hasExactHistory _: Bool
     ) -> [MeetingHistorySuggestion] {
         let aliases = settings?.meetingHistoryAliasesByKey ?? [:]
@@ -815,6 +854,30 @@ final class NotesController {
         }
 
         return suggestions
+    }
+
+    private static func meetingFamilySelection(
+        for session: SessionIndex,
+        calendarEvent: CalendarEvent?
+    ) -> MeetingFamilySelection {
+        let trimmedTitle = session.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = trimmedTitle.isEmpty ? "Untitled" : trimmedTitle
+        let key = MeetingHistoryResolver.historyKey(for: title)
+        return MeetingFamilySelection(
+            key: key,
+            title: title,
+            calendarTitle: calendarEvent?.calendarTitle,
+            upcomingEvent: nil
+        )
+    }
+
+    private static func meetingFamilySelection(for event: CalendarEvent) -> MeetingFamilySelection {
+        MeetingFamilySelection(
+            key: MeetingHistoryResolver.historyKey(for: event),
+            title: event.title,
+            calendarTitle: event.calendarTitle,
+            upcomingEvent: event
+        )
     }
 
     static func notesPreview(from markdown: String) -> String? {
