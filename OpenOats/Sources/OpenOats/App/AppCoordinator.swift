@@ -19,6 +19,7 @@ final class AppCoordinator {
     struct NotesNavigationRequest: Equatable {
         enum Target: Equatable {
             case session(String)
+            case meetingHistory(CalendarEvent)
             case clearSelection
         }
 
@@ -233,6 +234,10 @@ final class AppCoordinator {
         } else {
             requestedNotesNavigation = NotesNavigationRequest(target: .clearSelection)
         }
+    }
+
+    func queueMeetingHistory(_ event: CalendarEvent) {
+        requestedNotesNavigation = NotesNavigationRequest(target: .meetingHistory(event))
     }
 
     func consumeRequestedSessionSelection() -> NotesNavigationRequest.Target? {

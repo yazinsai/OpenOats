@@ -55,30 +55,16 @@ final class UpcomingCalendarGroupingTests: XCTestCase {
         XCTAssertEqual(groups[0].date, calendar.startOfDay(for: eventDate))
     }
 
-    func testBestSessionMatchPrefersMostRecentNotesBearingSession() {
+    func testMeetingHistoryResolverMatchesNormalizedTitlesNewestFirst() {
         let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
-        let event = makeEvent(id: "evt", title: "Payment Ops", start: startedAt)
+        let event = makeEvent(id: "evt", title: "Payment Ops / Merchant stand up", start: startedAt)
         let sessions = [
             SessionIndex(
-                id: "older-notes",
-                startedAt: startedAt.addingTimeInterval(-10_000),
-                endedAt: nil,
-                templateSnapshot: nil,
-                title: "Payment Ops",
-                utteranceCount: 10,
-                hasNotes: true,
-                language: nil,
-                meetingApp: nil,
-                engine: nil,
-                tags: nil,
-                source: nil
-            ),
-            SessionIndex(
-                id: "newer-no-notes",
+                id: "older",
                 startedAt: startedAt.addingTimeInterval(-1_000),
                 endedAt: nil,
                 templateSnapshot: nil,
-                title: "Payment Ops",
+                title: "Payment Ops Merchant stand-up",
                 utteranceCount: 8,
                 hasNotes: false,
                 language: nil,
@@ -88,11 +74,11 @@ final class UpcomingCalendarGroupingTests: XCTestCase {
                 source: nil
             ),
             SessionIndex(
-                id: "newest-notes",
+                id: "newer",
                 startedAt: startedAt.addingTimeInterval(-100),
                 endedAt: nil,
                 templateSnapshot: nil,
-                title: "Payment Ops",
+                title: "  Payment Ops Merchant   stand up  ",
                 utteranceCount: 12,
                 hasNotes: true,
                 language: nil,
@@ -103,35 +89,11 @@ final class UpcomingCalendarGroupingTests: XCTestCase {
             ),
         ]
 
-        let matched = UpcomingMeetingActionResolver.bestSessionMatch(for: event, sessionHistory: sessions)
-        XCTAssertEqual(matched?.id, "newest-notes")
+        let matched = MeetingHistoryResolver.matchingSessions(for: event, sessionHistory: sessions)
+        XCTAssertEqual(matched.map(\.id), ["newer", "older"])
     }
 
-    func testBestSessionMatchNormalizesTitlePunctuationAndWhitespace() {
-        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
-        let event = makeEvent(id: "evt", title: "Payment Ops / Merchant stand up", start: startedAt)
-        let sessions = [
-            SessionIndex(
-                id: "match",
-                startedAt: startedAt.addingTimeInterval(-100),
-                endedAt: nil,
-                templateSnapshot: nil,
-                title: "  Payment Ops Merchant   stand-up ",
-                utteranceCount: 12,
-                hasNotes: true,
-                language: nil,
-                meetingApp: nil,
-                engine: nil,
-                tags: nil,
-                source: nil
-            ),
-        ]
-
-        let matched = UpcomingMeetingActionResolver.bestSessionMatch(for: event, sessionHistory: sessions)
-        XCTAssertEqual(matched?.id, "match")
-    }
-
-    func testBestSessionMatchReturnsNilWithoutTitleMatch() {
+    func testMeetingHistoryResolverReturnsEmptyWithoutTitleMatch() {
         let event = makeEvent(id: "evt", title: "Design Review", start: Date())
         let sessions = [
             SessionIndex(
@@ -150,7 +112,7 @@ final class UpcomingCalendarGroupingTests: XCTestCase {
             ),
         ]
 
-        XCTAssertNil(UpcomingMeetingActionResolver.bestSessionMatch(for: event, sessionHistory: sessions))
+        XCTAssertTrue(MeetingHistoryResolver.matchingSessions(for: event, sessionHistory: sessions).isEmpty)
     }
 
     func testSelectionPrefersCalendarCoverageBeforeFillingRemainingSlots() {

@@ -124,6 +124,38 @@ extension CalendarEvent {
     }
 }
 
+enum MeetingHistoryResolver {
+    static func historyKey(for event: CalendarEvent) -> String {
+        normalizedTitle(event.title)
+    }
+
+    static func historyKey(for title: String) -> String {
+        normalizedTitle(title)
+    }
+
+    static func matchingSessions(for event: CalendarEvent, sessionHistory: [SessionIndex]) -> [SessionIndex] {
+        matchingSessions(forHistoryKey: historyKey(for: event), sessionHistory: sessionHistory)
+    }
+
+    static func matchingSessions(forHistoryKey historyKey: String, sessionHistory: [SessionIndex]) -> [SessionIndex] {
+        guard !historyKey.isEmpty else { return [] }
+        return sessionHistory
+            .filter { normalizedTitle($0.title ?? "") == historyKey }
+            .sorted { $0.startedAt > $1.startedAt }
+    }
+
+    static func normalizedTitle(_ title: String) -> String {
+        let folded = title
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .unicodeScalars
+            .map { CharacterSet.alphanumerics.contains($0) ? Character($0) : " " }
+        return String(folded)
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .lowercased()
+    }
+}
+
 // MARK: - Meeting Metadata
 
 /// Metadata assembled during a meeting session (detection context + calendar info).

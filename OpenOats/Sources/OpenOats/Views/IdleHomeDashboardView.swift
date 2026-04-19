@@ -219,18 +219,8 @@ struct IdleHomeDashboardView: View {
     }
 
     private func openRelatedNotes(for event: CalendarEvent) {
-        Task {
-            await coordinator.loadHistory()
-            let matchedSession = UpcomingMeetingActionResolver.bestSessionMatch(
-                for: event,
-                sessionHistory: coordinator.sessionHistory
-            )
-
-            await MainActor.run {
-                coordinator.queueSessionSelection(matchedSession?.id)
-                openWindow(id: "notes")
-            }
-        }
+        coordinator.queueMeetingHistory(event)
+        openWindow(id: "notes")
     }
 }
 
@@ -308,7 +298,7 @@ private struct ComingUpEventRow: View {
             .onHover { hovering in
                 isHovering = hovering
             }
-            .help("Open related notes")
+            .help("Open meeting history")
             .accessibilityIdentifier("idle.comingUp.event.\(event.id)")
 
             if event.meetingURL != nil {
@@ -414,34 +404,6 @@ enum UpcomingEventSelection {
             return "title:\(calendarTitle)"
         }
         return "event:\(event.id)"
-    }
-}
-
-enum UpcomingMeetingActionResolver {
-    static func bestSessionMatch(for event: CalendarEvent, sessionHistory: [SessionIndex]) -> SessionIndex? {
-        let normalizedEventTitle = normalizedTitle(event.title)
-        guard !normalizedEventTitle.isEmpty else { return nil }
-
-        return sessionHistory
-            .filter { normalizedTitle($0.title ?? "") == normalizedEventTitle }
-            .sorted { lhs, rhs in
-                if lhs.hasNotes != rhs.hasNotes {
-                    return lhs.hasNotes && !rhs.hasNotes
-                }
-                return lhs.startedAt > rhs.startedAt
-            }
-            .first
-    }
-
-    static func normalizedTitle(_ title: String) -> String {
-        let folded = title
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .unicodeScalars
-            .map { CharacterSet.alphanumerics.contains($0) ? Character($0) : " " }
-        return String(folded)
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
-            .lowercased()
     }
 }
 

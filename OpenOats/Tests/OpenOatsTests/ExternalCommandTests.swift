@@ -52,6 +52,24 @@ final class ExternalCommandTests: XCTestCase {
         XCTAssertEqual(coordinator.requestedNotesNavigation?.target, .clearSelection)
     }
 
+    func testQueueMeetingHistoryRequestsHistoryTarget() {
+        let coordinator = AppCoordinator()
+        let event = CalendarEvent(
+            id: "evt",
+            title: "Payment Ops",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        coordinator.queueMeetingHistory(event)
+
+        XCTAssertEqual(coordinator.requestedNotesNavigation?.target, .meetingHistory(event))
+    }
+
     func testConsumeRequestedSessionSelectionReturnsNilWhenEmpty() {
         let coordinator = AppCoordinator()
         let consumed = coordinator.consumeRequestedSessionSelection()

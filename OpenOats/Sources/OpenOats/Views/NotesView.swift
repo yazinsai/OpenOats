@@ -52,6 +52,9 @@ struct NotesView: View {
                     // Show Transcript tab for imported sessions (no notes generated yet)
                     let isImported = controller.state.sessionHistory.first(where: { $0.id == sessionID })?.source == "imported"
                     detailViewMode = isImported ? .transcript : .notes
+                case .meetingHistory(let event):
+                    controller.showMeetingHistory(for: event)
+                    detailViewMode = .notes
                 case .clearSelection:
                     controller.selectSession(nil)
                     detailViewMode = .notes
@@ -778,7 +781,9 @@ struct NotesView: View {
 
     @ViewBuilder
     private func detailContent(controller: NotesController, state: NotesState) -> some View {
-        if let sessionID = state.selectedSessionID {
+        if let selection = state.selectedMeetingHistory {
+            meetingHistoryDetail(controller: controller, state: state, selection: selection)
+        } else if let sessionID = state.selectedSessionID {
             VStack(spacing: 0) {
                 detailToolbar(controller: controller, state: state)
                 Divider()
@@ -802,6 +807,150 @@ struct NotesView: View {
         } else {
             ContentUnavailableView("Select a Session", systemImage: "doc.text", description: Text("Choose a session from the sidebar to view or generate notes."))
         }
+    }
+
+    @ViewBuilder
+    private func meetingHistoryDetail(
+        controller: NotesController,
+        state: NotesState,
+        selection: MeetingHistorySelection
+    ) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                meetingHistoryOverviewCard(selection: selection)
+
+                if state.meetingHistoryEntries.isEmpty {
+                    ContentUnavailableView(
+                        "No history yet",
+                        systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90",
+                        description: Text("OpenOats hasn’t saved any past meetings for this title yet.")
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 220)
+                } else {
+                    meetingHistorySection(controller: controller, historyEntries: state.meetingHistoryEntries)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func meetingHistoryOverviewCard(selection: MeetingHistorySelection) -> some View {
+        let event = selection.event
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(event.title)
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            HStack(spacing: 12) {
+                Text(CalendarEventDisplay.timeRange(for: event))
+                if let calendarTitle = event.calendarTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !calendarTitle.isEmpty {
+                    Text("Calendar: \(calendarTitle)")
+                }
+            }
+            .font(.system(size: 13))
+            .foregroundStyle(.secondary)
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(.quaternary, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func meetingHistorySection(controller: NotesController, historyEntries: [MeetingHistoryEntry]) -> some View {
+        let notesCount = historyEntries.filter { $0.session.hasNotes }.count
+
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("Previous meetings")
+                    .font(.system(size: 15, weight: .semibold))
+                Text("\(historyEntries.count) total")
+                Text("\(notesCount) with notes")
+            }
+            .font(.system(size: 13))
+            .foregroundStyle(.secondary)
+
+            VStack(spacing: 10) {
+                ForEach(historyEntries) { entry in
+                    Button {
+                        openSessionFromMeetingHistory(entry.session, controller: controller)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                Text(entry.session.startedAt, format: .dateTime.day().month(.abbreviated).year().hour().minute())
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.primary)
+
+                                Spacer(minLength: 0)
+
+                                if entry.session.hasNotes {
+                                    Image(systemName: "doc.text.fill")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                if entry.session.folderPath != nil {
+                                    Image(systemName: "folder.fill")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(folderColor(for: entry.session.folderPath))
+                                }
+                            }
+
+                            HStack(spacing: 8) {
+                                if entry.session.utteranceCount > 0 {
+                                    Text("\(entry.session.utteranceCount) utterances")
+                                } else {
+                                    Text("No transcript")
+                                }
+
+                                if let source = entry.session.source?.trimmingCharacters(in: .whitespacesAndNewlines),
+                                   !source.isEmpty {
+                                    Text("•")
+                                    Text(source.capitalized)
+                                }
+                            }
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+
+                            if let preview = entry.notesPreview {
+                                Text(preview)
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(.quaternary, lineWidth: 1)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open this meeting")
+                }
+            }
+        }
+    }
+
+    private func openSessionFromMeetingHistory(_ session: SessionIndex, controller: NotesController) {
+        controller.selectSession(session.id)
+        detailViewMode = session.hasNotes ? .notes : .transcript
     }
 
     private enum CleanupState {

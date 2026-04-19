@@ -8,6 +8,8 @@ import Observation
 struct NotesState {
     var sessionHistory: [SessionIndex] = []
     var selectedSessionID: String?
+    var selectedMeetingHistory: MeetingHistorySelection?
+    var meetingHistoryEntries: [MeetingHistoryEntry] = []
     var loadedTranscript: [SessionRecord] = []
     var loadedNotes: GeneratedNotes?
     var loadedCalendarEvent: CalendarEvent?
@@ -56,6 +58,19 @@ struct SessionFolderGroup: Identifiable {
     let sessions: [SessionIndex]
 }
 
+struct MeetingHistorySelection: Equatable {
+    let event: CalendarEvent
+
+    var key: String { MeetingHistoryResolver.historyKey(for: event) }
+}
+
+struct MeetingHistoryEntry: Identifiable {
+    let session: SessionIndex
+    let notesPreview: String?
+
+    var id: String { session.id }
+}
+
 // MARK: - Controller
 
 /// Owns all notes/history business logic previously embedded in NotesView.
@@ -100,6 +115,9 @@ final class NotesController {
             case .session(let sessionID):
                 selectSession(sessionID)
                 return true
+            case .meetingHistory(let event):
+                showMeetingHistory(for: event)
+                return true
             case .clearSelection:
                 selectSession(nil)
                 return true
@@ -125,6 +143,8 @@ final class NotesController {
             switch requested {
             case .session(let sessionID):
                 selectSession(sessionID)
+            case .meetingHistory(let event):
+                showMeetingHistory(for: event)
             case .clearSelection:
                 selectSession(nil)
             }
@@ -137,6 +157,8 @@ final class NotesController {
 
     func selectSession(_ sessionID: String?) {
         state.selectedSessionID = sessionID
+        state.selectedMeetingHistory = nil
+        state.meetingHistoryEntries = []
         stopAudio()
 
         guard let sessionID else {
@@ -182,6 +204,28 @@ final class NotesController {
 
             let hasAny = data.transcript.contains { $0.cleanedText != nil }
             state.cleanupStatus = hasAny ? .completed : .idle
+        }
+    }
+
+    func showMeetingHistory(for event: CalendarEvent) {
+        state.selectedSessionID = nil
+        state.selectedMeetingHistory = MeetingHistorySelection(event: event)
+        state.meetingHistoryEntries = []
+        stopAudio()
+
+        state.loadedNotes = nil
+        state.loadedTranscript = []
+        state.loadedCalendarEvent = nil
+        state.selectedSessionDirectory = nil
+        state.audioFileURL = nil
+        state.showingOriginal = false
+        coordinator.batchTextCleaner.cancel()
+        syncCleanupStatus()
+
+        Task {
+            let entries = await loadMeetingHistoryEntries(for: event)
+            guard state.selectedMeetingHistory?.event.id == event.id else { return }
+            state.meetingHistoryEntries = entries
         }
     }
 
@@ -604,6 +648,9 @@ final class NotesController {
 
     func loadHistory() async {
         state.sessionHistory = await coordinator.sessionRepository.listSessions()
+        if let selection = state.selectedMeetingHistory {
+            state.meetingHistoryEntries = await loadMeetingHistoryEntries(for: selection.event)
+        }
     }
 
     static func normalizedNotesMarkdown(_ markdown: String, title: String?, date: Date) -> String {
@@ -635,6 +682,47 @@ final class NotesController {
             displayTitle = formatter.string(from: date)
         }
         return "# Meeting Notes: \(displayTitle)\n\n"
+    }
+
+    private func loadMeetingHistoryEntries(for event: CalendarEvent) async -> [MeetingHistoryEntry] {
+        let sessions = MeetingHistoryResolver.matchingSessions(for: event, sessionHistory: state.sessionHistory)
+        var entries: [MeetingHistoryEntry] = []
+        entries.reserveCapacity(sessions.count)
+
+        for session in sessions {
+            let preview: String?
+            if session.hasNotes, let notes = await coordinator.sessionRepository.loadNotes(sessionID: session.id) {
+                preview = Self.notesPreview(from: notes.markdown)
+            } else {
+                preview = nil
+            }
+            entries.append(MeetingHistoryEntry(session: session, notesPreview: preview))
+        }
+
+        return entries
+    }
+
+    static func notesPreview(from markdown: String) -> String? {
+        for rawLine in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            guard !line.hasPrefix("#") else { continue }
+            guard !line.hasPrefix("!") else { continue }
+            let sanitized = line
+                .replacingOccurrences(
+                    of: #"^([-*+]|[0-9]+\.)\s+"#,
+                    with: "",
+                    options: .regularExpression
+                )
+                .replacingOccurrences(of: "**", with: "")
+                .replacingOccurrences(of: "__", with: "")
+                .replacingOccurrences(of: "`", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sanitized.isEmpty {
+                return sanitized
+            }
+        }
+        return nil
     }
 
     /// Maps engine observable state to our flat status enums.

@@ -309,6 +309,31 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertTrue(controller.state.loadedTranscript.isEmpty)
     }
 
+    func testOnAppearCanOpenMeetingHistoryRequest() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        await seedSession(coordinator: coordinator, sessionID: "session_payment_ops", title: "Payment Ops")
+
+        let event = CalendarEvent(
+            id: "evt_history",
+            title: "Payment Ops",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+        coordinator.queueMeetingHistory(event)
+
+        await controller.onAppear()
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertNil(controller.state.selectedSessionID)
+        XCTAssertEqual(controller.state.selectedMeetingHistory?.event.id, "evt_history")
+        XCTAssertEqual(controller.state.meetingHistoryEntries.map(\.session.id), ["session_payment_ops"])
+    }
+
     func testGenerateNotesPreservesGeneratedTopHeading() async {
         let (root, notes) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)
@@ -326,6 +351,50 @@ final class NotesControllerTests: XCTestCase {
         let markdown = controller.state.loadedNotes?.markdown ?? ""
         XCTAssertTrue(markdown.hasPrefix("# Test Notes\n\n"))
         XCTAssertFalse(markdown.contains("# Meeting Notes: Q4 Planning\n\n# Test Notes"))
+    }
+
+    func testShowMeetingHistoryLoadsMatchingSessionsAndNotePreviews() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+
+        await seedSession(coordinator: coordinator, sessionID: "older", title: "Payment Ops Merchant stand up")
+        await seedSession(coordinator: coordinator, sessionID: "newer", title: "Payment Ops / Merchant stand up")
+        await seedSession(coordinator: coordinator, sessionID: "other", title: "Design Review")
+
+        let template = coordinator.templateStore.snapshot(
+            of: coordinator.templateStore.template(for: TemplateStore.genericID) ?? TemplateStore.builtInTemplates.first!
+        )
+        let notes = GeneratedNotes(
+            template: template,
+            generatedAt: Date(),
+            markdown: "# Notes\n\n## Summary\nReviewed payout issues and next steps."
+        )
+        await coordinator.sessionRepository.saveNotes(sessionID: "newer", notes: notes)
+        await controller.loadHistory()
+
+        let event = CalendarEvent(
+            id: "evt_payment_ops",
+            title: "Payment Ops Merchant stand-up",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        controller.showMeetingHistory(for: event)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertEqual(controller.state.selectedMeetingHistory?.event.id, "evt_payment_ops")
+        XCTAssertNil(controller.state.selectedSessionID)
+        XCTAssertEqual(controller.state.meetingHistoryEntries.map(\.session.id), ["newer", "older"])
+        XCTAssertEqual(controller.state.meetingHistoryEntries.first?.notesPreview, "Reviewed payout issues and next steps.")
+    }
+
+    func testMeetingHistoryPreviewStripsBulletsAndMarkdownMarkers() {
+        let preview = NotesController.notesPreview(from: "# Notes\n\n- **Booking invoices page** - New interface for PMs")
+        XCTAssertEqual(preview, "Booking invoices page - New interface for PMs")
     }
 
     func testNormalizedNotesMarkdownPrependsFallbackHeadingWhenMissing() {
