@@ -10,6 +10,8 @@ struct NotesState {
     var selectedSessionID: String?
     var selectedMeetingHistory: MeetingHistorySelection?
     var meetingHistoryEntries: [MeetingHistoryEntry] = []
+    var relatedMeetingSuggestions: [MeetingHistorySuggestion] = []
+    var linkingMeetingSuggestionKey: String?
     var loadedTranscript: [SessionRecord] = []
     var loadedNotes: GeneratedNotes?
     var loadedCalendarEvent: CalendarEvent?
@@ -71,6 +73,16 @@ struct MeetingHistoryEntry: Identifiable {
     var id: String { session.id }
 }
 
+struct MeetingHistorySuggestion: Identifiable, Equatable {
+    let key: String
+    let title: String
+    let sessionCount: Int
+    let notesCount: Int
+    let latestStartedAt: Date
+
+    var id: String { key }
+}
+
 // MARK: - Controller
 
 /// Owns all notes/history business logic previously embedded in NotesView.
@@ -81,6 +93,7 @@ final class NotesController {
     private(set) var state = NotesState()
 
     private let coordinator: AppCoordinator
+    private let settings: AppSettings?
 
     /// Observation polling task for engine state mapping.
     @ObservationIgnored nonisolated(unsafe) private var engineObservationTask: Task<Void, Never>?
@@ -93,8 +106,9 @@ final class NotesController {
     @ObservationIgnored private var audioPlayer: AVPlayer?
     @ObservationIgnored private var playerObservation: Any?
 
-    init(coordinator: AppCoordinator) {
+    init(coordinator: AppCoordinator, settings: AppSettings? = nil) {
         self.coordinator = coordinator
+        self.settings = settings
         startEngineObservation()
     }
 
@@ -159,6 +173,8 @@ final class NotesController {
         state.selectedSessionID = sessionID
         state.selectedMeetingHistory = nil
         state.meetingHistoryEntries = []
+        state.relatedMeetingSuggestions = []
+        state.linkingMeetingSuggestionKey = nil
         stopAudio()
 
         guard let sessionID else {
@@ -211,6 +227,8 @@ final class NotesController {
         state.selectedSessionID = nil
         state.selectedMeetingHistory = MeetingHistorySelection(event: event)
         state.meetingHistoryEntries = []
+        state.relatedMeetingSuggestions = []
+        state.linkingMeetingSuggestionKey = nil
         stopAudio()
 
         state.loadedNotes = nil
@@ -224,8 +242,28 @@ final class NotesController {
 
         Task {
             let entries = await loadMeetingHistoryEntries(for: event)
+            let suggestions = loadMeetingHistorySuggestions(
+                for: MeetingHistorySelection(event: event),
+                hasExactHistory: !entries.isEmpty
+            )
             guard state.selectedMeetingHistory?.event.id == event.id else { return }
             state.meetingHistoryEntries = entries
+            state.relatedMeetingSuggestions = suggestions
+        }
+    }
+
+    func linkMeetingHistorySuggestion(_ suggestion: MeetingHistorySuggestion) {
+        guard let settings, let selection = state.selectedMeetingHistory else { return }
+        state.linkingMeetingSuggestionKey = suggestion.key
+        settings.linkMeetingHistoryAlias(from: suggestion.key, to: selection.key)
+
+        Task {
+            let entries = await loadMeetingHistoryEntries(for: selection.event)
+            let suggestions = loadMeetingHistorySuggestions(for: selection, hasExactHistory: !entries.isEmpty)
+            guard state.selectedMeetingHistory?.event.id == selection.event.id else { return }
+            state.meetingHistoryEntries = entries
+            state.relatedMeetingSuggestions = suggestions
+            state.linkingMeetingSuggestionKey = nil
         }
     }
 
@@ -649,7 +687,12 @@ final class NotesController {
     func loadHistory() async {
         state.sessionHistory = await coordinator.sessionRepository.listSessions()
         if let selection = state.selectedMeetingHistory {
-            state.meetingHistoryEntries = await loadMeetingHistoryEntries(for: selection.event)
+            let entries = await loadMeetingHistoryEntries(for: selection.event)
+            state.meetingHistoryEntries = entries
+            state.relatedMeetingSuggestions = loadMeetingHistorySuggestions(
+                for: selection,
+                hasExactHistory: !entries.isEmpty
+            )
         }
     }
 
@@ -685,7 +728,11 @@ final class NotesController {
     }
 
     private func loadMeetingHistoryEntries(for event: CalendarEvent) async -> [MeetingHistoryEntry] {
-        let sessions = MeetingHistoryResolver.matchingSessions(for: event, sessionHistory: state.sessionHistory)
+        let sessions = MeetingHistoryResolver.matchingSessions(
+            forHistoryKey: MeetingHistoryResolver.historyKey(for: event),
+            sessionHistory: state.sessionHistory,
+            aliases: settings?.meetingHistoryAliasesByKey ?? [:]
+        )
         var entries: [MeetingHistoryEntry] = []
         entries.reserveCapacity(sessions.count)
 
@@ -700,6 +747,74 @@ final class NotesController {
         }
 
         return entries
+    }
+
+    private func loadMeetingHistorySuggestions(
+        for selection: MeetingHistorySelection,
+        hasExactHistory _: Bool
+    ) -> [MeetingHistorySuggestion] {
+        let aliases = settings?.meetingHistoryAliasesByKey ?? [:]
+        let canonicalSelectionKey = MeetingHistoryResolver.canonicalHistoryKey(
+            for: selection.key,
+            aliases: aliases
+        )
+
+        var groupedSessions: [String: [SessionIndex]] = [:]
+        for session in state.sessionHistory {
+            let title = session.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let historyKey = MeetingHistoryResolver.historyKey(for: title)
+            guard !historyKey.isEmpty else { continue }
+
+            let canonicalSessionKey = MeetingHistoryResolver.canonicalHistoryKey(
+                for: historyKey,
+                aliases: aliases
+            )
+            guard canonicalSessionKey != canonicalSelectionKey else { continue }
+            guard MeetingHistoryResolver.relationScore(
+                from: canonicalSelectionKey,
+                to: canonicalSessionKey
+            ) != nil else { continue }
+
+            groupedSessions[canonicalSessionKey, default: []].append(session)
+        }
+
+        let suggestions: [MeetingHistorySuggestion] = groupedSessions.compactMap { entry in
+            let (key, sessions) = entry
+            let sortedSessions = sessions.sorted { $0.startedAt > $1.startedAt }
+            guard let latestSession = sortedSessions.first else { return nil }
+            let title = latestSession.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayTitle = (title?.isEmpty == false ? title : nil) ?? "Untitled"
+            return MeetingHistorySuggestion(
+                key: key,
+                title: displayTitle,
+                sessionCount: sortedSessions.count,
+                notesCount: sortedSessions.filter(\.hasNotes).count,
+                latestStartedAt: latestSession.startedAt
+            )
+        }
+        .sorted { lhs, rhs in
+            let lhsScore = MeetingHistoryResolver.relationScore(from: canonicalSelectionKey, to: lhs.key) ?? 0
+            let rhsScore = MeetingHistoryResolver.relationScore(from: canonicalSelectionKey, to: rhs.key) ?? 0
+            if lhsScore != rhsScore { return lhsScore > rhsScore }
+            if lhs.sessionCount != rhs.sessionCount { return lhs.sessionCount > rhs.sessionCount }
+            return lhs.latestStartedAt > rhs.latestStartedAt
+        }
+
+        let selectionTokenCount = canonicalSelectionKey.split(separator: " ").count
+        if selectionTokenCount == 1 {
+            let recurringSuggestions = suggestions.filter { $0.sessionCount >= 2 }
+            if !recurringSuggestions.isEmpty {
+                if let primary = recurringSuggestions.first {
+                    let nextCount = recurringSuggestions.dropFirst().first?.sessionCount ?? 0
+                    if primary.sessionCount >= max(6, nextCount * 3) {
+                        return [primary]
+                    }
+                }
+                return recurringSuggestions
+            }
+        }
+
+        return suggestions
     }
 
     static func notesPreview(from markdown: String) -> String? {

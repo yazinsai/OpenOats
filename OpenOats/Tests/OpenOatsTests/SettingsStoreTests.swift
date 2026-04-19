@@ -371,6 +371,49 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.meetingPrepNotesByKey, [:])
     }
 
+    func testMeetingHistoryAliasesNormalizeAndCanonicalizePrepNotes() {
+        let store = makeStore()
+        store.meetingHistoryAliasesByKey = [
+            " Payment Ops ": "payment ops merchant standup",
+            "payment ops merchant standup": "payment ops merchant standup",
+            "": "ignored",
+        ]
+
+        XCTAssertEqual(
+            store.meetingHistoryAliasesByKey,
+            ["payment ops": "payment ops merchant standup"]
+        )
+
+        let renamedEvent = CalendarEvent(
+            id: "evt-renamed",
+            title: "Payment Ops / Merchant standup",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+        let legacyEvent = CalendarEvent(
+            id: "evt-legacy",
+            title: "Payment Ops",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        store.setMeetingPrepNotes("Carry this forward", for: renamedEvent)
+
+        XCTAssertEqual(store.meetingPrepNotes(for: legacyEvent), "Carry this forward")
+        XCTAssertEqual(
+            store.canonicalMeetingHistoryKey(for: legacyEvent),
+            MeetingHistoryResolver.historyKey(for: renamedEvent)
+        )
+    }
+
     func testKbFolderURLWhenEmpty() {
         let store = makeStore()
         XCTAssertNil(store.kbFolderURL)

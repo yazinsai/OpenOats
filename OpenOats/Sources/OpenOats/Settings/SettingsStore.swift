@@ -834,12 +834,27 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _meetingHistoryAliasesByKey: [String: String]
+    var meetingHistoryAliasesByKey: [String: String] {
+        get { access(keyPath: \.meetingHistoryAliasesByKey); return _meetingHistoryAliasesByKey }
+        set {
+            withMutation(keyPath: \.meetingHistoryAliasesByKey) {
+                _meetingHistoryAliasesByKey = Self.normalizeMeetingHistoryAliases(newValue)
+                defaults.set(
+                    Self.encodeMeetingHistoryAliases(_meetingHistoryAliasesByKey),
+                    forKey: "meetingHistoryAliasesByKey"
+                )
+            }
+        }
+    }
+
     func meetingPrepNotes(for event: CalendarEvent) -> String {
-        meetingPrepNotesByKey[MeetingHistoryResolver.historyKey(for: event)] ?? ""
+        let key = canonicalMeetingHistoryKey(for: event)
+        return meetingPrepNotesByKey[key] ?? ""
     }
 
     func setMeetingPrepNotes(_ text: String, for event: CalendarEvent) {
-        let key = MeetingHistoryResolver.historyKey(for: event)
+        let key = canonicalMeetingHistoryKey(for: event)
         var notes = meetingPrepNotesByKey
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             notes.removeValue(forKey: key)
@@ -847,6 +862,27 @@ final class SettingsStore {
             notes[key] = text
         }
         meetingPrepNotesByKey = notes
+    }
+
+    func canonicalMeetingHistoryKey(for event: CalendarEvent) -> String {
+        canonicalMeetingHistoryKey(forHistoryKey: MeetingHistoryResolver.historyKey(for: event))
+    }
+
+    func canonicalMeetingHistoryKey(forHistoryKey historyKey: String) -> String {
+        MeetingHistoryResolver.canonicalHistoryKey(
+            for: historyKey,
+            aliases: meetingHistoryAliasesByKey
+        )
+    }
+
+    func linkMeetingHistoryAlias(from aliasHistoryKey: String, to canonicalHistoryKey: String) {
+        let aliasKey = MeetingHistoryResolver.historyKey(for: aliasHistoryKey)
+        let targetKey = canonicalMeetingHistoryKey(forHistoryKey: canonicalHistoryKey)
+        guard !aliasKey.isEmpty, !targetKey.isEmpty, aliasKey != targetKey else { return }
+
+        var aliases = meetingHistoryAliasesByKey
+        aliases[aliasKey] = targetKey
+        meetingHistoryAliasesByKey = aliases
     }
 
     /// Save a security-scoped bookmark for the user-selected notes folder.
@@ -1067,6 +1103,9 @@ final class SettingsStore {
         self._notesFolderPath = defaults.string(forKey: "notesFolderPath") ?? defaultNotesPath
         self._notesFolders = Self.decodeNotesFolders(defaults.data(forKey: "notesFolders")) ?? []
         self._meetingPrepNotesByKey = Self.decodeMeetingPrepNotes(defaults.data(forKey: "meetingPrepNotesByKey")) ?? [:]
+        self._meetingHistoryAliasesByKey = Self.decodeMeetingHistoryAliases(
+            defaults.data(forKey: "meetingHistoryAliasesByKey")
+        ) ?? [:]
         self._kbFolderPath = defaults.string(forKey: "kbFolderPath") ?? ""
         self._hasSeenLaunchAtLoginSuggestion = defaults.bool(forKey: "hasSeenLaunchAtLoginSuggestion")
 
@@ -1204,6 +1243,16 @@ final class SettingsStore {
         return try? JSONDecoder().decode([String: String].self, from: data)
     }
 
+    private static func encodeMeetingHistoryAliases(_ aliases: [String: String]) -> Data? {
+        let encoder = JSONEncoder()
+        return try? encoder.encode(aliases)
+    }
+
+    private static func decodeMeetingHistoryAliases(_ data: Data?) -> [String: String]? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode([String: String].self, from: data)
+    }
+
     private static func normalizeMeetingPrepNotes(_ notes: [String: String]) -> [String: String] {
         var result: [String: String] = [:]
         for (rawKey, rawValue) in notes {
@@ -1211,6 +1260,19 @@ final class SettingsStore {
             guard !normalizedKey.isEmpty else { continue }
             guard !rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             result[normalizedKey] = rawValue
+        }
+        return result
+    }
+
+    private static func normalizeMeetingHistoryAliases(_ aliases: [String: String]) -> [String: String] {
+        var result: [String: String] = [:]
+        for (rawKey, rawValue) in aliases {
+            let normalizedKey = rawKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let normalizedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalizedKey.isEmpty, !normalizedValue.isEmpty, normalizedKey != normalizedValue else {
+                continue
+            }
+            result[normalizedKey] = normalizedValue
         }
         return result
     }

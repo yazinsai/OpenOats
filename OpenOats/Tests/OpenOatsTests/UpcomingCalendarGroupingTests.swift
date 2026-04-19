@@ -115,6 +115,37 @@ final class UpcomingCalendarGroupingTests: XCTestCase {
         XCTAssertTrue(MeetingHistoryResolver.matchingSessions(for: event, sessionHistory: sessions).isEmpty)
     }
 
+    func testMeetingHistoryResolverMatchesAliasedTitles() {
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let sessions = [
+            SessionIndex(
+                id: "legacy",
+                startedAt: startedAt.addingTimeInterval(-500),
+                endedAt: nil,
+                templateSnapshot: nil,
+                title: "Payment Ops",
+                utteranceCount: 10,
+                hasNotes: true,
+                language: nil,
+                meetingApp: nil,
+                engine: nil,
+                tags: nil,
+                source: nil
+            ),
+        ]
+
+        let matched = MeetingHistoryResolver.matchingSessions(
+            forHistoryKey: MeetingHistoryResolver.historyKey(for: "Payment Ops / Merchant standup"),
+            sessionHistory: sessions,
+            aliases: [
+                MeetingHistoryResolver.historyKey(for: "Payment Ops"):
+                    MeetingHistoryResolver.historyKey(for: "Payment Ops / Merchant standup")
+            ]
+        )
+
+        XCTAssertEqual(matched.map(\.id), ["legacy"])
+    }
+
     func testSelectionPrefersCalendarCoverageBeforeFillingRemainingSlots() {
         let base = Date(timeIntervalSince1970: 1_700_000_000)
         let events = [

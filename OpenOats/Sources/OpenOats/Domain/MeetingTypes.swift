@@ -138,10 +138,61 @@ enum MeetingHistoryResolver {
     }
 
     static func matchingSessions(forHistoryKey historyKey: String, sessionHistory: [SessionIndex]) -> [SessionIndex] {
+        matchingSessions(forHistoryKey: historyKey, sessionHistory: sessionHistory, aliases: [:])
+    }
+
+    static func matchingSessions(
+        forHistoryKey historyKey: String,
+        sessionHistory: [SessionIndex],
+        aliases: [String: String]
+    ) -> [SessionIndex] {
         guard !historyKey.isEmpty else { return [] }
+        let canonicalKey = canonicalHistoryKey(for: historyKey, aliases: aliases)
         return sessionHistory
-            .filter { normalizedTitle($0.title ?? "") == historyKey }
+            .filter {
+                canonicalHistoryKey(for: normalizedTitle($0.title ?? ""), aliases: aliases) == canonicalKey
+            }
             .sorted { $0.startedAt > $1.startedAt }
+    }
+
+    static func canonicalHistoryKey(for historyKey: String, aliases: [String: String]) -> String {
+        let normalizedKey = historyKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedKey.isEmpty else { return "" }
+
+        var current = normalizedKey
+        var seen: Set<String> = [normalizedKey]
+        while let next = aliases[current], !next.isEmpty, !seen.contains(next) {
+            current = next
+            seen.insert(next)
+        }
+        return current
+    }
+
+    static func relationScore(from sourceHistoryKey: String, to candidateHistoryKey: String) -> Double? {
+        let sourceTokens = tokenSet(forHistoryKey: sourceHistoryKey)
+        let candidateTokens = tokenSet(forHistoryKey: candidateHistoryKey)
+        if let singleTokenScore = singleTokenRelationScore(
+            sourceTokens: sourceTokens,
+            candidateTokens: candidateTokens
+        ) {
+            return singleTokenScore
+        }
+
+        guard sourceTokens.count >= 2, candidateTokens.count >= 2 else { return nil }
+
+        let overlap = sourceTokens.intersection(candidateTokens)
+        guard overlap.count >= 2 else { return nil }
+
+        let minimumCount = min(sourceTokens.count, candidateTokens.count)
+        guard minimumCount > 0 else { return nil }
+
+        let overlapRatio = Double(overlap.count) / Double(minimumCount)
+        if sourceTokens.isSubset(of: candidateTokens) || candidateTokens.isSubset(of: sourceTokens) {
+            return 1.0 + overlapRatio
+        }
+
+        guard overlapRatio >= 0.75 else { return nil }
+        return overlapRatio
     }
 
     static func normalizedTitle(_ title: String) -> String {
@@ -153,6 +204,24 @@ enum MeetingHistoryResolver {
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
             .lowercased()
+    }
+
+    private static func tokenSet(forHistoryKey historyKey: String) -> Set<String> {
+        Set(historyKey.split(separator: " ").map(String.init))
+    }
+
+    private static func singleTokenRelationScore(
+        sourceTokens: Set<String>,
+        candidateTokens: Set<String>
+    ) -> Double? {
+        let overlap = sourceTokens.intersection(candidateTokens)
+        guard overlap.count == 1 else { return nil }
+
+        let minimumCount = min(sourceTokens.count, candidateTokens.count)
+        guard minimumCount == 1 else { return nil }
+        guard let token = overlap.first, token.count >= 4 else { return nil }
+
+        return 0.9
     }
 }
 

@@ -83,14 +83,14 @@ final class NotesControllerTests: XCTestCase {
         await coordinator.loadHistory()
     }
 
-    private func makeController(root: URL) -> (NotesController, AppCoordinator) {
+    private func makeController(root: URL, settings: AppSettings? = nil) -> (NotesController, AppCoordinator) {
         let coordinator = AppCoordinator(
             sessionRepository: SessionRepository(rootDirectory: root),
             templateStore: TemplateStore(rootDirectory: root),
             notesEngine: NotesEngine(mode: .scripted(markdown: "# Test Notes\n\n## Summary\nTest summary.")),
             transcriptStore: TranscriptStore()
         )
-        let controller = NotesController(coordinator: coordinator)
+        let controller = NotesController(coordinator: coordinator, settings: settings)
         return (controller, coordinator)
     }
 
@@ -390,6 +390,165 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertNil(controller.state.selectedSessionID)
         XCTAssertEqual(controller.state.meetingHistoryEntries.map(\.session.id), ["newer", "older"])
         XCTAssertEqual(controller.state.meetingHistoryEntries.first?.notesPreview, "Reviewed payout issues and next steps.")
+    }
+
+    func testShowMeetingHistorySuggestsRenamedMeetingSeriesWhenExactHistoryIsEmpty() async {
+        let (root, notes) = makeTempDirs()
+        let settings = makeSettings(notesDirectory: notes)
+        let (controller, coordinator) = makeController(root: root, settings: settings)
+
+        await seedSession(coordinator: coordinator, sessionID: "legacy1", title: "Payment Ops")
+        await seedSession(coordinator: coordinator, sessionID: "legacy2", title: "Payment Ops")
+        await controller.loadHistory()
+
+        let event = CalendarEvent(
+            id: "evt_renamed",
+            title: "Payment Ops / Merchant standup",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        controller.showMeetingHistory(for: event)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertTrue(controller.state.meetingHistoryEntries.isEmpty)
+        XCTAssertEqual(controller.state.relatedMeetingSuggestions.map(\.title), ["Payment Ops"])
+        XCTAssertEqual(controller.state.relatedMeetingSuggestions.first?.sessionCount, 2)
+    }
+
+    func testShowMeetingHistorySuggestsSingleTokenRenameWhenTokenIsSpecific() async {
+        let (root, notes) = makeTempDirs()
+        let settings = makeSettings(notesDirectory: notes)
+        let (controller, coordinator) = makeController(root: root, settings: settings)
+
+        await seedSession(coordinator: coordinator, sessionID: "legacy1", title: "Payment Ops")
+        await seedSession(coordinator: coordinator, sessionID: "legacy2", title: "Payment Ops")
+        await controller.loadHistory()
+
+        let event = CalendarEvent(
+            id: "evt_single_token",
+            title: "Payment",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        controller.showMeetingHistory(for: event)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertTrue(controller.state.meetingHistoryEntries.isEmpty)
+        XCTAssertEqual(controller.state.relatedMeetingSuggestions.map(\.title), ["Payment Ops"])
+    }
+
+    func testShowMeetingHistoryPrefersRecurringFamiliesForSingleTokenSuggestions() async {
+        let (root, notes) = makeTempDirs()
+        let settings = makeSettings(notesDirectory: notes)
+        let (controller, coordinator) = makeController(root: root, settings: settings)
+
+        await seedSession(coordinator: coordinator, sessionID: "recurring1", title: "Payment Ops")
+        await seedSession(coordinator: coordinator, sessionID: "recurring2", title: "Payment Ops")
+        await seedSession(
+            coordinator: coordinator,
+            sessionID: "oneoff1",
+            title: "Payment methods investigation for Adyen store setup"
+        )
+        await seedSession(
+            coordinator: coordinator,
+            sessionID: "oneoff2",
+            title: "Payment Ops - payment redirection fraud"
+        )
+        await controller.loadHistory()
+
+        let event = CalendarEvent(
+            id: "evt_single_token_recurring_only",
+            title: "Payment",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        controller.showMeetingHistory(for: event)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertEqual(controller.state.relatedMeetingSuggestions.map(\.title), ["Payment Ops"])
+    }
+
+    func testShowMeetingHistoryKeepsOnlyDominantRecurringFamilyForSingleTokenSuggestions() async {
+        let (root, notes) = makeTempDirs()
+        let settings = makeSettings(notesDirectory: notes)
+        let (controller, coordinator) = makeController(root: root, settings: settings)
+
+        for index in 0..<6 {
+            await seedSession(coordinator: coordinator, sessionID: "ops_\(index)", title: "Payment Ops")
+        }
+        for index in 0..<2 {
+            await seedSession(coordinator: coordinator, sessionID: "links_\(index)", title: "Payment Links")
+        }
+        await controller.loadHistory()
+
+        let event = CalendarEvent(
+            id: "evt_single_token_dominant",
+            title: "Payment",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        controller.showMeetingHistory(for: event)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertEqual(controller.state.relatedMeetingSuggestions.map(\.title), ["Payment Ops"])
+    }
+
+    func testLinkMeetingHistorySuggestionReloadsHistoryUsingAlias() async {
+        let (root, notes) = makeTempDirs()
+        let settings = makeSettings(notesDirectory: notes)
+        let (controller, coordinator) = makeController(root: root, settings: settings)
+
+        await seedSession(coordinator: coordinator, sessionID: "legacy", title: "Payment Ops")
+        await seedSession(coordinator: coordinator, sessionID: "other-variant", title: "Payment Ops Merchant")
+        await controller.loadHistory()
+
+        let event = CalendarEvent(
+            id: "evt_renamed",
+            title: "Payment Ops / Merchant standup",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        controller.showMeetingHistory(for: event)
+        try? await Task.sleep(for: .milliseconds(250))
+        XCTAssertEqual(Set(controller.state.relatedMeetingSuggestions.map(\.title)), ["Payment Ops", "Payment Ops Merchant"])
+
+        guard let suggestion = controller.state.relatedMeetingSuggestions.first(where: { $0.title == "Payment Ops" }) else {
+            XCTFail("Expected related meeting suggestion")
+            return
+        }
+
+        controller.linkMeetingHistorySuggestion(suggestion)
+        XCTAssertEqual(controller.state.linkingMeetingSuggestionKey, suggestion.key)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertEqual(controller.state.meetingHistoryEntries.map(\.session.id), ["legacy"])
+        XCTAssertNil(controller.state.linkingMeetingSuggestionKey)
+        XCTAssertEqual(controller.state.relatedMeetingSuggestions.map(\.title), ["Payment Ops Merchant"])
     }
 
     func testMeetingHistoryPreviewStripsBulletsAndMarkdownMarkers() {

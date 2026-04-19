@@ -40,7 +40,7 @@ struct NotesView: View {
             }
         }
         .task {
-            let controller = NotesController(coordinator: coordinator)
+            let controller = NotesController(coordinator: coordinator, settings: settings)
             notesController = controller
             await controller.loadHistory()
 
@@ -821,15 +821,30 @@ struct NotesView: View {
             VStack(alignment: .leading, spacing: 18) {
                 meetingHistoryOverviewCard(selection: selection)
 
-                if state.meetingHistoryEntries.isEmpty {
+                if state.meetingHistoryEntries.isEmpty && state.relatedMeetingSuggestions.isEmpty {
                     ContentUnavailableView(
                         "No history yet",
                         systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90",
                         description: Text("OpenOats hasn’t saved any past meetings for this title yet.")
                     )
                     .frame(maxWidth: .infinity, minHeight: 220)
-                } else {
+                } else if !state.meetingHistoryEntries.isEmpty {
                     meetingHistorySection(controller: controller, historyEntries: state.meetingHistoryEntries)
+                    if !state.relatedMeetingSuggestions.isEmpty {
+                        relatedMeetingSuggestionsSection(
+                            controller: controller,
+                            suggestions: state.relatedMeetingSuggestions,
+                            showsExistingHistory: true,
+                            linkingSuggestionKey: state.linkingMeetingSuggestionKey
+                        )
+                    }
+                } else {
+                    relatedMeetingSuggestionsSection(
+                        controller: controller,
+                        suggestions: state.relatedMeetingSuggestions,
+                        showsExistingHistory: false,
+                        linkingSuggestionKey: state.linkingMeetingSuggestionKey
+                    )
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -996,6 +1011,76 @@ struct NotesView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Open this meeting")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func relatedMeetingSuggestionsSection(
+        controller: NotesController,
+        suggestions: [MeetingHistorySuggestion],
+        showsExistingHistory: Bool,
+        linkingSuggestionKey: String?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(showsExistingHistory ? "Link more meetings" : "Possible related meetings")
+                    .font(.system(size: 15, weight: .semibold))
+                Text(
+                    showsExistingHistory
+                        ? "Bring other renamed titles into this meeting series."
+                        : "Link an older title into this meeting series."
+                )
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 10) {
+                ForEach(suggestions) { suggestion in
+                    let isLinking = linkingSuggestionKey == suggestion.key
+                    HStack(alignment: .center, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(suggestion.title)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.primary)
+
+                            HStack(spacing: 8) {
+                                Text("\(suggestion.sessionCount) past meeting\(suggestion.sessionCount == 1 ? "" : "s")")
+                                if suggestion.notesCount > 0 {
+                                    Text("•")
+                                    Text("\(suggestion.notesCount) with notes")
+                                }
+                            }
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 0)
+
+                        Button {
+                            controller.linkMeetingHistorySuggestion(suggestion)
+                        } label: {
+                            HStack(spacing: 6) {
+                                if isLinking {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Text(isLinking ? "Linking…" : "Link")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isLinking)
+                    }
+                    .padding(14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(.quaternary, lineWidth: 1)
+                    )
                 }
             }
         }
