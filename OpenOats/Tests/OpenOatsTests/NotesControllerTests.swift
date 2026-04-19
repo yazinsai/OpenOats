@@ -556,6 +556,40 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(preview, "Booking invoices page - New interface for PMs")
     }
 
+    func testSelectSessionAlsoLoadsMeetingFamilyHistory() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+
+        await seedSession(coordinator: coordinator, sessionID: "current", title: "Weekly Sync")
+        await seedSession(coordinator: coordinator, sessionID: "older", title: "Weekly Sync")
+        await seedSession(coordinator: coordinator, sessionID: "other", title: "Design Review")
+        await controller.loadHistory()
+
+        controller.selectSession("current")
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertEqual(controller.state.selectedMeetingFamily?.title, "Weekly Sync")
+        XCTAssertEqual(controller.state.meetingHistoryEntries.map(\.session.id), ["current", "older"])
+    }
+
+    func testShowCurrentMeetingFamilyOverviewClearsFocusedSessionButKeepsFamily() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+
+        await seedSession(coordinator: coordinator, sessionID: "current", title: "Weekly Sync")
+        await seedSession(coordinator: coordinator, sessionID: "older", title: "Weekly Sync")
+        await controller.loadHistory()
+
+        controller.selectSession("current")
+        try? await Task.sleep(for: .milliseconds(250))
+        controller.showCurrentMeetingFamilyOverview()
+
+        XCTAssertNil(controller.state.selectedSessionID)
+        XCTAssertEqual(controller.state.selectedMeetingFamily?.title, "Weekly Sync")
+        XCTAssertEqual(controller.state.meetingHistoryEntries.map(\.session.id), ["current", "older"])
+        XCTAssertTrue(controller.state.loadedTranscript.isEmpty)
+    }
+
     func testNormalizedNotesMarkdownPrependsFallbackHeadingWhenMissing() {
         let markdown = NotesController.normalizedNotesMarkdown(
             "## Summary\nHello",
