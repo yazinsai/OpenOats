@@ -38,6 +38,11 @@ final class MenuBarController {
                 self?.popover.performClose(nil)
                 onCheckForUpdates()
             },
+            onShowSettings: { [weak self] in
+                self?.popover.performClose(nil)
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            },
             onQuit: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.onQuitApp?()
