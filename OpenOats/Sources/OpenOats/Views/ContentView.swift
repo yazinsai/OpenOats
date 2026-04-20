@@ -105,57 +105,6 @@ struct ContentView: View {
                 Divider()
             }
 
-            // Batch transcription / import progress banner
-            if case .transcribing(let progress) = controllerState.batchStatus {
-                HStack(spacing: 8) {
-                    ProgressView(value: progress, total: 1.0)
-                        .progressViewStyle(.linear)
-                        .frame(maxWidth: .infinity)
-                    Text(controllerState.batchIsImporting
-                         ? "Importing meeting recording… \(Int(progress * 100))%"
-                         : "Re-transcribing... \(Int(progress * 100))%")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .background(.ultraThinMaterial)
-
-                Divider()
-            } else if case .loading = controllerState.batchStatus {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(controllerState.batchIsImporting
-                         ? "Preparing to import…"
-                         : "Loading batch model...")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .background(.ultraThinMaterial)
-
-                Divider()
-            } else if case .completed = controllerState.batchStatus {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.system(size: 12))
-                    Text(controllerState.batchIsImporting
-                         ? "Meeting recording imported"
-                         : "Re-transcription complete")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .background(.ultraThinMaterial)
-
-                Divider()
-            }
-
             if controllerState.isRunning, let event = controllerState.matchedCalendarEvent {
                 MatchedCalendarEventBanner(event: event)
 
@@ -548,6 +497,8 @@ private struct IsolatedControlBarWrapper: View {
             isMicMuted: state.isMicMuted,
             modelDisplayName: state.modelDisplayName,
             transcriptionPrompt: state.transcriptionPrompt,
+            batchStatus: state.batchStatus,
+            batchIsImporting: state.batchIsImporting,
             kbIndexingStatus: state.kbIndexingStatus,
             statusMessage: state.statusMessage,
             errorMessage: state.errorMessage,
