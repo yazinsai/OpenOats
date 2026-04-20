@@ -1637,6 +1637,25 @@ struct NotesView: View {
             }
 
             VStack(spacing: 8) {
+                if let selected = state.selectedTemplate {
+                    Menu {
+                        ForEach(controller.availableTemplates) { template in
+                            Button {
+                                controller.selectTemplate(template)
+                            } label: {
+                                Label(template.name, systemImage: template.icon)
+                            }
+                            .disabled(selected.id == template.id)
+                        }
+                    } label: {
+                        Label(selected.name, systemImage: selected.icon)
+                            .font(.system(size: 12))
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.bordered)
+                    .fixedSize()
+                }
+
                 Button {
                     controller.generateNotes(sessionID: sessionID, settings: settings)
                 } label: {

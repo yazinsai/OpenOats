@@ -682,6 +682,10 @@ final class NotesController {
         }
     }
 
+    func selectTemplate(_ template: MeetingTemplate) {
+        state.selectedTemplate = template
+    }
+
     // MARK: - Accessors
 
     /// Templates available for generation.
