@@ -29,7 +29,14 @@ struct NotesView: View {
         case notes = "Notes"
     }
 
+    enum MeetingFamilyBottomTab: String, CaseIterable {
+        case history = "Previous meetings"
+        case link = "Link meetings"
+    }
+
     @State private var detailViewMode: DetailViewMode = .transcript
+    @State private var meetingFamilyBottomTab: MeetingFamilyBottomTab = .history
+    @State private var isMeetingFamilyBottomCollapsed = false
 
     var body: some View {
         Group {
@@ -87,6 +94,10 @@ struct NotesView: View {
             if controller.handleRequestedSessionSelection() {
                 detailViewMode = .notes
             }
+        }
+        .onChange(of: state.selectedMeetingFamily?.key) {
+            meetingFamilyBottomTab = .history
+            isMeetingFamilyBottomCollapsed = false
         }
         .sheet(
             isPresented: Binding(
@@ -798,50 +809,198 @@ struct NotesView: View {
     ) -> some View {
         let focusedSessionID = state.selectedSessionID
         let historyEntries = state.meetingHistoryEntries.filter { $0.session.id != focusedSessionID }
-        let notesCount = historyEntries.filter { $0.session.hasNotes }.count
+        let suggestions = state.relatedMeetingSuggestions
+        let hasHistory = !historyEntries.isEmpty
+        let hasSuggestions = !suggestions.isEmpty
+        let showsTabs = hasHistory && hasSuggestions
+        let activeBottomTab: MeetingFamilyBottomTab = showsTabs
+            ? meetingFamilyBottomTab
+            : (hasHistory ? .history : .link)
+        let bottomSectionLabel = hasHistory ? "Previous meetings" : "Related meetings"
 
-        VStack(spacing: 0) {
-            if focusedSessionID != nil {
-                focusedSessionDetail(controller: controller, state: state, selection: selection)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        meetingFamilyOverviewSection(selection: selection, historyCount: state.meetingHistoryEntries.count)
+        GeometryReader { proxy in
+            let totalHeight = proxy.size.height
+            let showsBottomSection = hasHistory || hasSuggestions
+            let bottomHeight = defaultMeetingFamilyBottomHeight(
+                totalHeight: totalHeight,
+                focusedSessionID: focusedSessionID
+            )
 
-                        if historyEntries.isEmpty && state.relatedMeetingSuggestions.isEmpty {
-                            ContentUnavailableView(
-                                "No history yet",
-                                systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90",
-                                description: Text("OpenOats hasn’t saved any other meetings for this title yet.")
-                            )
-                            .frame(maxWidth: .infinity, minHeight: 220)
-                        } else if !state.relatedMeetingSuggestions.isEmpty {
-                            relatedMeetingSuggestionsSection(
-                                controller: controller,
-                                suggestions: state.relatedMeetingSuggestions,
-                                showsExistingHistory: !historyEntries.isEmpty,
-                                linkingSuggestionKey: state.linkingMeetingSuggestionKey
-                            )
+            VStack(spacing: 0) {
+                if focusedSessionID != nil {
+                    focusedSessionDetail(controller: controller, state: state, selection: selection)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            meetingFamilyOverviewSection(selection: selection, historyCount: state.meetingHistoryEntries.count)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(20)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if showsBottomSection {
+                    meetingFamilyCollapseHandle(title: bottomSectionLabel)
+
+                    if !isMeetingFamilyBottomCollapsed {
+                        meetingFamilyBottomSection(
+                            controller: controller,
+                            historyEntries: historyEntries,
+                            suggestions: suggestions,
+                            activeTab: activeBottomTab,
+                            showsTabs: showsTabs,
+                            linkingSuggestionKey: state.linkingMeetingSuggestionKey
+                        )
+                        .frame(maxWidth: .infinity, minHeight: bottomHeight, maxHeight: bottomHeight)
+                    }
+                } else if focusedSessionID == nil {
+                    ContentUnavailableView(
+                        "No history yet",
+                        systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90",
+                        description: Text("OpenOats hasn’t saved any other meetings for this title yet.")
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 220)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+                }
+            }
+        }
+    }
+
+    private func defaultMeetingFamilyBottomHeight(totalHeight: CGFloat, focusedSessionID: String?) -> CGFloat {
+        let preferred = focusedSessionID != nil ? min(300, totalHeight * 0.42) : min(340, totalHeight * 0.45)
+        return max(preferred, 120)
+    }
+
+    @ViewBuilder
+    private func meetingFamilyCollapseHandle(title: String) -> some View {
+        ZStack {
+            Divider()
+
+            Button {
+                withAnimation(.snappy(duration: 0.18, extraBounce: 0)) {
+                    isMeetingFamilyBottomCollapsed.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isMeetingFamilyBottomCollapsed ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(title)
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(Color(nsColor: .windowBackgroundColor))
+                )
+                .overlay(
+                    Capsule()
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .help(isMeetingFamilyBottomCollapsed ? "Show \(title.lowercased())" : "Hide \(title.lowercased())")
+        }
+        .frame(height: 18)
+        .onHover { isHovering in
+            if isHovering {
+                NSCursor.pointingHand.set()
+            } else {
+                NSCursor.arrow.set()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func meetingFamilyBottomSection(
+        controller: NotesController,
+        historyEntries: [MeetingHistoryEntry],
+        suggestions: [MeetingHistorySuggestion],
+        activeTab: MeetingFamilyBottomTab,
+        showsTabs: Bool,
+        linkingSuggestionKey: String?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if showsTabs {
+                meetingFamilyBottomTabBar
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                    .padding(.bottom, 12)
             }
 
-            if !historyEntries.isEmpty {
-                Divider()
-
+            switch activeTab {
+            case .history:
                 meetingHistorySection(
                     controller: controller,
                     historyEntries: historyEntries,
-                    notesCount: notesCount
+                    showsHeader: !showsTabs
                 )
-                .frame(maxWidth: .infinity, minHeight: 220, maxHeight: focusedSessionID == nil ? .infinity : 300)
+            case .link:
+                relatedMeetingSuggestionsSection(
+                    controller: controller,
+                    suggestions: suggestions,
+                    showsExistingHistory: !historyEntries.isEmpty,
+                    linkingSuggestionKey: linkingSuggestionKey,
+                    showsHeader: !showsTabs
+                )
             }
         }
+    }
+
+    @ViewBuilder
+    private var meetingFamilyBottomTabBar: some View {
+        HStack(spacing: 6) {
+            meetingFamilyBottomTabButton(title: "Previous meetings", tab: .history)
+            meetingFamilyBottomTabButton(title: "Link meetings", tab: .link)
+        }
+        .padding(6)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(Color.primary.opacity(0.04), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func meetingFamilyBottomTabButton(
+        title: String,
+        tab: MeetingFamilyBottomTab
+    ) -> some View {
+        let isSelected = meetingFamilyBottomTab == tab
+        Button {
+            meetingFamilyBottomTab = tab
+        } label: {
+            Text(title)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? .primary : .secondary)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 11)
+                        .fill(isSelected ? Color(nsColor: .windowBackgroundColor) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 11)
+                        .strokeBorder(
+                            isSelected ? Color.primary.opacity(0.06) : Color.clear,
+                            lineWidth: 1
+                        )
+                )
+                .shadow(
+                    color: isSelected ? Color.black.opacity(0.06) : .clear,
+                    radius: 6,
+                    x: 0,
+                    y: 1
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -1039,17 +1198,14 @@ struct NotesView: View {
     private func meetingHistorySection(
         controller: NotesController,
         historyEntries: [MeetingHistoryEntry],
-        notesCount: Int
+        showsHeader: Bool = true
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
+            if showsHeader {
                 Text("Previous meetings")
                     .font(.system(size: 15, weight: .semibold))
-                Text("\(historyEntries.count) total")
-                Text("\(notesCount) with notes")
+                    .foregroundStyle(.secondary)
             }
-            .font(.system(size: 13))
-            .foregroundStyle(.secondary)
 
             ScrollView {
                 VStack(spacing: 10) {
@@ -1527,66 +1683,71 @@ struct NotesView: View {
         controller: NotesController,
         suggestions: [MeetingHistorySuggestion],
         showsExistingHistory: Bool,
-        linkingSuggestionKey: String?
+        linkingSuggestionKey: String?,
+        showsHeader: Bool = true
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(showsExistingHistory ? "Link more meetings" : "Possible related meetings")
-                    .font(.system(size: 15, weight: .semibold))
-                Text(
-                    showsExistingHistory
-                        ? "Bring other renamed titles into this meeting series."
-                        : "Link an older title into this meeting series."
-                )
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+            if showsHeader {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(showsExistingHistory ? "Link more meetings" : "Possible related meetings")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(
+                        showsExistingHistory
+                            ? "Bring other renamed titles into this meeting series."
+                            : "Link an older title into this meeting series."
+                    )
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                }
             }
 
-            VStack(spacing: 10) {
-                ForEach(suggestions) { suggestion in
-                    let isLinking = linkingSuggestionKey == suggestion.key
-                    HStack(alignment: .center, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(suggestion.title)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.primary)
+            ScrollView {
+                VStack(spacing: 10) {
+                    ForEach(suggestions) { suggestion in
+                        let isLinking = linkingSuggestionKey == suggestion.key
+                        HStack(alignment: .center, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(suggestion.title)
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.primary)
 
-                            HStack(spacing: 8) {
-                                Text("\(suggestion.sessionCount) past meeting\(suggestion.sessionCount == 1 ? "" : "s")")
-                                if suggestion.notesCount > 0 {
-                                    Text("•")
-                                    Text("\(suggestion.notesCount) with notes")
+                                HStack(spacing: 8) {
+                                    Text("\(suggestion.sessionCount) past meeting\(suggestion.sessionCount == 1 ? "" : "s")")
+                                    if suggestion.notesCount > 0 {
+                                        Text("•")
+                                        Text("\(suggestion.notesCount) with notes")
+                                    }
+                                }
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                            }
+
+                            Spacer(minLength: 0)
+
+                            Button {
+                                controller.linkMeetingHistorySuggestion(suggestion)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    if isLinking {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                    }
+                                    Text(isLinking ? "Linking…" : "Link")
                                 }
                             }
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                            .buttonStyle(.bordered)
+                            .disabled(isLinking)
                         }
-
-                        Spacer(minLength: 0)
-
-                        Button {
-                            controller.linkMeetingHistorySuggestion(suggestion)
-                        } label: {
-                            HStack(spacing: 6) {
-                                if isLinking {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                }
-                                Text(isLinking ? "Linking…" : "Link")
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isLinking)
+                        .padding(14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(.quaternary, lineWidth: 1)
+                        )
                     }
-                    .padding(14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color(nsColor: .controlBackgroundColor))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(.quaternary, lineWidth: 1)
-                    )
                 }
             }
         }
@@ -1625,21 +1786,41 @@ struct NotesView: View {
     }
 
     private func notesEmptyState(controller: NotesController, state: NotesState, sessionID: String) -> some View {
-        ScrollView {
-            VStack(spacing: 18) {
-                Spacer(minLength: 72)
+        let isEmbeddedMeetingFamilyDetail = state.selectedMeetingFamily != nil
 
-                Image(systemName: "sparkles")
-                    .font(.system(size: 26, weight: .light))
-                    .foregroundStyle(.tertiary)
+        return ScrollView {
+            VStack(spacing: isEmbeddedMeetingFamilyDetail ? 16 : 18) {
+                if isEmbeddedMeetingFamilyDetail {
+                    HStack(spacing: 10) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 16, weight: .light))
+                            .foregroundStyle(.tertiary)
 
-                VStack(spacing: 6) {
-                    Text("Generate Notes")
-                        .font(.system(size: 22, weight: .semibold))
-                    Text("Summarize this transcript into structured meeting notes.")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Generate Notes")
+                                .font(.system(size: 18, weight: .semibold))
+                            Text("Summarize this transcript into structured meeting notes.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: 300, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer(minLength: 72)
+
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 26, weight: .light))
+                        .foregroundStyle(.tertiary)
+
+                    VStack(spacing: 6) {
+                        Text("Generate Notes")
+                            .font(.system(size: 22, weight: .semibold))
+                        Text("Summarize this transcript into structured meeting notes.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                 }
 
                 if case .error(let error) = state.notesGenerationStatus {
@@ -1649,6 +1830,7 @@ struct NotesView: View {
                         Text(error)
                             .font(.system(size: 12))
                     }
+                    .frame(maxWidth: isEmbeddedMeetingFamilyDetail ? 300 : .infinity, alignment: .leading)
                     .foregroundStyle(.red)
                 }
 
@@ -1710,10 +1892,13 @@ struct NotesView: View {
                 }
                 .frame(maxWidth: 300)
 
-                Spacer()
+                if !isEmbeddedMeetingFamilyDetail {
+                    Spacer()
+                }
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: isEmbeddedMeetingFamilyDetail ? .topLeading : .center)
             .padding(.horizontal, 24)
+            .padding(.vertical, isEmbeddedMeetingFamilyDetail ? 24 : 0)
         }
     }
 
