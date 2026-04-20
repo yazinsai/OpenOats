@@ -6,6 +6,8 @@ struct ControlBar: View {
     let isMicMuted: Bool
     let modelDisplayName: String
     let transcriptionPrompt: String
+    let batchStatus: BatchAudioTranscriber.Status
+    let batchIsImporting: Bool
     let kbIndexingStatus: KnowledgeBaseIndexingStatus
     let statusMessage: String?
     let errorMessage: String?
@@ -48,6 +50,11 @@ struct ControlBar: View {
 
             if shouldShowStatusArea {
                 VStack(alignment: .leading, spacing: 8) {
+                    if batchStatus.isFooterVisible {
+                        BatchActivityStatusView(status: batchStatus, isImporting: batchIsImporting)
+                            .accessibilityIdentifier("app.controlBar.batchStatus")
+                    }
+
                     if let status = statusMessage, status != "Ready" {
                         modelStatusSection(status: status)
                     }
@@ -131,7 +138,9 @@ struct ControlBar: View {
     }
 
     private var shouldShowStatusArea: Bool {
-        (statusMessage != nil && statusMessage != "Ready") || kbIndexingStatus.isVisible
+        batchStatus.isFooterVisible
+            || (statusMessage != nil && statusMessage != "Ready")
+            || kbIndexingStatus.isVisible
     }
 
     @ViewBuilder
@@ -169,6 +178,17 @@ struct ControlBar: View {
                     .foregroundStyle(.tertiary)
                 }
             }
+        }
+    }
+}
+
+private extension BatchAudioTranscriber.Status {
+    var isFooterVisible: Bool {
+        switch self {
+        case .loading, .transcribing, .completed:
+            return true
+        case .idle, .cancelled, .failed:
+            return false
         }
     }
 }
@@ -236,5 +256,75 @@ private struct KnowledgeBaseStatusView: View {
             .monospacedDigit()
         }
         .help(status.helpText)
+    }
+}
+
+private struct BatchActivityStatusView: View {
+    let status: BatchAudioTranscriber.Status
+    let isImporting: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                switch status {
+                case .loading:
+                    ProgressView()
+                        .controlSize(.small)
+                case .transcribing:
+                    ProgressView()
+                        .controlSize(.small)
+                case .completed:
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.green)
+                case .idle, .cancelled, .failed:
+                    EmptyView()
+                }
+
+                Text(title)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                if let trailingText {
+                    Text(trailingText)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                }
+            }
+
+            if let progress {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+            }
+        }
+    }
+
+    private var title: String {
+        switch status {
+        case .loading:
+            return isImporting ? "Preparing to import…" : "Loading batch model…"
+        case .transcribing:
+            return isImporting ? "Importing meeting recording…" : "Re-transcribing…"
+        case .completed:
+            return isImporting ? "Meeting recording imported" : "Re-transcription complete"
+        case .idle, .cancelled, .failed:
+            return ""
+        }
+    }
+
+    private var progress: Double? {
+        if case .transcribing(let value) = status {
+            return value
+        }
+        return nil
+    }
+
+    private var trailingText: String? {
+        guard let progress else { return nil }
+        return "\(Int(progress * 100))%"
     }
 }
