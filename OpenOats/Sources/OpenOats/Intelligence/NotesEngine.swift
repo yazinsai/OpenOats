@@ -8,6 +8,7 @@ final class NotesEngine {
     enum Mode {
         case live
         case scripted(markdown: String)
+        case scriptedDelayed(markdown: String, delay: Duration)
     }
 
     @ObservationIgnored nonisolated(unsafe) private var _isGenerating = false
@@ -51,11 +52,28 @@ final class NotesEngine {
         generatedMarkdown = ""
         error = nil
 
-        if case .scripted(let markdown) = mode {
+        switch mode {
+        case .scripted(let markdown):
             generatedMarkdown = markdown
             isGenerating = false
             onFinished()
             return
+        case .scriptedDelayed(let markdown, let delay):
+            let task = Task { [weak self] in
+                do {
+                    try await Task.sleep(for: delay)
+                    guard !Task.isCancelled else { return }
+                    self?.generatedMarkdown = markdown
+                } catch {
+                    // Ignore cancellation for scripted test mode.
+                }
+                self?.isGenerating = false
+                onFinished()
+            }
+            currentTask = task
+            return
+        case .live:
+            break
         }
 
         let apiKey: String?

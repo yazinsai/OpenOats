@@ -50,6 +50,14 @@ struct NotesFolderDefinition: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+struct MeetingFamilyPreferences: Codable, Equatable, Sendable {
+    var templateID: UUID?
+
+    var isEmpty: Bool {
+        templateID == nil
+    }
+}
+
 /// Controls how eagerly the suggestion engine surfaces talking points.
 enum SuggestionVerbosity: String, CaseIterable, Identifiable {
     /// Mostly silent — surfaces suggestions only when highly relevant (current default behavior).

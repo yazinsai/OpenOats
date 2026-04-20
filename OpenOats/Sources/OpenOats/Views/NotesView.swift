@@ -833,7 +833,11 @@ struct NotesView: View {
                 } else {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
-                            meetingFamilyOverviewSection(selection: selection, historyCount: state.meetingHistoryEntries.count)
+                            meetingFamilyOverviewSection(
+                                state: state,
+                                selection: selection,
+                                historyCount: state.meetingHistoryEntries.count
+                            )
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(20)
@@ -1004,7 +1008,11 @@ struct NotesView: View {
     }
 
     @ViewBuilder
-    private func meetingFamilyOverviewSection(selection: MeetingFamilySelection, historyCount: Int) -> some View {
+    private func meetingFamilyOverviewSection(
+        state: NotesState,
+        selection: MeetingFamilySelection,
+        historyCount: Int
+    ) -> some View {
         if let event = selection.upcomingEvent {
             let prepNotes = Binding(
                 get: { settings.meetingPrepNotes(for: event) },
@@ -1043,7 +1051,7 @@ struct NotesView: View {
                         }
 
                         Button {
-                            startRecording(for: event)
+                            startRecording(for: event, selectedTemplate: state.selectedTemplate)
                         } label: {
                             Label("Start recording", systemImage: "mic.fill")
                                 .font(.system(size: 12, weight: .semibold))
@@ -1285,7 +1293,8 @@ struct NotesView: View {
         detailViewMode = session.hasNotes ? .notes : .transcript
     }
 
-    private func startRecording(for event: CalendarEvent) {
+    private func startRecording(for event: CalendarEvent, selectedTemplate: MeetingTemplate?) {
+        coordinator.selectedTemplate = selectedTemplate
         let prepNotes = settings.meetingPrepNotes(for: event)
         coordinator.queueExternalCommand(
             .startSession(
@@ -1672,9 +1681,37 @@ struct NotesView: View {
         case .idle, .completed, .error:
             if let notes = state.loadedNotes {
                 notesContentView(notes, sessionDirectory: state.selectedSessionDirectory)
+            } else if state.loadedTranscript.isEmpty {
+                notesNoTranscriptState(state: state)
             } else {
                 notesEmptyState(controller: controller, state: state, sessionID: sessionID)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func notesNoTranscriptState(state: NotesState) -> some View {
+        let isEmbeddedMeetingFamilyDetail = state.selectedMeetingFamily != nil
+
+        if isEmbeddedMeetingFamilyDetail {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("No transcript")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("There are no recorded utterances to turn into notes for this session.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 24)
+            }
+        } else {
+            ContentUnavailableView(
+                "No Transcript",
+                systemImage: "waveform",
+                description: Text("There are no recorded utterances to turn into notes for this session.")
+            )
         }
     }
 
@@ -1869,6 +1906,23 @@ struct NotesView: View {
                             RoundedRectangle(cornerRadius: 12)
                                 .strokeBorder(.quaternary, lineWidth: 1)
                         )
+
+                        if let selection = state.selectedMeetingFamily {
+                            Toggle(isOn: Binding(
+                                get: {
+                                    guard let selectedTemplate = state.selectedTemplate else { return false }
+                                    return settings.meetingFamilyPreferences(forHistoryKey: selection.key)?.templateID == selectedTemplate.id
+                                },
+                                set: { controller.setSelectedTemplateSavedForMeetingFamily($0) }
+                            )) {
+                                Text("Use as default for meetings like this")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .toggleStyle(.checkbox)
+                            .font(.system(size: 11))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
 
                     Button {

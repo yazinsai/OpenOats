@@ -94,6 +94,21 @@ final class NotesControllerTests: XCTestCase {
         return (controller, coordinator)
     }
 
+    private func makeController(
+        root: URL,
+        settings: AppSettings? = nil,
+        notesEngine: NotesEngine
+    ) -> (NotesController, AppCoordinator) {
+        let coordinator = AppCoordinator(
+            sessionRepository: SessionRepository(rootDirectory: root),
+            templateStore: TemplateStore(rootDirectory: root),
+            notesEngine: notesEngine,
+            transcriptStore: TranscriptStore()
+        )
+        let controller = NotesController(coordinator: coordinator, settings: settings)
+        return (controller, coordinator)
+    }
+
     // MARK: - Tests
 
     func testSelectSessionLoadsTranscriptAndNotes() async {
@@ -628,6 +643,37 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertTrue(controller.state.loadedTranscript.isEmpty)
     }
 
+    func testSelectSessionUsesMeetingFamilyTemplatePreferenceInsteadOfGenericTemplate() async {
+        let (root, notes) = makeTempDirs()
+        let settings = makeSettings(notesDirectory: notes)
+        let (controller, coordinator) = makeController(root: root, settings: settings)
+
+        let event = CalendarEvent(
+            id: "evt-weekly",
+            title: "Weekly Sync",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+        settings.setMeetingFamilyTemplatePreference(TemplateStore.standUpID, for: event)
+
+        await seedSession(
+            coordinator: coordinator,
+            sessionID: "weekly",
+            title: "Weekly Sync",
+            calendarEvent: event
+        )
+        await controller.loadHistory()
+
+        controller.selectSession("weekly")
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertEqual(controller.state.selectedTemplate?.id, TemplateStore.standUpID)
+    }
+
     func testNormalizedNotesMarkdownPrependsFallbackHeadingWhenMissing() {
         let markdown = NotesController.normalizedNotesMarkdown(
             "## Summary\nHello",
@@ -729,6 +775,36 @@ final class NotesControllerTests: XCTestCase {
 
         XCTAssertFalse(controller.state.freshlyGeneratedSessionIDs.contains(sessionID), "Should clear the fresh badge when selected")
         XCTAssertNotNil(controller.state.loadedNotes, "Should load the generated notes")
+    }
+
+    func testCancelGenerationDoesNotPersistPartialNotes() async {
+        let (root, notes) = makeTempDirs()
+        let settings = makeSettings(notesDirectory: notes)
+        let notesEngine = NotesEngine(
+            mode: .scriptedDelayed(
+                markdown: "# Partial Notes\n\n## Summary\nThis should not persist.",
+                delay: .milliseconds(300)
+            )
+        )
+        let (controller, coordinator) = makeController(root: root, settings: settings, notesEngine: notesEngine)
+        let sessionID = "session_test_cancel_generation"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID)
+        await controller.loadHistory()
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        controller.generateNotes(sessionID: sessionID, settings: settings)
+        try? await Task.sleep(for: .milliseconds(50))
+        controller.cancelGeneration()
+        try? await Task.sleep(for: .milliseconds(400))
+
+        XCTAssertEqual(controller.state.notesGenerationStatus, .idle)
+        XCTAssertTrue(controller.state.streamingMarkdown.isEmpty)
+        XCTAssertNil(controller.state.loadedNotes)
+
+        let data = await coordinator.sessionRepository.loadSessionData(sessionID: sessionID)
+        XCTAssertNil(data.notes)
     }
 
     func testAllTagsHidesGranolaImportMetadataTags() async {

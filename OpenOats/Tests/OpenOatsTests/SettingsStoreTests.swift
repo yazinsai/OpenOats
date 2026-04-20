@@ -414,6 +414,49 @@ final class SettingsStoreTests: XCTestCase {
         )
     }
 
+    func testMeetingFamilyTemplatePreferenceCanonicalizesThroughAliases() {
+        let store = makeStore()
+        store.meetingHistoryAliasesByKey = [
+            "payment ops": "payment ops merchant standup",
+        ]
+
+        let renamedEvent = CalendarEvent(
+            id: "evt-renamed",
+            title: "Payment Ops / Merchant standup",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+        let legacyEvent = CalendarEvent(
+            id: "evt-legacy",
+            title: "Payment Ops",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        store.setMeetingFamilyTemplatePreference(TemplateStore.standUpID, for: renamedEvent)
+
+        XCTAssertEqual(
+            store.meetingFamilyPreferences(for: legacyEvent)?.templateID,
+            TemplateStore.standUpID
+        )
+        XCTAssertEqual(
+            store.meetingFamilyPreferencesByKey[MeetingHistoryResolver.historyKey(for: renamedEvent)]?.templateID,
+            TemplateStore.standUpID
+        )
+
+        store.setMeetingFamilyTemplatePreference(nil, for: legacyEvent)
+        XCTAssertNil(store.meetingFamilyPreferences(for: renamedEvent))
+        XCTAssertTrue(store.meetingFamilyPreferencesByKey.isEmpty)
+    }
+
     func testKbFolderURLWhenEmpty() {
         let store = makeStore()
         XCTAssertNil(store.kbFolderURL)

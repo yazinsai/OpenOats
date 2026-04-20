@@ -114,6 +114,7 @@ final class NotesController {
     /// The session ID that triggered the currently in-progress generation, if any.
     /// Used to prevent bleeding status/content onto a different session when the user switches mid-generation.
     @ObservationIgnored private var generatingSessionID: String?
+    @ObservationIgnored private var cancelledGenerationSessionIDs: Set<String> = []
 
     /// Audio player for session recordings.
     @ObservationIgnored private var audioPlayer: AVPlayer?
@@ -227,14 +228,13 @@ final class NotesController {
             state.audioFileURL = data.audioURL
 
             let session = state.sessionHistory.first { $0.id == sessionID }
-            if let snapID = session?.templateSnapshot?.id {
-                state.selectedTemplate = coordinator.templateStore.template(for: snapID)
-            } else {
-                state.selectedTemplate = coordinator.templateStore.template(for: TemplateStore.genericID)
-            }
+            let familySelection = session.map { Self.meetingFamilySelection(for: $0, calendarEvent: data.calendarEvent) }
+            state.selectedTemplate = selectedTemplate(
+                forSessionTemplateID: session?.templateSnapshot?.id,
+                meetingFamilyKey: familySelection?.key
+            )
 
-            if let session {
-                let familySelection = Self.meetingFamilySelection(for: session, calendarEvent: data.calendarEvent)
+            if let familySelection {
                 state.selectedMeetingFamily = familySelection
                 presentMeetingHistory(for: familySelection)
             }
@@ -260,6 +260,10 @@ final class NotesController {
         state.selectedSessionDirectory = nil
         state.audioFileURL = nil
         state.showingOriginal = false
+        state.selectedTemplate = selectedTemplate(
+            forSessionTemplateID: nil,
+            meetingFamilyKey: selection.key
+        )
         coordinator.batchTextCleaner.cancel()
         syncCleanupStatus()
         presentMeetingHistory(for: selection)
@@ -352,6 +356,7 @@ final class NotesController {
         let capturedCalendarEvent = state.loadedCalendarEvent
 
         generatingSessionID = sessionID
+        cancelledGenerationSessionIDs.remove(sessionID)
         state.notesGenerationStatus = .generating
         state.streamingMarkdown = ""
 
@@ -384,6 +389,14 @@ final class NotesController {
 
     private func finishGeneration(sessionID: String, template: MeetingTemplate) async {
         defer { generatingSessionID = nil }
+
+        if cancelledGenerationSessionIDs.remove(sessionID) != nil {
+            if state.selectedSessionID == sessionID {
+                state.notesGenerationStatus = .idle
+                state.streamingMarkdown = ""
+            }
+            return
+        }
 
         // Always save notes to disk regardless of which session the user is now on
         if !coordinator.notesEngine.generatedMarkdown.isEmpty {
@@ -422,6 +435,9 @@ final class NotesController {
     }
 
     func cancelGeneration() {
+        if let sessionID = generatingSessionID {
+            cancelledGenerationSessionIDs.insert(sessionID)
+        }
         coordinator.notesEngine.cancel()
         generatingSessionID = nil
         state.notesGenerationStatus = .idle
@@ -686,6 +702,18 @@ final class NotesController {
         state.selectedTemplate = template
     }
 
+    func setSelectedTemplateSavedForMeetingFamily(_ enabled: Bool) {
+        guard let settings,
+              let selection = state.selectedMeetingFamily else { return }
+
+        if enabled {
+            guard let template = state.selectedTemplate else { return }
+            settings.setMeetingFamilyTemplatePreference(template.id, forHistoryKey: selection.key)
+        } else {
+            settings.setMeetingFamilyTemplatePreference(nil, forHistoryKey: selection.key)
+        }
+    }
+
     // MARK: - Accessors
 
     /// Templates available for generation.
@@ -716,6 +744,31 @@ final class NotesController {
     }
 
     // MARK: - Private
+
+    private func selectedTemplate(
+        forSessionTemplateID sessionTemplateID: UUID?,
+        meetingFamilyKey: String?
+    ) -> MeetingTemplate? {
+        if let sessionTemplateID,
+           sessionTemplateID != TemplateStore.genericID,
+           let template = coordinator.templateStore.template(for: sessionTemplateID) {
+            return template
+        }
+
+        if let meetingFamilyKey,
+           let preferredID = settings?.meetingFamilyPreferences(forHistoryKey: meetingFamilyKey)?.templateID,
+           let template = coordinator.templateStore.template(for: preferredID) {
+            return template
+        }
+
+        if let sessionTemplateID,
+           let template = coordinator.templateStore.template(for: sessionTemplateID) {
+            return template
+        }
+
+        return coordinator.templateStore.template(for: TemplateStore.genericID)
+            ?? TemplateStore.builtInTemplates.first
+    }
 
     func loadHistory() async {
         state.sessionHistory = await coordinator.sessionRepository.listSessions()

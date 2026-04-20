@@ -848,6 +848,20 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _meetingFamilyPreferencesByKey: [String: MeetingFamilyPreferences]
+    var meetingFamilyPreferencesByKey: [String: MeetingFamilyPreferences] {
+        get { access(keyPath: \.meetingFamilyPreferencesByKey); return _meetingFamilyPreferencesByKey }
+        set {
+            withMutation(keyPath: \.meetingFamilyPreferencesByKey) {
+                _meetingFamilyPreferencesByKey = Self.normalizeMeetingFamilyPreferences(newValue)
+                defaults.set(
+                    Self.encodeMeetingFamilyPreferences(_meetingFamilyPreferencesByKey),
+                    forKey: "meetingFamilyPreferencesByKey"
+                )
+            }
+        }
+    }
+
     func meetingPrepNotes(for event: CalendarEvent) -> String {
         let key = canonicalMeetingHistoryKey(for: event)
         return meetingPrepNotesByKey[key] ?? ""
@@ -873,6 +887,38 @@ final class SettingsStore {
             for: historyKey,
             aliases: meetingHistoryAliasesByKey
         )
+    }
+
+    func meetingFamilyPreferences(for event: CalendarEvent) -> MeetingFamilyPreferences? {
+        meetingFamilyPreferences(forHistoryKey: MeetingHistoryResolver.historyKey(for: event))
+    }
+
+    func meetingFamilyPreferences(forHistoryKey historyKey: String) -> MeetingFamilyPreferences? {
+        let key = canonicalMeetingHistoryKey(forHistoryKey: historyKey)
+        return meetingFamilyPreferencesByKey[key]
+    }
+
+    func setMeetingFamilyTemplatePreference(_ templateID: UUID?, for event: CalendarEvent) {
+        setMeetingFamilyTemplatePreference(
+            templateID,
+            forHistoryKey: MeetingHistoryResolver.historyKey(for: event)
+        )
+    }
+
+    func setMeetingFamilyTemplatePreference(_ templateID: UUID?, forHistoryKey historyKey: String) {
+        let key = canonicalMeetingHistoryKey(forHistoryKey: historyKey)
+        guard !key.isEmpty else { return }
+
+        var preferences = meetingFamilyPreferencesByKey
+        var value = preferences[key] ?? MeetingFamilyPreferences()
+        value.templateID = templateID
+
+        if value.isEmpty {
+            preferences.removeValue(forKey: key)
+        } else {
+            preferences[key] = value
+        }
+        meetingFamilyPreferencesByKey = preferences
     }
 
     func linkMeetingHistoryAlias(from aliasHistoryKey: String, to canonicalHistoryKey: String) {
@@ -1106,6 +1152,9 @@ final class SettingsStore {
         self._meetingHistoryAliasesByKey = Self.decodeMeetingHistoryAliases(
             defaults.data(forKey: "meetingHistoryAliasesByKey")
         ) ?? [:]
+        self._meetingFamilyPreferencesByKey = Self.decodeMeetingFamilyPreferences(
+            defaults.data(forKey: "meetingFamilyPreferencesByKey")
+        ) ?? [:]
         self._kbFolderPath = defaults.string(forKey: "kbFolderPath") ?? ""
         self._hasSeenLaunchAtLoginSuggestion = defaults.bool(forKey: "hasSeenLaunchAtLoginSuggestion")
 
@@ -1253,6 +1302,16 @@ final class SettingsStore {
         return try? JSONDecoder().decode([String: String].self, from: data)
     }
 
+    private static func encodeMeetingFamilyPreferences(_ preferences: [String: MeetingFamilyPreferences]) -> Data? {
+        let encoder = JSONEncoder()
+        return try? encoder.encode(preferences)
+    }
+
+    private static func decodeMeetingFamilyPreferences(_ data: Data?) -> [String: MeetingFamilyPreferences]? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode([String: MeetingFamilyPreferences].self, from: data)
+    }
+
     private static func normalizeMeetingPrepNotes(_ notes: [String: String]) -> [String: String] {
         var result: [String: String] = [:]
         for (rawKey, rawValue) in notes {
@@ -1273,6 +1332,19 @@ final class SettingsStore {
                 continue
             }
             result[normalizedKey] = normalizedValue
+        }
+        return result
+    }
+
+    private static func normalizeMeetingFamilyPreferences(
+        _ preferences: [String: MeetingFamilyPreferences]
+    ) -> [String: MeetingFamilyPreferences] {
+        var result: [String: MeetingFamilyPreferences] = [:]
+        for (rawKey, rawValue) in preferences {
+            let normalizedKey = rawKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalizedKey.isEmpty else { continue }
+            guard !rawValue.isEmpty else { continue }
+            result[normalizedKey] = rawValue
         }
         return result
     }
