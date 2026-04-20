@@ -504,7 +504,8 @@ actor SessionRepository {
                 engine: meta.engine,
                 tags: meta.tags,
                 folderPath: meta.folderPath,
-                source: meta.source
+                source: meta.source,
+                calendarEvent: meta.calendarEvent
             )
             writeSessionMetadata(refreshedMeta, sessionID: sessionID)
         }

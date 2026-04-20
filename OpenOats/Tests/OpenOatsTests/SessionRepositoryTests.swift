@@ -494,6 +494,44 @@ final class SessionRepositoryTests: XCTestCase {
         await repo.deleteSession(sessionID: sessionID)
     }
 
+    func testSaveFinalTranscriptPreservesCalendarEvent() async {
+        let handle = await repo.startSession()
+        let sessionID = handle.sessionID
+        let startDate = Date(timeIntervalSince1970: 1_000)
+        let calendarEvent = makeCalendarEvent()
+
+        let utterance = Utterance(text: "Live", speaker: .you, timestamp: startDate)
+        await repo.appendLiveUtterance(sessionID: sessionID, utterance: utterance)
+
+        await repo.finalizeSession(
+            sessionID: sessionID,
+            metadata: SessionFinalizeMetadata(
+                endedAt: startDate.addingTimeInterval(30),
+                utteranceCount: 1,
+                title: "Customer Sync",
+                language: "en-GB",
+                meetingApp: "Zoom",
+                engine: "parakeetV2",
+                templateSnapshot: nil,
+                utterances: [utterance],
+                calendarEvent: calendarEvent
+            )
+        )
+
+        let finalRecords = [
+            SessionRecord(speaker: .you, text: "Final A", timestamp: startDate),
+            SessionRecord(speaker: .them, text: "Final B", timestamp: startDate.addingTimeInterval(12)),
+        ]
+        await repo.saveFinalTranscript(sessionID: sessionID, records: finalRecords)
+
+        let session = await repo.loadSession(id: sessionID)
+        XCTAssertEqual(session.calendarEvent?.id, calendarEvent.id)
+        XCTAssertEqual(session.calendarEvent?.title, calendarEvent.title)
+        XCTAssertEqual(session.calendarEvent?.calendarTitle, calendarEvent.calendarTitle)
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
     func testBatchMetaPersistsEffectiveSystemSampleRate() async {
         let sessionID = "session_batch_meta"
         await repo.seedSession(
