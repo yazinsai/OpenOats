@@ -1625,55 +1625,95 @@ struct NotesView: View {
     }
 
     private func notesEmptyState(controller: NotesController, state: NotesState, sessionID: String) -> some View {
-        ContentUnavailableView {
-            Label("Generate Notes", systemImage: "sparkles")
-        } description: {
-            Text("Summarize this transcript into structured meeting notes.")
-        } actions: {
-            if case .error(let error) = state.notesGenerationStatus {
-                Text(error)
+        ScrollView {
+            VStack(spacing: 18) {
+                Spacer(minLength: 72)
+
+                Image(systemName: "sparkles")
+                    .font(.system(size: 26, weight: .light))
+                    .foregroundStyle(.tertiary)
+
+                VStack(spacing: 6) {
+                    Text("Generate Notes")
+                        .font(.system(size: 22, weight: .semibold))
+                    Text("Summarize this transcript into structured meeting notes.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                if case .error(let error) = state.notesGenerationStatus {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(error)
+                            .font(.system(size: 12))
+                    }
                     .foregroundStyle(.red)
-                    .font(.system(size: 12))
-            }
+                }
 
-            VStack(spacing: 8) {
-                if let selected = state.selectedTemplate {
-                    Menu {
-                        ForEach(controller.availableTemplates) { template in
-                            Button {
-                                controller.selectTemplate(template)
+                VStack(spacing: 10) {
+                    if let selectedTemplate = state.selectedTemplate {
+                        HStack(spacing: 10) {
+                            Text("Template")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
+                            Menu {
+                                ForEach(controller.availableTemplates) { template in
+                                    Button {
+                                        controller.selectTemplate(template)
+                                    } label: {
+                                        Label(template.name, systemImage: template.icon)
+                                    }
+                                    .disabled(selectedTemplate.id == template.id)
+                                }
                             } label: {
-                                Label(template.name, systemImage: template.icon)
+                                Label(selectedTemplate.name, systemImage: selectedTemplate.icon)
+                                    .font(.system(size: 12))
                             }
-                            .disabled(selected.id == template.id)
+                            .menuStyle(.button)
+                            .buttonStyle(.bordered)
+                            .fixedSize()
+                            .help("Choose the note template for the first generation")
                         }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(.quaternary, lineWidth: 1)
+                        )
+                    }
+
+                    Button {
+                        controller.generateNotes(sessionID: sessionID, settings: settings)
                     } label: {
-                        Label(selected.name, systemImage: selected.icon)
-                            .font(.system(size: 12))
+                        Label("Generate Notes", systemImage: "sparkles")
+                            .frame(maxWidth: .infinity)
                     }
-                    .menuStyle(.button)
-                    .buttonStyle(.bordered)
-                    .fixedSize()
-                }
+                    .buttonStyle(OpenOatsProminentButtonStyle())
+                    .disabled(state.loadedTranscript.isEmpty || controller.isAnyGenerationInProgress)
+                    .accessibilityIdentifier("notes.generateButton")
 
-                Button {
-                    controller.generateNotes(sessionID: sessionID, settings: settings)
-                } label: {
-                    Label("Generate Notes", systemImage: "sparkles")
-                }
-                .buttonStyle(OpenOatsProminentButtonStyle())
-                .disabled(state.loadedTranscript.isEmpty || controller.isAnyGenerationInProgress)
-                .accessibilityIdentifier("notes.generateButton")
-
-                if controller.isAnyGenerationInProgress {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.mini)
-                        Text("Generating notes for \"\(controller.generatingSessionName)\"...")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                    if controller.isAnyGenerationInProgress {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.mini)
+                            Text("Generating notes for \"\(controller.generatingSessionName)\"...")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
+                .frame(maxWidth: 300)
+
+                Spacer()
             }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
         }
     }
 
