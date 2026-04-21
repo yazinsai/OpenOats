@@ -160,6 +160,27 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.loadedCalendarEvent?.participants.count, 2)
     }
 
+    func testSelectSessionLoadsRawAudioSources() async throws {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_raw_audio_sources"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID)
+
+        let audioDir = coordinator.sessionRepository.sessionsDirectoryURL
+            .appendingPathComponent(sessionID, isDirectory: true)
+            .appendingPathComponent("audio", isDirectory: true)
+        try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+        try Data("sys".utf8).write(to: audioDir.appendingPathComponent("sys.caf"))
+        try Data("mic".utf8).write(to: audioDir.appendingPathComponent("mic.caf"))
+
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(controller.state.availableAudioSources.map(\.kind), [.system, .microphone])
+        XCTAssertEqual(controller.state.audioFileURL?.lastPathComponent, "sys.caf")
+    }
+
     func testGenerateNotesUpdatesStatus() async {
         let (root, notes) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)

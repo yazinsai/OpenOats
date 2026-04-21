@@ -1597,6 +1597,13 @@ struct NotesView: View {
                                             .font(.system(size: 11, weight: .medium))
                                             .foregroundStyle(folderColor(for: entry.session.folderPath))
                                     }
+
+                                    if entry.hasAudio {
+                                        Image(systemName: "waveform")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(.secondary)
+                                            .help("Audio recording available")
+                                    }
                                 }
 
                                 HStack(spacing: 8) {
@@ -1704,7 +1711,7 @@ struct NotesView: View {
                 notesToolbarActions(controller: controller, state: state)
             }
 
-            if state.audioFileURL != nil {
+            if !state.availableAudioSources.isEmpty {
                 audioPlaybackButton(controller: controller, state: state)
             }
 
@@ -1821,14 +1828,24 @@ struct NotesView: View {
 
     @ViewBuilder
     private func audioPlaybackButton(controller: NotesController, state: NotesState) -> some View {
+        let sources = state.availableAudioSources
+        let selectedURL = state.audioFileURL ?? sources.first?.url
+
         Menu {
-            Button {
-                controller.toggleAudioPlayback()
-            } label: {
-                Label(
-                    state.isPlayingAudio ? "Pause" : "Play Recording",
-                    systemImage: state.isPlayingAudio ? "pause.fill" : "play.fill"
-                )
+            ForEach(sources) { source in
+                let isSelectedSource = selectedURL == source.url
+                let actionTitle = state.isPlayingAudio && isSelectedSource
+                    ? "Pause \(source.displayName)"
+                    : "Play \(source.displayName)"
+
+                Button {
+                    controller.toggleAudioPlayback(source: source)
+                } label: {
+                    Label(
+                        actionTitle,
+                        systemImage: state.isPlayingAudio && isSelectedSource ? "pause.fill" : "play.fill"
+                    )
+                }
             }
             Divider()
             Button {

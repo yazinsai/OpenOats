@@ -713,6 +713,30 @@ final class SessionRepositoryTests: XCTestCase {
         XCTAssertNil(meta)
     }
 
+    func testAudioSourcesExposeRawBatchAudioFiles() async throws {
+        let sessionID = "session_batch_audio_sources"
+        _ = try makeSessionWithBatchAudio(sessionID: sessionID)
+
+        let sources = await repo.audioSources(for: sessionID)
+        let defaultAudioURL = await repo.audioFileURL(for: sessionID)
+
+        XCTAssertEqual(sources.map(\.kind), [.system, .microphone])
+        XCTAssertEqual(sources.first?.url.lastPathComponent, "sys.caf")
+        XCTAssertEqual(sources.last?.url.lastPathComponent, "mic.caf")
+        XCTAssertEqual(defaultAudioURL?.lastPathComponent, "sys.caf")
+    }
+
+    func testAudioSourcesIgnoreTranscriptBackupFiles() async throws {
+        let sessionID = "session_ignores_transcript_backup"
+        let sessionDir = try makeSessionWithBatchAudio(sessionID: sessionID)
+        let backupURL = sessionDir.appendingPathComponent("transcript.live.jsonl.pre-cleanup.bak")
+        try Data().write(to: backupURL, options: .atomic)
+
+        let sources = await repo.audioSources(for: sessionID)
+
+        XCTAssertEqual(sources.map(\.kind), [.system, .microphone])
+    }
+
     // MARK: - moveToRecentlyDeleted
 
     func testMoveToRecentlyDeleted() async {

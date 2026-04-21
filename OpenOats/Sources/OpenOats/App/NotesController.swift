@@ -30,7 +30,9 @@ struct NotesState {
     var tagFilter: String?
     /// Directory for the currently selected session (used for image loading).
     var selectedSessionDirectory: URL?
-    /// URL of the playable audio file for the selected session (nil if no audio).
+    /// All playable audio sources for the selected session.
+    var availableAudioSources: [SessionAudioSource] = []
+    /// URL of the currently selected playable audio source for the session (nil if no audio).
     var audioFileURL: URL?
     /// Whether audio is currently playing.
     var isPlayingAudio: Bool = false
@@ -86,6 +88,7 @@ struct MeetingHistorySelection: Equatable {
 struct MeetingHistoryEntry: Identifiable {
     let session: SessionIndex
     let notesPreview: String?
+    let hasAudio: Bool
 
     var id: String { session.id }
 }
@@ -237,6 +240,7 @@ final class NotesController {
             state.loadedTranscript = []
             state.loadedCalendarEvent = nil
             state.selectedSessionDirectory = nil
+            state.availableAudioSources = []
             state.audioFileURL = nil
             return
         }
@@ -247,6 +251,7 @@ final class NotesController {
         state.isEditingManualNotes = false
         state.loadedTranscript = []
         state.loadedCalendarEvent = nil
+        state.availableAudioSources = []
         state.audioFileURL = nil
         state.selectedSessionDirectory = coordinator.sessionRepository.sessionsDirectoryURL
             .appendingPathComponent(sessionID, isDirectory: true)
@@ -271,6 +276,7 @@ final class NotesController {
             state.isEditingManualNotes = unsavedDraft != nil
             state.loadedTranscript = data.transcript
             state.loadedCalendarEvent = data.calendarEvent
+            state.availableAudioSources = data.audioSources
             state.audioFileURL = data.audioURL
 
             let session = state.sessionHistory.first { $0.id == sessionID }
@@ -309,6 +315,7 @@ final class NotesController {
         state.loadedTranscript = []
         state.loadedCalendarEvent = nil
         state.selectedSessionDirectory = nil
+        state.availableAudioSources = []
         state.audioFileURL = nil
         state.showingOriginal = false
         state.selectedTemplate = selectedTemplate(
@@ -348,6 +355,7 @@ final class NotesController {
         state.isEditingManualNotes = false
         state.loadedTranscript = []
         state.loadedCalendarEvent = nil
+        state.availableAudioSources = []
         state.audioFileURL = nil
         state.selectedSessionDirectory = nil
         state.showingOriginal = false
@@ -357,25 +365,31 @@ final class NotesController {
 
     // MARK: - Audio Playback
 
-    func toggleAudioPlayback() {
-        guard let url = state.audioFileURL else { return }
+    func toggleAudioPlayback(source: SessionAudioSource? = nil) {
+        let targetURL = source?.url ?? state.audioFileURL ?? state.availableAudioSources.first?.url
+        guard let targetURL else { return }
 
-        if state.isPlayingAudio {
+        let currentPlayerURL = (audioPlayer?.currentItem?.asset as? AVURLAsset)?.url
+        state.audioFileURL = targetURL
+
+        if state.isPlayingAudio, currentPlayerURL == targetURL {
             audioPlayer?.pause()
             state.isPlayingAudio = false
             return
         }
 
-        if audioPlayer?.currentItem?.asset != AVURLAsset(url: url) {
+        if currentPlayerURL != targetURL {
             stopAudio()
-            let player = AVPlayer(url: url)
+            let player = AVPlayer(url: targetURL)
             audioPlayer = player
             playerObservation = NotificationCenter.default.addObserver(
                 forName: .AVPlayerItemDidPlayToEndTime,
                 object: player.currentItem,
                 queue: .main
             ) { [weak self] _ in
-                self?.state.isPlayingAudio = false
+                Task { @MainActor [weak self] in
+                    self?.state.isPlayingAudio = false
+                }
             }
         }
 
@@ -394,7 +408,7 @@ final class NotesController {
     }
 
     func revealAudioInFinder() {
-        guard let url = state.audioFileURL else { return }
+        guard let url = state.audioFileURL ?? state.availableAudioSources.first?.url else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
@@ -991,7 +1005,7 @@ final class NotesController {
         loadMeetingFamilyKnowledgeBaseCoverage(for: selection)
 
         let sessions = matchingMeetingHistorySessions(for: selection)
-        let entries = sessions.map { MeetingHistoryEntry(session: $0, notesPreview: nil) }
+        let entries = sessions.map { MeetingHistoryEntry(session: $0, notesPreview: nil, hasAudio: false) }
         state.meetingHistoryEntries = entries
         state.relatedMeetingSuggestions = loadMeetingHistorySuggestions(
             for: selection,
@@ -1013,6 +1027,7 @@ final class NotesController {
                 if Task.isCancelled { return }
 
                 let notes = await coordinator.sessionRepository.loadNotes(sessionID: session.id)
+                let hasAudio = !(await coordinator.sessionRepository.audioSources(for: session.id)).isEmpty
                 let preview = notes.flatMap { Self.notesPreview(from: $0.markdown) }
 
                 guard state.selectedMeetingFamily?.key == selection.key else { return }
@@ -1020,10 +1035,12 @@ final class NotesController {
                     continue
                 }
 
-                if state.meetingHistoryEntries[index].notesPreview != preview {
+                if state.meetingHistoryEntries[index].notesPreview != preview
+                    || state.meetingHistoryEntries[index].hasAudio != hasAudio {
                     state.meetingHistoryEntries[index] = MeetingHistoryEntry(
                         session: state.meetingHistoryEntries[index].session,
-                        notesPreview: preview
+                        notesPreview: preview,
+                        hasAudio: hasAudio
                     )
                 }
             }
