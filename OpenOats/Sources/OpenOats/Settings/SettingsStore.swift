@@ -1224,7 +1224,7 @@ final class SettingsStore {
         self._appleNotesFolderName = defaults.string(forKey: "appleNotesFolderName") ?? "OpenOats"
         self._appleNotesAccountName = defaults.string(forKey: "appleNotesAccountName") ?? "iCloud"
         if defaults.object(forKey: "appleNotesAutoExport") == nil {
-            self._appleNotesAutoExport = true
+            self._appleNotesAutoExport = false
         } else {
             self._appleNotesAutoExport = defaults.bool(forKey: "appleNotesAutoExport")
         }
