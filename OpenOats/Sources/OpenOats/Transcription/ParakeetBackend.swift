@@ -15,23 +15,29 @@ final class ParakeetBackend: TranscriptionBackend, @unchecked Sendable {
 
     func checkStatus() -> BackendStatus {
         let exists = AsrModels.modelsExist(
-            at: AsrModels.defaultCacheDirectory(for: version),
+            at: OpenOatsLocalModelStore.parakeetDirectory(for: version),
             version: version
         )
         return exists ? .ready : .needsDownload(prompt: "Transcription requires a one-time model download.")
     }
 
     func clearModelCache() {
-        let cacheDir = AsrModels.defaultCacheDirectory(for: version)
-        try? FileManager.default.removeItem(at: cacheDir)
+        OpenOatsLocalModelStore.clearParakeetCache(for: version)
     }
 
     func prepare(onStatus: @Sendable (String) -> Void, onProgress: @escaping @Sendable (Double) -> Void) async throws {
-        onStatus("Downloading \(displayName)...")
-        let models = try await AsrModels.downloadAndLoad(version: version) { progress in
-            onProgress(progress.fractionCompleted)
+        let models: AsrModels
+        let modelsDirectory = OpenOatsLocalModelStore.parakeetDirectory(for: version)
+        if AsrModels.modelsExist(at: modelsDirectory, version: version) {
+            onStatus("Initializing \(displayName)...")
+            models = try await AsrModels.load(from: modelsDirectory, version: version)
+        } else {
+            onStatus("Downloading \(displayName)...")
+            models = try await AsrModels.downloadAndLoad(to: modelsDirectory, version: version) { progress in
+                onProgress(progress.fractionCompleted)
+            }
+            onStatus("Initializing \(displayName)...")
         }
-        onStatus("Initializing \(displayName)...")
         let asr = AsrManager(config: .default)
         try await asr.loadModels(models)
         self.asrManager = asr
