@@ -1557,7 +1557,16 @@ struct NotesView: View {
     @ViewBuilder
     private func notesToolbarActions(controller: NotesController, state: NotesState) -> some View {
         if controller.isManualNotesSession {
-            if state.isEditingManualNotes || state.loadedNotes != nil {
+            if state.isEditingManualNotes {
+                imageInsertMenu(controller: controller, state: state)
+            } else if state.loadedNotes != nil {
+                Button {
+                    controller.startManualNotesEditing()
+                } label: {
+                    Label("Edit Notes", systemImage: "square.and.pencil")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.bordered)
                 imageInsertMenu(controller: controller, state: state)
             }
         } else if let notes = state.loadedNotes {
@@ -1685,7 +1694,13 @@ struct NotesView: View {
             generatingView(controller: controller, state: state)
         case .idle, .completed, .error:
             if state.loadedTranscript.isEmpty {
-                notesNoTranscriptState(controller: controller, state: state)
+                if state.isEditingManualNotes {
+                    notesNoTranscriptState(controller: controller, state: state)
+                } else if let notes = state.loadedNotes {
+                    notesContentView(notes, sessionDirectory: state.selectedSessionDirectory)
+                } else {
+                    notesNoTranscriptState(controller: controller, state: state)
+                }
             } else if let notes = state.loadedNotes {
                 notesContentView(notes, sessionDirectory: state.selectedSessionDirectory)
             } else {
@@ -1698,7 +1713,7 @@ struct NotesView: View {
     private func notesNoTranscriptState(controller: NotesController, state: NotesState) -> some View {
         let isEmbeddedMeetingFamilyDetail = state.selectedMeetingFamily != nil
 
-        if state.loadedNotes != nil || state.isEditingManualNotes {
+        if state.isEditingManualNotes {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 8) {

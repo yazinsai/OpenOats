@@ -219,10 +219,12 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(savedNotes?.markdown, "Manual notes for a failed recording.")
         XCTAssertEqual(controller.state.loadedNotes?.markdown, "Manual notes for a failed recording.")
         XCTAssertFalse(controller.hasUnsavedManualNotesChanges)
+        XCTAssertFalse(controller.state.isEditingManualNotes)
 
         controller.selectSession(sessionID)
         try? await Task.sleep(for: .milliseconds(200))
         XCTAssertEqual(controller.state.manualNotesDraft, "Manual notes for a failed recording.")
+        XCTAssertFalse(controller.state.isEditingManualNotes)
     }
 
     func testInsertImagePreservesUnsavedManualNotesDraft() async {

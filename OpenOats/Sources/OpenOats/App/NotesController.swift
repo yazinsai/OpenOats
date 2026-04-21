@@ -237,7 +237,7 @@ final class NotesController {
             state.loadedNotes = data.notes
             state.manualNotesDraft = unsavedDraft ?? data.notes?.markdown ?? ""
             state.savedManualNotesMarkdown = data.notes?.markdown ?? ""
-            state.isEditingManualNotes = data.notes != nil || unsavedDraft != nil
+            state.isEditingManualNotes = unsavedDraft != nil
             state.loadedTranscript = data.transcript
             state.loadedCalendarEvent = data.calendarEvent
             state.audioFileURL = data.audioURL
@@ -531,7 +531,7 @@ final class NotesController {
 
     func discardManualNotesDraft() {
         state.manualNotesDraft = state.savedManualNotesMarkdown
-        state.isEditingManualNotes = state.loadedNotes != nil || !state.savedManualNotesMarkdown.isEmpty
+        state.isEditingManualNotes = false
         if let sessionID = state.selectedSessionID {
             unsavedManualNotesDraftsBySessionID.removeValue(forKey: sessionID)
         }
@@ -561,7 +561,7 @@ final class NotesController {
             state.loadedNotes = notes
             state.manualNotesDraft = notes.markdown
             state.savedManualNotesMarkdown = notes.markdown
-            state.isEditingManualNotes = true
+            state.isEditingManualNotes = false
             unsavedManualNotesDraftsBySessionID.removeValue(forKey: sessionID)
         }
     }
