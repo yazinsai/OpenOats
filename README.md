@@ -12,6 +12,14 @@ A meeting note-taker that talks back.
 
 OpenOats sits next to your call, transcribes both sides of the conversation in real time, and searches your own notes to surface things worth saying — right when you need them.
 
+---
+
+### Sponsored by Recall.ai — API for desktop recording
+
+If you're looking for a hosted desktop recording API, consider checking out [Recall.ai](https://dub.sh/openoats), an API that records Zoom, Google Meet, Microsoft Teams, in-person meetings, and more.
+
+---
+
 <p align="center">
   <img src="assets/demo.webp" width="720" alt="OpenOats during a call — suggestions drawn from your own notes appear at the top, live transcript below" />
 </p>
