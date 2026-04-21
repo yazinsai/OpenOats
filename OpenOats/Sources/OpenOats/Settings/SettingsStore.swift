@@ -921,6 +921,29 @@ final class SettingsStore {
         meetingFamilyPreferencesByKey = preferences
     }
 
+    func setMeetingFamilyFolderPreference(_ folderPath: String?, for event: CalendarEvent) {
+        setMeetingFamilyFolderPreference(
+            folderPath,
+            forHistoryKey: MeetingHistoryResolver.historyKey(for: event)
+        )
+    }
+
+    func setMeetingFamilyFolderPreference(_ folderPath: String?, forHistoryKey historyKey: String) {
+        let key = canonicalMeetingHistoryKey(forHistoryKey: historyKey)
+        guard !key.isEmpty else { return }
+
+        var preferences = meetingFamilyPreferencesByKey
+        var value = preferences[key] ?? MeetingFamilyPreferences()
+        value.folderPath = Self.normalizeMeetingFamilyFolderPath(folderPath)
+
+        if value.isEmpty {
+            preferences.removeValue(forKey: key)
+        } else {
+            preferences[key] = value
+        }
+        meetingFamilyPreferencesByKey = preferences
+    }
+
     func linkMeetingHistoryAlias(from aliasHistoryKey: String, to canonicalHistoryKey: String) {
         let aliasKey = MeetingHistoryResolver.historyKey(for: aliasHistoryKey)
         let targetKey = canonicalMeetingHistoryKey(forHistoryKey: canonicalHistoryKey)
@@ -1343,10 +1366,21 @@ final class SettingsStore {
         for (rawKey, rawValue) in preferences {
             let normalizedKey = rawKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             guard !normalizedKey.isEmpty else { continue }
-            guard !rawValue.isEmpty else { continue }
-            result[normalizedKey] = rawValue
+            let normalizedValue = MeetingFamilyPreferences(
+                templateID: rawValue.templateID,
+                folderPath: normalizeMeetingFamilyFolderPath(rawValue.folderPath)
+            )
+            guard !normalizedValue.isEmpty else { continue }
+            result[normalizedKey] = normalizedValue
         }
         return result
+    }
+
+    private static func normalizeMeetingFamilyFolderPath(_ folderPath: String?) -> String? {
+        guard let normalized = NotesFolderDefinition.normalizePath(folderPath ?? "") else { return nil }
+        let componentCount = normalized.split(separator: "/").count
+        guard componentCount <= 2 else { return nil }
+        return normalized
     }
 }
 

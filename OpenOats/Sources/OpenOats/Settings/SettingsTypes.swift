@@ -52,9 +52,10 @@ struct NotesFolderDefinition: Identifiable, Codable, Equatable, Sendable {
 
 struct MeetingFamilyPreferences: Codable, Equatable, Sendable {
     var templateID: UUID?
+    var folderPath: String?
 
     var isEmpty: Bool {
-        templateID == nil
+        templateID == nil && folderPath == nil
     }
 }
 

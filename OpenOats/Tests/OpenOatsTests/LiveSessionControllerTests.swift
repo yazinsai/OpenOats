@@ -271,6 +271,55 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertNil(coordinator.pendingExternalCommand)
     }
 
+    func testFinalizeCurrentSessionAppliesMeetingFamilyFolderPreference() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: [Utterance(text: "Hello", speaker: .you)]
+        )
+
+        let event = CalendarEvent(
+            id: "evt-folder",
+            title: "Payment Ops",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: true,
+            meetingURL: URL(string: "https://meet.example.com/payment-ops")
+        )
+        settings.setMeetingFamilyFolderPreference("Work/Payments", for: event)
+
+        controller.startSession(settings: settings, calendarEventOverride: event)
+
+        var sessionID: String?
+        for _ in 0..<20 {
+            sessionID = await coordinator.sessionRepository.getCurrentSessionID()
+            if sessionID != nil { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        guard let sessionID else {
+            return XCTFail("Expected session ID after starting session")
+        }
+
+        let utterance = Utterance(
+            text: "Follow up on merchant fees",
+            speaker: .you,
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        _ = coordinator.transcriptStore.append(utterance)
+
+        controller.stopSession(settings: settings)
+        await controller.finalizeCurrentSession(settings: settings)
+
+        let detail = await coordinator.sessionRepository.loadSession(id: sessionID)
+        XCTAssertEqual(detail.index.folderPath, "Work/Payments")
+    }
+
     func testFinalizeCurrentSessionCollapsesEmptyGhostSessionIntoRecentRealSession() async {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)
@@ -325,7 +374,6 @@ final class LiveSessionControllerTests: XCTestCase {
         let mergedDetail = await coordinator.sessionRepository.loadSession(id: "session_real")
         XCTAssertEqual(mergedDetail.calendarEvent?.id, event.id)
     }
-
     func testRunningStateChangeCallbackFires() async {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)
