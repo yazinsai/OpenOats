@@ -803,6 +803,78 @@ actor SessionRepository {
         writeSessionMetadata(meta, sessionID: sessionID)
     }
 
+    func updateSessionCalendarEvent(sessionID: String, calendarEvent: CalendarEvent?) {
+        if var meta = loadSessionMetadataFile(sessionID: sessionID) {
+            meta.calendarEvent = calendarEvent
+            writeSessionMetadata(meta, sessionID: sessionID)
+            scheduleMirror(sessionID: sessionID)
+            return
+        }
+
+        let index = LegacySessionReader.loadIndex(sessionID: sessionID, sessionsDirectory: sessionsDirectory)
+        let meta = SessionMetadata(
+            id: index.id,
+            startedAt: index.startedAt,
+            endedAt: index.endedAt,
+            templateSnapshot: index.templateSnapshot,
+            title: index.title,
+            utteranceCount: index.utteranceCount,
+            hasNotes: index.hasNotes,
+            language: index.language,
+            meetingApp: index.meetingApp,
+            engine: index.engine,
+            tags: index.tags,
+            folderPath: index.folderPath,
+            source: index.source,
+            calendarEvent: calendarEvent
+        )
+        let dir = sessionDirectory(for: sessionID)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        writeSessionMetadata(meta, sessionID: sessionID)
+        scheduleMirror(sessionID: sessionID)
+    }
+
+    func reconcileGhostSession(
+        sessionID: String,
+        maximumGap: TimeInterval = 5 * 60
+    ) -> String? {
+        guard let ghostMeta = loadSessionMetadataFile(sessionID: sessionID),
+              ghostMeta.utteranceCount == 0,
+              ghostMeta.hasNotes == false,
+              let calendarEvent = ghostMeta.calendarEvent,
+              !sessionHasMeaningfulArtifacts(sessionID: sessionID) else { return nil }
+
+        let historyKey = MeetingHistoryResolver.historyKey(for: ghostMeta.title ?? calendarEvent.title)
+        guard !historyKey.isEmpty else { return nil }
+
+        let candidates = listSessions()
+            .filter { candidate in
+                guard candidate.id != sessionID else { return false }
+                guard candidate.utteranceCount > 0 else { return false }
+                guard MeetingHistoryResolver.historyKey(for: candidate.title ?? "") == historyKey else {
+                    return false
+                }
+                let referenceDate = candidate.endedAt ?? candidate.startedAt
+                let gap = ghostMeta.startedAt.timeIntervalSince(referenceDate)
+                return gap >= 0 && gap <= maximumGap
+            }
+            .sorted {
+                let lhsGap = ghostMeta.startedAt.timeIntervalSince($0.endedAt ?? $0.startedAt)
+                let rhsGap = ghostMeta.startedAt.timeIntervalSince($1.endedAt ?? $1.startedAt)
+                return lhsGap < rhsGap
+            }
+
+        guard let target = candidates.first else { return nil }
+
+        if let targetMeta = loadSessionMetadataFile(sessionID: target.id),
+           targetMeta.calendarEvent == nil {
+            updateSessionCalendarEvent(sessionID: target.id, calendarEvent: calendarEvent)
+        }
+
+        deleteSession(sessionID: sessionID)
+        return target.id
+    }
+
     /// Update source and tags for an imported session.
     func updateSessionSource(sessionID: String, source: String, tags: [String]) {
         guard var meta = loadSessionMetadataFile(sessionID: sessionID) else { return }
@@ -873,6 +945,20 @@ actor SessionRepository {
 
     private static func normalizeSessionFolderPath(_ folderPath: String?) -> String? {
         NotesFolderDefinition.normalizePath(folderPath ?? "")
+    }
+
+    private func sessionHasMeaningfulArtifacts(sessionID: String) -> Bool {
+        if !loadTranscript(sessionID: sessionID).isEmpty { return true }
+        if !loadLiveTranscript(sessionID: sessionID).isEmpty { return true }
+
+        let audioDir = sessionDirectory(for: sessionID).appendingPathComponent("audio", isDirectory: true)
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: audioDir,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        return !contents.isEmpty
     }
 
     private static func isInternalSessionTag(_ tag: String) -> Bool {

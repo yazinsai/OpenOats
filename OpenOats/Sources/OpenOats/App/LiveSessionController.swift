@@ -490,14 +490,23 @@ final class LiveSessionController {
             }
         }
 
-        // 7. Update UI state + refresh history
-        coordinator.lastEndedSession = index
+        // 7. Collapse obviously empty duplicate sessions back into the real meeting session.
+        var effectiveIndex = index
+        var shouldRunBatchRetranscription = settings?.enableBatchRetranscription == true
+        if utteranceCount == 0,
+           let mergedSessionID = await coordinator.sessionRepository.reconcileGhostSession(sessionID: sessionID) {
+            effectiveIndex = await coordinator.sessionRepository.loadSession(id: mergedSessionID).index
+            shouldRunBatchRetranscription = false
+        }
+
+        // 8. Update UI state + refresh history
+        coordinator.lastEndedSession = effectiveIndex
         coordinator.sessionTemplateSnapshot = nil
         _currentSessionID = nil
         await coordinator.loadHistory()
 
-        // 8. Kick off batch transcription if enabled
-        if let settings, settings.enableBatchRetranscription, let batchAudioTranscriber = coordinator.batchAudioTranscriber {
+        // 9. Kick off batch transcription if enabled
+        if let settings, shouldRunBatchRetranscription, let batchAudioTranscriber = coordinator.batchAudioTranscriber {
             let batchSessionID = sessionID
             let batchModel = settings.batchTranscriptionModel
             let batchLocale = settings.locale

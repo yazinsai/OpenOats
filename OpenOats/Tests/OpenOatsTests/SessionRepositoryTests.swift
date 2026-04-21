@@ -532,6 +532,95 @@ final class SessionRepositoryTests: XCTestCase {
         await repo.deleteSession(sessionID: sessionID)
     }
 
+    func testReconcileGhostSessionMergesCalendarEventIntoRecentRealSession() async {
+        let calendarEvent = makeCalendarEvent()
+        let realStartedAt = Date().addingTimeInterval(-180)
+        let realEndedAt = realStartedAt.addingTimeInterval(60)
+
+        await repo.seedSession(
+            id: "session_real",
+            records: [SessionRecord(speaker: .you, text: "Hello", timestamp: realStartedAt)],
+            startedAt: realStartedAt,
+            endedAt: realEndedAt,
+            title: "Customer Sync"
+        )
+
+        let ghostHandle = await repo.startSession()
+        await repo.finalizeSession(
+            sessionID: ghostHandle.sessionID,
+            metadata: SessionFinalizeMetadata(
+                endedAt: realEndedAt.addingTimeInterval(120),
+                utteranceCount: 0,
+                title: "Customer Sync",
+                language: nil,
+                meetingApp: nil,
+                engine: nil,
+                templateSnapshot: nil,
+                utterances: [],
+                calendarEvent: calendarEvent
+            )
+        )
+
+        let mergedSessionID = await repo.reconcileGhostSession(sessionID: ghostHandle.sessionID)
+
+        XCTAssertEqual(mergedSessionID, "session_real")
+        let sessions = await repo.listSessions()
+        XCTAssertEqual(sessions.filter { $0.title == "Customer Sync" }.map(\.id), ["session_real"])
+
+        let mergedDetail = await repo.loadSession(id: "session_real")
+        XCTAssertEqual(mergedDetail.calendarEvent?.id, calendarEvent.id)
+
+        await repo.deleteSession(sessionID: "session_real")
+    }
+
+    func testReconcileGhostSessionKeepsEmptySessionWhenAudioArtifactsExist() async throws {
+        let calendarEvent = makeCalendarEvent()
+        let realStartedAt = Date().addingTimeInterval(-180)
+        let realEndedAt = realStartedAt.addingTimeInterval(60)
+
+        await repo.seedSession(
+            id: "session_real",
+            records: [SessionRecord(speaker: .you, text: "Hello", timestamp: realStartedAt)],
+            startedAt: realStartedAt,
+            endedAt: realEndedAt,
+            title: "Customer Sync"
+        )
+
+        let ghostHandle = await repo.startSession()
+        await repo.finalizeSession(
+            sessionID: ghostHandle.sessionID,
+            metadata: SessionFinalizeMetadata(
+                endedAt: realEndedAt.addingTimeInterval(120),
+                utteranceCount: 0,
+                title: "Customer Sync",
+                language: nil,
+                meetingApp: nil,
+                engine: nil,
+                templateSnapshot: nil,
+                utterances: [],
+                calendarEvent: calendarEvent
+            )
+        )
+
+        let audioDir = rootDir
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(ghostHandle.sessionID, isDirectory: true)
+            .appendingPathComponent("audio", isDirectory: true)
+        try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+        try Data("mic".utf8).write(to: audioDir.appendingPathComponent("mic.caf"), options: .atomic)
+
+        let mergedSessionID = await repo.reconcileGhostSession(sessionID: ghostHandle.sessionID)
+
+        XCTAssertNil(mergedSessionID)
+        let sessions = await repo.listSessions()
+        XCTAssertTrue(sessions.contains(where: { $0.id == ghostHandle.sessionID }))
+        let realDetail = await repo.loadSession(id: "session_real")
+        XCTAssertNil(realDetail.calendarEvent)
+
+        await repo.deleteSession(sessionID: ghostHandle.sessionID)
+        await repo.deleteSession(sessionID: "session_real")
+    }
+
     func testBatchMetaPersistsEffectiveSystemSampleRate() async {
         let sessionID = "session_batch_meta"
         await repo.seedSession(

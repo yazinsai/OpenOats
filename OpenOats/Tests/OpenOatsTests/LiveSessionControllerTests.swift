@@ -271,6 +271,61 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertNil(coordinator.pendingExternalCommand)
     }
 
+    func testFinalizeCurrentSessionCollapsesEmptyGhostSessionIntoRecentRealSession() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: []
+        )
+
+        let event = CalendarEvent(
+            id: "evt-ghost-merge",
+            title: "Payment Ops / Merchant stand up",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: true,
+            meetingURL: URL(string: "https://meet.example.com/payment-ops")
+        )
+
+        let realStartedAt = Date().addingTimeInterval(-180)
+        await coordinator.sessionRepository.seedSession(
+            id: "session_real",
+            records: [SessionRecord(speaker: .you, text: "Real meeting", timestamp: realStartedAt)],
+            startedAt: realStartedAt,
+            endedAt: realStartedAt.addingTimeInterval(120),
+            title: "Payment Ops / Merchant stand up"
+        )
+
+        controller.startSession(settings: settings, calendarEventOverride: event)
+
+        var sessionID: String?
+        for _ in 0..<20 {
+            sessionID = await coordinator.sessionRepository.getCurrentSessionID()
+            if sessionID != nil { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        guard let ghostSessionID = sessionID else {
+            return XCTFail("Expected session ID after starting session")
+        }
+
+        controller.stopSession(settings: settings)
+        await controller.finalizeCurrentSession(settings: settings)
+
+        let sessions = await coordinator.sessionRepository.listSessions()
+        XCTAssertFalse(sessions.contains(where: { $0.id == ghostSessionID }))
+        XCTAssertTrue(sessions.contains(where: { $0.id == "session_real" }))
+        XCTAssertEqual(coordinator.lastEndedSession?.id, "session_real")
+
+        let mergedDetail = await coordinator.sessionRepository.loadSession(id: "session_real")
+        XCTAssertEqual(mergedDetail.calendarEvent?.id, event.id)
+    }
+
     func testRunningStateChangeCallbackFires() async {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)
