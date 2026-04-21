@@ -780,6 +780,46 @@ final class NotesControllerTests: XCTestCase {
         )
     }
 
+    func testMeetingFamilyKnowledgeBaseCoverageDeduplicatesDocumentsByPath() {
+        let coverage = NotesController.meetingFamilyKnowledgeBaseCoverage(from: [
+            KBContextPack(
+                matchedText: "Merchant ops decisions",
+                relativePath: "ops/payment-ops.md",
+                documentTitle: "Payment Ops",
+                score: 0.91
+            ),
+            KBContextPack(
+                matchedText: "Older chunk",
+                relativePath: "ops/payment-ops.md",
+                documentTitle: "Payment Ops",
+                score: 0.44
+            ),
+            KBContextPack(
+                matchedText: "Platform notes",
+                relativePath: "platform/weekly.md",
+                documentTitle: "Weekly Platform",
+                score: 0.72
+            ),
+        ])
+
+        XCTAssertEqual(coverage?.documentCount, 2)
+        XCTAssertEqual(coverage?.topDocuments.map(\.title), ["Payment Ops", "Weekly Platform"])
+    }
+
+    func testMeetingFamilyKnowledgeBaseCoverageFallsBackToDocumentTitleWithoutPath() {
+        let coverage = NotesController.meetingFamilyKnowledgeBaseCoverage(from: [
+            KBContextPack(
+                matchedText: "Roadmap details",
+                relativePath: "",
+                documentTitle: "Roadmap",
+                score: 0.81
+            )
+        ])
+
+        XCTAssertEqual(coverage?.documentCount, 1)
+        XCTAssertEqual(coverage?.topDocuments.first?.title, "Roadmap")
+    }
+
     func testNormalizedNotesMarkdownPrependsFallbackHeadingWhenMissing() {
         let markdown = NotesController.normalizedNotesMarkdown(
             "## Summary\nHello",
