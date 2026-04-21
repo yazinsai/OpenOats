@@ -77,6 +77,10 @@ actor OpenRouterClient {
 
                     var urlRequest = URLRequest(url: targetURL)
                     urlRequest.httpMethod = "POST"
+                    // Idle timeout between streamed bytes. Must cover cold-start of local models
+                    // (Ollama/MLX) and first-token latency of reasoning models, which routinely
+                    // exceed URLRequest's 60s default.
+                    urlRequest.timeoutInterval = 300
                     urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     if let apiKey, !apiKey.isEmpty {
                         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -142,6 +146,9 @@ actor OpenRouterClient {
         )
         var urlRequest = URLRequest(url: targetURL)
         urlRequest.httpMethod = "POST"
+        // Total request timeout — covers gate / judge / structured-JSON calls that may hit
+        // slow local models or reasoning models. Default 60s is too aggressive in practice.
+        urlRequest.timeoutInterval = 300
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let apiKey, !apiKey.isEmpty {
             urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
