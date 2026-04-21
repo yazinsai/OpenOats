@@ -1237,6 +1237,7 @@ struct NotesView: View {
                                 preferredFolder: preferredFolder,
                                 folders: folders
                             )
+                            meetingFamilyKnowledgeBaseSignal(state: state)
                         }
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
@@ -1316,6 +1317,7 @@ struct NotesView: View {
                         preferredFolder: preferredFolder,
                         folders: folders
                     )
+                    meetingFamilyKnowledgeBaseSignal(state: state)
                 }
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
@@ -1430,6 +1432,49 @@ struct NotesView: View {
     }
 
     @ViewBuilder
+    private func meetingFamilyKnowledgeBaseSignal(state: NotesState) -> some View {
+        if state.isMeetingFamilyKnowledgeBaseLoading {
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Searching KB")
+            }
+            .font(.system(size: 12, weight: .medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(Color(nsColor: .textBackgroundColor).opacity(0.4))
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+            )
+            .fixedSize()
+            .help("Looking for relevant knowledge base documents for this meeting family")
+        } else if let coverage = state.meetingFamilyKnowledgeBaseCoverage {
+            HStack(spacing: 6) {
+                Image(systemName: "books.vertical.fill")
+                    .foregroundStyle(.secondary)
+                Text(coverage.badgeText)
+            }
+            .font(.system(size: 12, weight: .medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(Color(nsColor: .textBackgroundColor).opacity(0.4))
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+            )
+            .fixedSize()
+            .help(coverage.helpText)
+        }
+    }
+
+    @ViewBuilder
     private func focusedSessionDetail(controller: NotesController, state: NotesState, selection: MeetingFamilySelection) -> some View {
         VStack(spacing: 0) {
             detailToolbar(controller: controller, state: state)
@@ -1506,6 +1551,8 @@ struct NotesView: View {
             }
 
             Spacer(minLength: 0)
+
+            meetingFamilyKnowledgeBaseSignal(state: state)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
