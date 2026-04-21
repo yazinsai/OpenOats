@@ -801,6 +801,39 @@ final class NotesController {
         }
     }
 
+    func setMeetingFamilyFolderPreference(_ folderPath: String?) {
+        guard let settings,
+              let selection = state.selectedMeetingFamily else { return }
+        settings.setMeetingFamilyFolderPreference(folderPath, forHistoryKey: selection.key)
+    }
+
+    func applyMeetingFamilyFolderPreference(
+        _ folderPath: String?,
+        moveExistingSessions: Bool,
+        forHistoryKey historyKey: String? = nil
+    ) {
+        guard let settings else { return }
+        let key = historyKey ?? state.selectedMeetingFamily?.key
+        guard let key, !key.isEmpty else { return }
+
+        settings.setMeetingFamilyFolderPreference(folderPath, forHistoryKey: key)
+
+        guard moveExistingSessions else { return }
+
+        let sessionIDs = MeetingHistoryResolver.matchingSessions(
+            forHistoryKey: key,
+            sessionHistory: state.sessionHistory,
+            aliases: settings.meetingHistoryAliasesByKey
+        ).map(\.id)
+
+        Task {
+            for sessionID in sessionIDs {
+                await coordinator.sessionRepository.updateSessionFolder(sessionID: sessionID, folderPath: folderPath)
+            }
+            await loadHistory()
+        }
+    }
+
     // MARK: - Accessors
 
     /// Templates available for generation.

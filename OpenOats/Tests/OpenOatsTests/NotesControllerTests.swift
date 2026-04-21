@@ -745,6 +745,41 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.selectedTemplate?.id, TemplateStore.standUpID)
     }
 
+    func testApplyMeetingFamilyFolderPreferenceCanMoveExistingSessions() async {
+        let (root, notes) = makeTempDirs()
+        let settings = makeSettings(notesDirectory: notes)
+        let (controller, coordinator) = makeController(root: root, settings: settings)
+
+        await seedSession(coordinator: coordinator, sessionID: "current", title: "Weekly All Hands")
+        await seedSession(coordinator: coordinator, sessionID: "older", title: "Weekly All Hands")
+        await controller.loadHistory()
+
+        let event = CalendarEvent(
+            id: "evt_family_folder",
+            title: "Weekly All Hands",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        controller.showMeetingHistory(for: event)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        controller.applyMeetingFamilyFolderPreference("Work/All Hands", moveExistingSessions: true)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertEqual(settings.meetingFamilyPreferences(for: event)?.folderPath, "Work/All Hands")
+        XCTAssertEqual(
+            controller.state.sessionHistory
+                .filter { ["current", "older"].contains($0.id) }
+                .map(\.folderPath),
+            ["Work/All Hands", "Work/All Hands"]
+        )
+    }
+
     func testNormalizedNotesMarkdownPrependsFallbackHeadingWhenMissing() {
         let markdown = NotesController.normalizedNotesMarkdown(
             "## Summary\nHello",
