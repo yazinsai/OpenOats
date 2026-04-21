@@ -1924,7 +1924,7 @@ struct NotesView: View {
         case .cleaned:
             showOriginalButton(controller: controller, state: state)
         }
-        if settings.appleNotesEnabled, state.loadedNotes != nil {
+        if settings.appleNotesEnabled, !state.loadedTranscript.isEmpty || state.loadedNotes != nil {
             appleNotesSyncButton(controller: controller, state: state)
         }
     }
@@ -1956,6 +1956,9 @@ struct NotesView: View {
                 }
                 .buttonStyle(.bordered)
                 imageInsertMenu(controller: controller, state: state)
+                if settings.appleNotesEnabled {
+                    appleNotesSyncButton(controller: controller, state: state)
+                }
             }
         } else if let notes = state.loadedNotes {
             Menu {
@@ -1981,8 +1984,14 @@ struct NotesView: View {
                 ? "Generating notes for \"\(controller.generatingSessionName)\"..."
                 : "Click to regenerate, or pick a different template")
             imageInsertMenu(controller: controller, state: state)
+            if settings.appleNotesEnabled {
+                appleNotesSyncButton(controller: controller, state: state)
+            }
         } else {
             imageInsertMenu(controller: controller, state: state)
+            if settings.appleNotesEnabled, !state.loadedTranscript.isEmpty {
+                appleNotesSyncButton(controller: controller, state: state)
+            }
         }
     }
 
