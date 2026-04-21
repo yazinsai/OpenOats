@@ -59,12 +59,15 @@ enum AppleNotesService {
             includeTranscript: settings.appleNotesIncludeTranscript
         )
         Task {
-            await runExport(accountName: accountName, folderName: folderName, title: title, html: html)
+            let existingNoteID = storedNoteID(for: sessionIndex.id)
+            if let noteID = await runExport(accountName: accountName, folderName: folderName, title: title, html: html, existingNoteID: existingNoteID) {
+                markSynced(sessionID: sessionIndex.id, noteID: noteID)
+            }
         }
     }
 
     /// Sync the current session's notes (and optionally transcript) to Apple Notes.
-    /// Called manually from the "Sync to Apple Notes" button in NotesView.
+    /// Called manually from the "Export" button in NotesView.
     /// Returns `true` on success, `false` if the AppleScript failed or there is nothing to sync.
     @MainActor
     static func sync(
@@ -86,9 +89,10 @@ enum AppleNotesService {
             transcriptEntries: transcriptEntries(from: records),
             includeTranscript: settings.appleNotesIncludeTranscript
         )
-        let success = await runExport(accountName: accountName, folderName: folderName, title: title, html: html)
-        if success { markSynced(sessionID: sessionIndex.id) }
-        return success
+        let existingNoteID = storedNoteID(for: sessionIndex.id)
+        guard let noteID = await runExport(accountName: accountName, folderName: folderName, title: title, html: html, existingNoteID: existingNoteID) else { return false }
+        markSynced(sessionID: sessionIndex.id, noteID: noteID)
+        return true
     }
 
     // MARK: - Note Title
@@ -111,7 +115,10 @@ enum AppleNotesService {
     /// returns `true` on success. NSAppleScript must execute on the main thread —
     /// we use withCheckedContinuation + DispatchQueue.main.async to bridge this
     /// without blocking the caller.
-    private static func runExport(accountName: String, folderName: String, title: String, html: String) async -> Bool {
+    /// Returns the note's persistent ID on success, nil on failure.
+    /// Callers should store the returned ID and pass it back on subsequent exports
+    /// so the same note is updated rather than a new one created.
+    private static func runExport(accountName: String, folderName: String, title: String, html: String, existingNoteID: String?) async -> String? {
         let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("openoats-apple-notes-export.html")
 
@@ -119,18 +126,22 @@ enum AppleNotesService {
             try html.write(to: tempURL, atomically: true, encoding: .utf8)
         } catch {
             Log.appleNotes.error("AppleNotes: failed to write temp file: \(error, privacy: .public)")
-            return false
+            return nil
         }
 
         // AppleScript has no backslash escaping inside string literals —
         // replace any double-quotes in user-provided strings with single-quotes.
-        let safeAccount = accountName.replacingOccurrences(of: "\"", with: "'")
-        let safeFolder  = folderName.replacingOccurrences(of: "\"", with: "'")
-        let safeTitle   = title.replacingOccurrences(of: "\"", with: "'")
-        let safePath    = tempURL.path  // NSTemporaryDirectory paths are quote-free
+        let safeAccount  = accountName.replacingOccurrences(of: "\"", with: "'")
+        let safeFolder   = folderName.replacingOccurrences(of: "\"", with: "'")
+        let safeTitle    = title.replacingOccurrences(of: "\"", with: "'")
+        let safePath     = tempURL.path  // NSTemporaryDirectory paths are quote-free
+        let safeNoteID   = existingNoteID ?? ""
 
-        // Read outside the Notes tell block: more reliable, avoids sandbox
-        // path-access quirks inside a tell block.
+        // Strategy:
+        // 1. If we have a stored note ID, update by ID (most reliable — immune to renames).
+        // 2. Fall back to name search to recover from missing IDs (e.g. first export).
+        // 3. If nothing matches, create a new note and return its ID for future use.
+        // The script returns the note ID as its last value so Swift can store it.
         let source = """
             set noteBody to read POSIX file "\(safePath)" as «class utf8»
             tell application "Notes"
@@ -138,35 +149,42 @@ enum AppleNotesService {
                 if not (exists folder "\(safeFolder)" of targetAccount) then
                     make new folder at targetAccount with properties {name:"\(safeFolder)"}
                 end if
-                tell folder "\(safeFolder)" of targetAccount
-                    set matchingNotes to every note whose name is "\(safeTitle)"
-                    if (count of matchingNotes) > 0 then
-                        set body of (first item of matchingNotes) to noteBody
-                    else
-                        -- No name: Apple Notes derives the note name from the
-                        -- body's first line, which is the <h2> title we wrote.
-                        -- This avoids a duplicate small-font header above the body.
-                        make new note with properties {body:noteBody}
-                    end if
-                end tell
+                set targetFolder to folder "\(safeFolder)" of targetAccount
+                -- 1. Try stored ID first
+                if "\(safeNoteID)" is not "" then
+                    try
+                        set targetNote to note id "\(safeNoteID)"
+                        set body of targetNote to noteBody
+                        return id of targetNote
+                    end try
+                end if
+                -- 2. Fall back to name search
+                set matchingNotes to every note of targetFolder whose name is "\(safeTitle)"
+                if (count of matchingNotes) > 0 then
+                    set targetNote to first item of matchingNotes
+                    set body of targetNote to noteBody
+                    return id of targetNote
+                end if
+                -- 3. Create new note; Apple Notes derives its name from the first <h2>
+                set newNote to make new note at targetFolder with properties {body:noteBody}
+                return id of newNote
             end tell
             """
 
         return await withCheckedContinuation { continuation in
-            // NSAppleScript must run on the main thread. Awaiting this continuation
-            // yields the main actor, letting DispatchQueue.main pick up the block.
             DispatchQueue.main.async {
                 defer { try? FileManager.default.removeItem(at: tempURL) }
                 var errorDict: NSDictionary?
-                NSAppleScript(source: source)?.executeAndReturnError(&errorDict)
+                let result = NSAppleScript(source: source)?.executeAndReturnError(&errorDict)
                 if let error = errorDict {
                     let code    = error[NSAppleScript.errorNumber] as? Int ?? 0
                     let message = error[NSAppleScript.errorMessage] as? String ?? "unknown"
                     Log.appleNotes.error("AppleNotes export failed (code \(code, privacy: .public)): \(message, privacy: .public)")
-                    continuation.resume(returning: false)
+                    continuation.resume(returning: nil)
                 } else {
-                    Log.appleNotes.info("AppleNotes: exported \"\(safeTitle, privacy: .public)\"")
-                    continuation.resume(returning: true)
+                    let noteID = result?.stringValue
+                    Log.appleNotes.info("AppleNotes: exported \"\(safeTitle, privacy: .public)\" id=\(noteID ?? "unknown", privacy: .public)")
+                    continuation.resume(returning: noteID)
                 }
             }
         }
@@ -237,10 +255,16 @@ enum AppleNotesService {
     // MARK: - Sync Tracking
 
     /// Record that a session was successfully exported. Persists across launches.
-    static func markSynced(sessionID: String) {
-        var dict = syncRegistry()
-        dict[sessionID] = Date().timeIntervalSince1970
-        UserDefaults.standard.set(dict, forKey: "appleNotesSyncedSessions")
+    static func markSynced(sessionID: String, noteID: String? = nil) {
+        var dates = syncRegistry()
+        dates[sessionID] = Date().timeIntervalSince1970
+        UserDefaults.standard.set(dates, forKey: "appleNotesSyncedSessions")
+
+        if let noteID {
+            var ids = noteIDRegistry()
+            ids[sessionID] = noteID
+            UserDefaults.standard.set(ids, forKey: "appleNotesNoteIDs")
+        }
     }
 
     /// Returns the last sync date for a session, or nil if never synced.
@@ -249,8 +273,17 @@ enum AppleNotesService {
         return Date(timeIntervalSince1970: ts)
     }
 
+    /// Returns the Apple Notes note ID stored for a session, or nil if never exported.
+    static func storedNoteID(for sessionID: String) -> String? {
+        noteIDRegistry()[sessionID]
+    }
+
     private static func syncRegistry() -> [String: Double] {
         UserDefaults.standard.dictionary(forKey: "appleNotesSyncedSessions") as? [String: Double] ?? [:]
+    }
+
+    private static func noteIDRegistry() -> [String: String] {
+        UserDefaults.standard.dictionary(forKey: "appleNotesNoteIDs") as? [String: String] ?? [:]
     }
 
     // MARK: - Markdown Helpers
