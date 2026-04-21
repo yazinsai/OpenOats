@@ -14,6 +14,9 @@ struct NotesState {
     var linkingMeetingSuggestionKey: String?
     var loadedTranscript: [SessionRecord] = []
     var loadedNotes: GeneratedNotes?
+    var manualNotesDraft: String = ""
+    var savedManualNotesMarkdown: String = ""
+    var isEditingManualNotes: Bool = false
     var loadedCalendarEvent: CalendarEvent?
     var notesGenerationStatus: GenerationStatus = .idle
     var cleanupStatus: CleanupStatus = .idle
@@ -110,6 +113,7 @@ final class NotesController {
     /// Observation polling task for engine state mapping.
     @ObservationIgnored nonisolated(unsafe) private var engineObservationTask: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var meetingHistoryPreviewTask: Task<Void, Never>?
+    @ObservationIgnored private var unsavedManualNotesDraftsBySessionID: [String: String] = [:]
 
     /// The session ID that triggered the currently in-progress generation, if any.
     /// Used to prevent bleeding status/content onto a different session when the user switches mid-generation.
@@ -185,6 +189,7 @@ final class NotesController {
     // MARK: - Session Selection
 
     func selectSession(_ sessionID: String?) {
+        persistCurrentManualNotesDraftIfNeeded()
         cancelMeetingHistoryPreviewHydration()
         state.selectedSessionID = sessionID
         state.selectedMeetingFamily = nil
@@ -195,6 +200,9 @@ final class NotesController {
 
         guard let sessionID else {
             state.loadedNotes = nil
+            state.manualNotesDraft = ""
+            state.savedManualNotesMarkdown = ""
+            state.isEditingManualNotes = false
             state.loadedTranscript = []
             state.loadedCalendarEvent = nil
             state.selectedSessionDirectory = nil
@@ -203,6 +211,9 @@ final class NotesController {
         }
 
         state.loadedNotes = nil
+        state.manualNotesDraft = ""
+        state.savedManualNotesMarkdown = ""
+        state.isEditingManualNotes = false
         state.loadedTranscript = []
         state.loadedCalendarEvent = nil
         state.audioFileURL = nil
@@ -221,8 +232,12 @@ final class NotesController {
 
         Task {
             let data = await coordinator.sessionRepository.loadSessionData(sessionID: sessionID)
+            let unsavedDraft = unsavedManualNotesDraftsBySessionID[sessionID]
 
             state.loadedNotes = data.notes
+            state.manualNotesDraft = unsavedDraft ?? data.notes?.markdown ?? ""
+            state.savedManualNotesMarkdown = data.notes?.markdown ?? ""
+            state.isEditingManualNotes = data.notes != nil || unsavedDraft != nil
             state.loadedTranscript = data.transcript
             state.loadedCalendarEvent = data.calendarEvent
             state.audioFileURL = data.audioURL
@@ -245,6 +260,7 @@ final class NotesController {
     }
 
     func showMeetingFamily(for event: CalendarEvent) {
+        persistCurrentManualNotesDraftIfNeeded()
         cancelMeetingHistoryPreviewHydration()
         state.selectedSessionID = nil
         let selection = Self.meetingFamilySelection(for: event)
@@ -255,6 +271,9 @@ final class NotesController {
         stopAudio()
 
         state.loadedNotes = nil
+        state.manualNotesDraft = ""
+        state.savedManualNotesMarkdown = ""
+        state.isEditingManualNotes = false
         state.loadedTranscript = []
         state.loadedCalendarEvent = nil
         state.selectedSessionDirectory = nil
@@ -288,9 +307,13 @@ final class NotesController {
 
     func showCurrentMeetingFamilyOverview() {
         guard state.selectedMeetingFamily != nil else { return }
+        persistCurrentManualNotesDraftIfNeeded()
         state.selectedSessionID = nil
         stopAudio()
         state.loadedNotes = nil
+        state.manualNotesDraft = ""
+        state.savedManualNotesMarkdown = ""
+        state.isEditingManualNotes = false
         state.loadedTranscript = []
         state.loadedCalendarEvent = nil
         state.audioFileURL = nil
@@ -419,6 +442,9 @@ final class NotesController {
             if state.selectedSessionID == sessionID {
                 // User is still on this session — update UI directly
                 state.loadedNotes = notes
+                state.manualNotesDraft = notes.markdown
+                state.savedManualNotesMarkdown = notes.markdown
+                state.isEditingManualNotes = notes.markdown.isEmpty == false || state.loadedTranscript.isEmpty
                 state.notesGenerationStatus = .completed
             } else {
                 // User has moved away — show the blue "unread" badge in the sidebar
@@ -454,28 +480,89 @@ final class NotesController {
                 sessionID: sessionID, imageData: imageData
             )
             let imageRef = "\n\n![](images/\(filename))\n"
+            let isManualNotesSession = state.loadedTranscript.isEmpty
 
             if let existing = state.loadedNotes {
+                let baseMarkdown = isManualNotesSession ? state.manualNotesDraft : existing.markdown
                 let updated = GeneratedNotes(
                     template: existing.template,
                     generatedAt: existing.generatedAt,
-                    markdown: existing.markdown + imageRef
+                    markdown: baseMarkdown + imageRef
                 )
                 await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: updated)
                 state.loadedNotes = updated
+                state.manualNotesDraft = updated.markdown
+                state.savedManualNotesMarkdown = updated.markdown
             } else {
                 let template = state.selectedTemplate
                     ?? coordinator.templateStore.template(for: TemplateStore.genericID)
                     ?? TemplateStore.builtInTemplates.first!
+                let baseMarkdown = isManualNotesSession ? state.manualNotesDraft : ""
                 let notes = GeneratedNotes(
                     template: coordinator.templateStore.snapshot(of: template),
                     generatedAt: Date(),
-                    markdown: "![](images/\(filename))"
+                    markdown: baseMarkdown + (baseMarkdown.isEmpty ? "" : "\n\n") + "![](images/\(filename))"
                 )
                 await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: notes)
                 state.loadedNotes = notes
+                state.manualNotesDraft = notes.markdown
+                state.savedManualNotesMarkdown = notes.markdown
                 await loadHistory()
             }
+        }
+    }
+
+    // MARK: - Manual Notes
+
+    func updateManualNotesDraft(_ markdown: String) {
+        state.manualNotesDraft = markdown
+        state.isEditingManualNotes = true
+        guard let sessionID = state.selectedSessionID else { return }
+        if markdown == state.savedManualNotesMarkdown {
+            unsavedManualNotesDraftsBySessionID.removeValue(forKey: sessionID)
+        } else {
+            unsavedManualNotesDraftsBySessionID[sessionID] = markdown
+        }
+    }
+
+    func startManualNotesEditing() {
+        state.isEditingManualNotes = true
+    }
+
+    func discardManualNotesDraft() {
+        state.manualNotesDraft = state.savedManualNotesMarkdown
+        state.isEditingManualNotes = state.loadedNotes != nil || !state.savedManualNotesMarkdown.isEmpty
+        if let sessionID = state.selectedSessionID {
+            unsavedManualNotesDraftsBySessionID.removeValue(forKey: sessionID)
+        }
+    }
+
+    func saveManualNotes() {
+        guard let sessionID = state.selectedSessionID else { return }
+
+        let template = state.loadedNotes.flatMap { existing in
+            coordinator.templateStore.template(for: existing.template.id)
+        } ?? state.selectedTemplate
+            ?? coordinator.templateStore.template(for: TemplateStore.genericID)
+            ?? TemplateStore.builtInTemplates.first!
+        let existingGeneratedAt = state.loadedNotes?.generatedAt
+        let markdown = state.manualNotesDraft
+
+        Task {
+            let notes = GeneratedNotes(
+                template: coordinator.templateStore.snapshot(of: template),
+                generatedAt: existingGeneratedAt ?? Date(),
+                markdown: markdown
+            )
+            await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: notes)
+            await loadHistory()
+
+            guard state.selectedSessionID == sessionID else { return }
+            state.loadedNotes = notes
+            state.manualNotesDraft = notes.markdown
+            state.savedManualNotesMarkdown = notes.markdown
+            state.isEditingManualNotes = true
+            unsavedManualNotesDraftsBySessionID.removeValue(forKey: sessionID)
         }
     }
 
@@ -743,6 +830,15 @@ final class NotesController {
         return title.isEmpty ? "Untitled" : title
     }
 
+    var isManualNotesSession: Bool {
+        state.selectedSessionID != nil && state.loadedTranscript.isEmpty
+    }
+
+    var hasUnsavedManualNotesChanges: Bool {
+        guard isManualNotesSession else { return false }
+        return state.manualNotesDraft != state.savedManualNotesMarkdown
+    }
+
     // MARK: - Private
 
     private func selectedTemplate(
@@ -768,6 +864,15 @@ final class NotesController {
 
         return coordinator.templateStore.template(for: TemplateStore.genericID)
             ?? TemplateStore.builtInTemplates.first
+    }
+
+    private func persistCurrentManualNotesDraftIfNeeded() {
+        guard let sessionID = state.selectedSessionID, state.loadedTranscript.isEmpty else { return }
+        if state.manualNotesDraft.isEmpty || state.manualNotesDraft == state.savedManualNotesMarkdown {
+            unsavedManualNotesDraftsBySessionID.removeValue(forKey: sessionID)
+        } else {
+            unsavedManualNotesDraftsBySessionID[sessionID] = state.manualNotesDraft
+        }
     }
 
     func loadHistory() async {

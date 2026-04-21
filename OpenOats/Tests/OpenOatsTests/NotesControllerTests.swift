@@ -198,6 +198,75 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertTrue(savedNotes?.markdown.contains("Test Notes") ?? false)
     }
 
+    func testSaveManualNotesForSessionWithoutTranscript() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_manual_notes"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID, utterances: [])
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertTrue(controller.state.loadedTranscript.isEmpty)
+        XCTAssertNil(controller.state.loadedNotes)
+
+        controller.startManualNotesEditing()
+        controller.updateManualNotesDraft("Manual notes for a failed recording.")
+        controller.saveManualNotes()
+        try? await Task.sleep(for: .milliseconds(250))
+
+        let savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
+        XCTAssertEqual(savedNotes?.markdown, "Manual notes for a failed recording.")
+        XCTAssertEqual(controller.state.loadedNotes?.markdown, "Manual notes for a failed recording.")
+        XCTAssertFalse(controller.hasUnsavedManualNotesChanges)
+
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(controller.state.manualNotesDraft, "Manual notes for a failed recording.")
+    }
+
+    func testInsertImagePreservesUnsavedManualNotesDraft() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_manual_notes_image"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID, utterances: [])
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        controller.startManualNotesEditing()
+        controller.updateManualNotesDraft("Prep observations")
+        controller.insertImage(imageData: Data([0x89, 0x50, 0x4E, 0x47]))
+        try? await Task.sleep(for: .milliseconds(250))
+
+        let savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
+        XCTAssertNotNil(savedNotes)
+        XCTAssertTrue(savedNotes?.markdown.contains("Prep observations") ?? false)
+        XCTAssertTrue(savedNotes?.markdown.contains("![](images/") ?? false)
+    }
+
+    func testUnsavedManualNotesDraftSurvivesSessionSwitch() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+
+        await seedSession(coordinator: coordinator, sessionID: "manual", title: "Manual Notes Session", utterances: [])
+        await seedSession(coordinator: coordinator, sessionID: "other", title: "Other Session")
+
+        controller.selectSession("manual")
+        try? await Task.sleep(for: .milliseconds(200))
+        controller.startManualNotesEditing()
+        controller.updateManualNotesDraft("Unsaved draft that should survive switching away.")
+
+        controller.selectSession("other")
+        try? await Task.sleep(for: .milliseconds(200))
+        controller.selectSession("manual")
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(controller.state.manualNotesDraft, "Unsaved draft that should survive switching away.")
+        XCTAssertTrue(controller.state.isEditingManualNotes)
+        XCTAssertNil(controller.state.loadedNotes)
+    }
+
     func testCleanupProgressMapsCorrectly() async {
         let (root, _) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)

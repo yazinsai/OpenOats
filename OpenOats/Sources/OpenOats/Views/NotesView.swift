@@ -1556,7 +1556,11 @@ struct NotesView: View {
 
     @ViewBuilder
     private func notesToolbarActions(controller: NotesController, state: NotesState) -> some View {
-        if let notes = state.loadedNotes {
+        if controller.isManualNotesSession {
+            if state.isEditingManualNotes || state.loadedNotes != nil {
+                imageInsertMenu(controller: controller, state: state)
+            }
+        } else if let notes = state.loadedNotes {
             Menu {
                 ForEach(controller.availableTemplates) { template in
                     Button {
@@ -1579,9 +1583,10 @@ struct NotesView: View {
             .help(controller.isAnyGenerationInProgress
                 ? "Generating notes for \"\(controller.generatingSessionName)\"..."
                 : "Click to regenerate, or pick a different template")
+            imageInsertMenu(controller: controller, state: state)
+        } else {
+            imageInsertMenu(controller: controller, state: state)
         }
-
-        imageInsertMenu(controller: controller, state: state)
     }
 
     @ViewBuilder
@@ -1679,10 +1684,10 @@ struct NotesView: View {
         case .generating:
             generatingView(controller: controller, state: state)
         case .idle, .completed, .error:
-            if let notes = state.loadedNotes {
+            if state.loadedTranscript.isEmpty {
+                notesNoTranscriptState(controller: controller, state: state)
+            } else if let notes = state.loadedNotes {
                 notesContentView(notes, sessionDirectory: state.selectedSessionDirectory)
-            } else if state.loadedTranscript.isEmpty {
-                notesNoTranscriptState(state: state)
             } else {
                 notesEmptyState(controller: controller, state: state, sessionID: sessionID)
             }
@@ -1690,28 +1695,100 @@ struct NotesView: View {
     }
 
     @ViewBuilder
-    private func notesNoTranscriptState(state: NotesState) -> some View {
+    private func notesNoTranscriptState(controller: NotesController, state: NotesState) -> some View {
         let isEmbeddedMeetingFamilyDetail = state.selectedMeetingFamily != nil
 
-        if isEmbeddedMeetingFamilyDetail {
+        if state.loadedNotes != nil || state.isEditingManualNotes {
             ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Text("No transcript was recorded for this session. You can still save manual notes.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack(spacing: 8) {
+                        Button {
+                            controller.saveManualNotes()
+                        } label: {
+                            Label("Save Notes", systemImage: "square.and.arrow.down")
+                        }
+                        .buttonStyle(OpenOatsProminentButtonStyle())
+                        .disabled(!controller.hasUnsavedManualNotesChanges)
+
+                        Button {
+                            controller.discardManualNotesDraft()
+                        } label: {
+                            Label("Revert", systemImage: "arrow.uturn.backward")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(!controller.hasUnsavedManualNotesChanges)
+                    }
+                    .controlSize(.small)
+
+                    TextEditor(text: Binding(
+                        get: { state.manualNotesDraft },
+                        set: { controller.updateManualNotesDraft($0) }
+                    ))
+                    .font(.system(size: 13))
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: isEmbeddedMeetingFamilyDetail ? 220 : 320)
+                    .padding(10)
+                    .background(Color(nsColor: .textBackgroundColor).opacity(0.85))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(.quaternary, lineWidth: 1)
+                    )
+                    .accessibilityIdentifier("notes.manualEditor")
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 24)
+            }
+        } else if isEmbeddedMeetingFamilyDetail {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("No transcript")
                         .font(.system(size: 18, weight: .semibold))
                     Text("There are no recorded utterances to turn into notes for this session.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
+
+                    Button {
+                        controller.startManualNotesEditing()
+                    } label: {
+                        Label("Start writing notes", systemImage: "square.and.pencil")
+                    }
+                    .buttonStyle(OpenOatsProminentButtonStyle())
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 24)
             }
         } else {
-            ContentUnavailableView(
-                "No Transcript",
-                systemImage: "waveform",
-                description: Text("There are no recorded utterances to turn into notes for this session.")
-            )
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("No transcript")
+                        .font(.system(size: 28, weight: .semibold))
+                    Text("There are no recorded utterances to turn into notes for this session.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        controller.startManualNotesEditing()
+                    } label: {
+                        Label("Start writing notes", systemImage: "square.and.pencil")
+                    }
+                    .buttonStyle(OpenOatsProminentButtonStyle())
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(32)
+            }
         }
     }
 
@@ -2032,6 +2109,9 @@ struct NotesView: View {
         case .transcript:
             return state.loadedTranscript.isEmpty
         case .notes:
+            if state.loadedTranscript.isEmpty {
+                return state.manualNotesDraft.isEmpty
+            }
             return state.loadedNotes == nil
         }
     }
@@ -2183,7 +2263,7 @@ struct NotesView: View {
                 return "[\(Self.transcriptTimeFormatter.string(from: record.timestamp))] \(label): \(content)"
             }.joined(separator: "\n")
         case .notes:
-            text = state.loadedNotes?.markdown ?? ""
+            text = state.loadedTranscript.isEmpty ? state.manualNotesDraft : (state.loadedNotes?.markdown ?? "")
         }
 
         NSPasteboard.general.clearContents()
