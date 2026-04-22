@@ -132,6 +132,7 @@ final class LiveSessionController {
         initialScratchpad: String? = nil
     ) {
         guard !state.isRunning else { return }
+        container.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
         coordinator.suggestionEngine?.clear()
         coordinator.sidecastEngine?.clear()
         let calEvent = calendarEventOverride ?? (settings.calendarIntegrationEnabled
@@ -147,12 +148,14 @@ final class LiveSessionController {
     }
 
     func confirmDownloadAndStart(settings: AppSettings) {
+        container.ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
         coordinator.transcriptionEngine?.downloadConfirmed = true
         startSession(settings: settings)
     }
 
     func downloadModelOnly(settings: AppSettings) {
         guard downloadTask == nil else { return }
+        container.ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
         downloadTask = Task {
             await coordinator.transcriptionEngine?.downloadModelOnly(
                 transcriptionModel: settings.transcriptionModel
@@ -203,6 +206,7 @@ final class LiveSessionController {
 
         switch request.command {
         case .startSession(let calendarEvent, let scratchpadSeed):
+            container.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
             guard coordinator.transcriptionEngine != nil,
                   (coordinator.suggestionEngine != nil || coordinator.sidecastEngine != nil) else { return }
             if !state.isRunning {

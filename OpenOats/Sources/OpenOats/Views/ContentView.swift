@@ -261,9 +261,6 @@ struct ContentView: View {
             if !hasCompletedOnboarding {
                 showOnboarding = true
             }
-            if coordinator.knowledgeBase == nil {
-                container.ensureServicesInitialized(settings: settings, coordinator: coordinator)
-            }
 
             // Create and wire the controller
             let controller = LiveSessionController(coordinator: coordinator, container: container)
