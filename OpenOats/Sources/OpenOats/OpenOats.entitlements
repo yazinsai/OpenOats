@@ -10,5 +10,7 @@
     <true/>
     <key>com.apple.security.files.bookmarks.app-scope</key>
     <true/>
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
 </dict>
 </plist>

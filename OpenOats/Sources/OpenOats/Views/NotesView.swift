@@ -32,12 +32,18 @@ struct NotesView: View {
         case notes = "Notes"
     }
 
+    enum AppleNotesSyncState {
+        case idle, syncing, failed
+    }
+
     enum MeetingFamilyBottomTab: String, CaseIterable {
         case history = "Previous meetings"
         case link = "Link meetings"
     }
 
     @State private var detailViewMode: DetailViewMode = .transcript
+    @State private var appleNotesSyncState: AppleNotesSyncState = .idle
+    @State private var appleNotesLastSyncDate: Date? = nil
     @State private var meetingFamilyBottomTab: MeetingFamilyBottomTab = .history
     @State private var isMeetingFamilyBottomCollapsed = false
 
@@ -112,6 +118,11 @@ struct NotesView: View {
             meetingFamilyBottomTab = .history
             isMeetingFamilyBottomCollapsed = false
             pendingMeetingFamilyFolderChange = nil
+        }
+        .onChange(of: controller.state.selectedSessionID) {
+            appleNotesSyncState = .idle
+            appleNotesLastSyncDate = controller.state.selectedSessionID
+                .flatMap { AppleNotesService.lastSyncDate(for: $0) }
         }
         .sheet(
             isPresented: Binding(
@@ -1917,6 +1928,9 @@ struct NotesView: View {
         case .cleaned:
             showOriginalButton(controller: controller, state: state)
         }
+        if settings.appleNotesEnabled, !state.loadedTranscript.isEmpty || state.loadedNotes != nil {
+            appleNotesSyncButton(controller: controller, state: state)
+        }
     }
 
     @ViewBuilder
@@ -1946,6 +1960,9 @@ struct NotesView: View {
                 }
                 .buttonStyle(.bordered)
                 imageInsertMenu(controller: controller, state: state)
+                if settings.appleNotesEnabled {
+                    appleNotesSyncButton(controller: controller, state: state)
+                }
             }
         } else if let notes = state.loadedNotes {
             Menu {
@@ -1971,9 +1988,59 @@ struct NotesView: View {
                 ? "Generating notes for \"\(controller.generatingSessionName)\"..."
                 : "Click to regenerate, or pick a different template")
             imageInsertMenu(controller: controller, state: state)
+            if settings.appleNotesEnabled {
+                appleNotesSyncButton(controller: controller, state: state)
+            }
         } else {
             imageInsertMenu(controller: controller, state: state)
+            if settings.appleNotesEnabled, !state.loadedTranscript.isEmpty {
+                appleNotesSyncButton(controller: controller, state: state)
+            }
         }
+    }
+
+    @ViewBuilder
+    private func appleNotesSyncButton(controller: NotesController, state: NotesState) -> some View {
+        Button {
+            guard appleNotesSyncState != .syncing else { return }
+            guard let sessionID = state.selectedSessionID,
+                  let sessionIndex = state.sessionHistory.first(where: { $0.id == sessionID })
+            else { return }
+
+            appleNotesSyncState = .syncing
+            Task {
+                let success = await AppleNotesService.sync(
+                    settings: settings,
+                    sessionIndex: sessionIndex,
+                    records: state.loadedTranscript,
+                    notesMarkdown: state.loadedNotes?.markdown
+                )
+                if success {
+                    appleNotesLastSyncDate = Date()
+                    appleNotesSyncState = .idle
+                } else {
+                    appleNotesSyncState = .failed
+                }
+            }
+        } label: {
+            switch appleNotesSyncState {
+            case .idle:
+                Label("Export", systemImage: "square.and.arrow.up")
+                    .font(.system(size: 12))
+            case .syncing:
+                Label("Exporting…", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 12))
+            case .failed:
+                Label("Export Failed", systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 12))
+            }
+        }
+        .buttonStyle(.bordered)
+        .tint(appleNotesSyncState == .failed ? .red : nil)
+        .disabled(appleNotesSyncState == .syncing)
+        .help(appleNotesLastSyncDate.map {
+            "Last exported to Apple Notes \($0.formatted(.relative(presentation: .named))). Exporting again will overwrite the existing note."
+        } ?? "Export these notes to Apple Notes. The note will be created in your \"\(settings.appleNotesFolderName.isEmpty ? "OpenOats" : settings.appleNotesFolderName)\" folder.")
     }
 
     @ViewBuilder
