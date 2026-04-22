@@ -44,12 +44,11 @@ final class SmokeTests: XCTestCase {
         let toggle = element(in: app, identifier: "app.controlBar.toggle")
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
 
-        toggle.click()
-        XCTAssertTrue(waitForCondition(timeout: 5) {
-            self.element(in: app, identifier: "app.controlBar.toggle").label.contains("Live")
-        })
+        app.typeKey("l", modifierFlags: [.command, .shift])
+        let stop = element(in: app, identifier: "app.controlBar.stop")
+        XCTAssertTrue(stop.waitForExistence(timeout: 5))
 
-        toggle.click()
+        app.typeKey("l", modifierFlags: [.command, .shift])
         XCTAssertTrue(element(in: app, identifier: "app.sessionEndedBanner").waitForExistence(timeout: 5))
     }
 
