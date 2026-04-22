@@ -67,6 +67,30 @@ final class LiveSessionControllerTests: XCTestCase {
         return (controller, coordinator)
     }
 
+    private func makeUninitializedController(
+        root: URL,
+        notesDirectory: URL,
+        settings: AppSettings
+    ) -> (LiveSessionController, AppCoordinator) {
+        let transcriptStore = TranscriptStore()
+        let coordinator = AppCoordinator(
+            sessionRepository: SessionRepository(rootDirectory: root),
+            templateStore: TemplateStore(rootDirectory: root),
+            notesEngine: NotesEngine(mode: .scripted(markdown: "Test")),
+            transcriptStore: transcriptStore
+        )
+        let defaults = UserDefaults(suiteName: "com.openoats.tests.lazyservices.\(UUID().uuidString)") ?? .standard
+        let container = AppContainer(
+            mode: .uiTest(.launchSmoke),
+            defaults: defaults,
+            appSupportDirectory: root,
+            notesDirectory: notesDirectory
+        )
+        let controller = LiveSessionController(coordinator: coordinator, container: container)
+        coordinator.liveSessionController = controller
+        return (controller, coordinator)
+    }
+
     // MARK: - Tests
 
     func testStartSessionTransitionsStateToRecordingSynchronously() {
@@ -119,6 +143,36 @@ final class LiveSessionControllerTests: XCTestCase {
         }
     }
 
+    func testStartSessionInitializesServicesOnDemand() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeUninitializedController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+
+        XCTAssertNil(coordinator.transcriptionEngine)
+        XCTAssertNil(coordinator.knowledgeBase)
+
+        controller.startSession(settings: settings)
+
+        XCTAssertNotNil(coordinator.transcriptionEngine)
+        XCTAssertNotNil(coordinator.knowledgeBase)
+
+        for _ in 0..<20 {
+            if coordinator.transcriptionEngine?.isRunning == true { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        XCTAssertTrue(coordinator.transcriptionEngine?.isRunning == true)
+        if case .recording = coordinator.state {
+            // expected
+        } else {
+            XCTFail("Expected recording state after on-demand initialization")
+        }
+    }
+
     func testStopSessionWhileIdleIsNoOp() {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)
@@ -136,7 +190,7 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertEqual(coordinator.state, .idle)
     }
 
-    func testDeepLinkStartRejectedWhenEngineNotReady() {
+    func testDeepLinkStartInitializesServicesOnDemand() {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)
         let transcriptStore = TranscriptStore()
@@ -159,12 +213,17 @@ final class LiveSessionControllerTests: XCTestCase {
         // Queue a start command
         coordinator.queueExternalCommand(.startSession())
 
-        // Try handling - should not start because engines are not ready
+        // Try handling - the controller should initialize services on demand.
         controller.handlePendingExternalCommandIfPossible(settings: settings, openNotesWindow: nil)
 
-        // Command should still be pending (not consumed)
-        XCTAssertNotNil(coordinator.pendingExternalCommand)
-        XCTAssertEqual(coordinator.state, .idle)
+        XCTAssertNil(coordinator.pendingExternalCommand)
+        XCTAssertNotNil(coordinator.transcriptionEngine)
+        XCTAssertNotNil(coordinator.knowledgeBase)
+        if case .recording = coordinator.state {
+            // expected
+        } else {
+            XCTFail("Expected .recording state after on-demand deep link start, got \(coordinator.state)")
+        }
     }
 
     func testDeepLinkStopRejectedWhenNotRunning() {

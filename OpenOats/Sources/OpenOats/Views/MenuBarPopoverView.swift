@@ -3,6 +3,7 @@ import SwiftUI
 struct MenuBarPopoverView: View {
     let coordinator: AppCoordinator
     let settings: AppSettings
+    let onToggleMeeting: () -> Void
     let onShowMainWindow: () -> Void
     let onCheckForUpdates: () -> Void
     let onShowSettings: () -> Void
@@ -125,9 +126,7 @@ struct MenuBarPopoverView: View {
     @ViewBuilder
     private var primaryAction: some View {
         if coordinator.isRecording {
-            Button(action: {
-                coordinator.handle(.userStopped, settings: settings)
-            }) {
+            Button(action: onToggleMeeting) {
                 Text("Stop Recording")
                     .font(.system(size: 13, weight: .medium))
                     .frame(maxWidth: .infinity)
@@ -140,7 +139,7 @@ struct MenuBarPopoverView: View {
                     onShowMainWindow()
                     return
                 }
-                coordinator.handle(.userStarted(.manual()), settings: settings)
+                onToggleMeeting()
             }) {
                 Text("Start Recording")
                     .font(.system(size: 13, weight: .medium))

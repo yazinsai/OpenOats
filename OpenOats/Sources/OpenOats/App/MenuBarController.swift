@@ -8,6 +8,7 @@ final class MenuBarController {
     private let popover: NSPopover
     private let coordinator: AppCoordinator
     private let settings: AppSettings
+    private let onToggleMeeting: () -> Void
     private var iconUpdateTask: Task<Void, Never>?
 
     var onShowMainWindow: (() -> Void)?
@@ -16,10 +17,12 @@ final class MenuBarController {
     init(
         coordinator: AppCoordinator,
         settings: AppSettings,
-        onCheckForUpdates: @escaping () -> Void
+        onCheckForUpdates: @escaping () -> Void,
+        onToggleMeeting: @escaping () -> Void
     ) {
         self.coordinator = coordinator
         self.settings = settings
+        self.onToggleMeeting = onToggleMeeting
 
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         self.popover = NSPopover()
@@ -30,6 +33,7 @@ final class MenuBarController {
         let popoverView = MenuBarPopoverView(
             coordinator: coordinator,
             settings: settings,
+            onToggleMeeting: onToggleMeeting,
             onShowMainWindow: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.onShowMainWindow?()

@@ -12,10 +12,13 @@ enum AppRuntimeMode {
     case uiTest(UITestScenario)
 }
 
-struct AppServices {
+struct AppViewServices {
     let knowledgeBase: KnowledgeBase
     let suggestionEngine: SuggestionEngine
     let sidecastEngine: SidecastEngine
+}
+
+struct AppRecordingServices {
     let transcriptionEngine: TranscriptionEngine
     let liveTranscriptCleaner: LiveTranscriptCleaner
     let audioRecorder: AudioRecorder
