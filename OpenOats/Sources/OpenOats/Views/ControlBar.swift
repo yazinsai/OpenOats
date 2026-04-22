@@ -70,20 +70,35 @@ struct ControlBar: View {
             }
 
             HStack(spacing: 10) {
-                Button(action: onToggle) {
+                if isRunning {
                     HStack(spacing: 6) {
-                        if isRunning {
-                            // Pulsing dot when live, static when muted
-                            Circle()
-                                .fill(isMicMuted ? Color.red : Color.green)
-                                .frame(width: 8, height: 8)
-                                .scaleEffect(isMicMuted ? 1.0 : 1.0 + CGFloat(audioLevel) * 0.5)
-                                .animation(.easeOut(duration: 0.1), value: audioLevel)
+                        // Pulsing dot when live, static when muted
+                        Circle()
+                            .fill(isMicMuted ? Color.red : Color.green)
+                            .frame(width: 8, height: 8)
+                            .scaleEffect(isMicMuted ? 1.0 : 1.0 + CGFloat(audioLevel) * 0.5)
+                            .animation(.easeOut(duration: 0.1), value: audioLevel)
 
-                            Text(isMicMuted ? "Muted" : "Live")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(isMicMuted ? .red : .primary)
-                        } else {
+                        Text(isMicMuted ? "Muted" : "Live")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(isMicMuted ? .red : .primary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(isMicMuted ? Color.red.opacity(0.1) : Color.green.opacity(0.1))
+                    .clipShape(Capsule())
+                    .accessibilityIdentifier("app.controlBar.status")
+
+                    Button(action: onToggle) {
+                        Label("Stop", systemImage: "stop.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .buttonStyle(OpenOatsProminentButtonStyle(color: .red))
+                    .controlSize(.small)
+                    .accessibilityIdentifier("app.controlBar.stop")
+                } else {
+                    Button(action: onToggle) {
+                        HStack(spacing: 6) {
                             Image(systemName: "mic.fill")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.white)
@@ -92,17 +107,14 @@ struct ControlBar: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(.white)
                         }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Color.accentColor)
+                        .clipShape(Capsule())
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    // Avoid hover-driven local state here. On macOS 26 / Swift 6.2,
-                    // switching this button from Start to Live while the pointer is
-                    // over it can trip a SwiftUI executor crash in onHover handling.
-                    .background(isRunning ? (isMicMuted ? Color.red.opacity(0.1) : Color.green.opacity(0.1)) : Color.accentColor)
-                    .clipShape(Capsule())
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("app.controlBar.toggle")
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("app.controlBar.toggle")
 
                 // Mute button + audio level bars when running
                 if isRunning {
