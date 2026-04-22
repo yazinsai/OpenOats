@@ -316,7 +316,7 @@ final class SystemAudioCapture: @unchecked Sendable {
             var nameAddress = propertyAddress(selector: kAudioObjectPropertyName)
             var cfName: Unmanaged<CFString>?
             var nameSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-            guard AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &cfName) == noErr, let name = cfName?.takeRetainedValue() as String? else { continue }
+            guard AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &cfName) == noErr, let name = cfName?.takeUnretainedValue() as String? else { continue }
 
             result.append((id: deviceID, name: name))
         }
@@ -353,7 +353,7 @@ final class SystemAudioCapture: @unchecked Sendable {
         guard status == noErr, let uid else {
             throw CaptureError.outputDeviceUIDUnavailable(status)
         }
-        return uid.takeRetainedValue() as String
+        return uid.takeUnretainedValue() as String
     }
 
     private static func tapStreamDescription(for tapID: AudioObjectID) throws -> AudioStreamBasicDescription {
