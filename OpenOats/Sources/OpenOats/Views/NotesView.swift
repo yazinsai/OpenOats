@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct NotesView: View {
     @Bindable var settings: AppSettings
+    @Environment(AppContainer.self) private var container
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.openWindow) private var openWindow
     @State private var notesController: NotesController?
@@ -56,6 +57,9 @@ struct NotesView: View {
             }
         }
         .task {
+            if coordinator.knowledgeBase == nil {
+                container.ensureViewServicesInitialized(settings: settings, coordinator: coordinator)
+            }
             let controller = NotesController(coordinator: coordinator, settings: settings)
             notesController = controller
             await controller.loadHistory()

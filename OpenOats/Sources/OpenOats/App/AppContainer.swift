@@ -24,7 +24,8 @@ final class AppContainer {
     private(set) var calendarManager: CalendarManager?
 
     private var didSeedInitialData = false
-    private var didInitializeServices = false
+    private var didInitializeViewServices = false
+    private var didInitializeRecordingServices = false
 
     init(
         mode: AppRuntimeMode,
@@ -125,7 +126,7 @@ final class AppContainer {
         }
     }
 
-    func makeServices(settings: AppSettings, coordinator: AppCoordinator) -> AppServices {
+    func makeViewServices(settings: AppSettings, coordinator: AppCoordinator) -> AppViewServices {
         let knowledgeBase = KnowledgeBase(settings: settings)
         let suggestionEngine = SuggestionEngine(
             transcriptStore: coordinator.transcriptStore,
@@ -138,6 +139,14 @@ final class AppContainer {
             settings: settings
         )
 
+        return AppViewServices(
+            knowledgeBase: knowledgeBase,
+            suggestionEngine: suggestionEngine,
+            sidecastEngine: sidecastEngine
+        )
+    }
+
+    func makeRecordingServices(settings: AppSettings, coordinator: AppCoordinator) -> AppRecordingServices {
         let transcriptionEngine: TranscriptionEngine
         switch mode {
         case .live:
@@ -153,10 +162,7 @@ final class AppContainer {
             )
         }
 
-        return AppServices(
-            knowledgeBase: knowledgeBase,
-            suggestionEngine: suggestionEngine,
-            sidecastEngine: sidecastEngine,
+        return AppRecordingServices(
             transcriptionEngine: transcriptionEngine,
             liveTranscriptCleaner: LiveTranscriptCleaner(
                 settings: settings,
@@ -167,20 +173,40 @@ final class AppContainer {
         )
     }
 
-    func ensureServicesInitialized(settings: AppSettings, coordinator: AppCoordinator) {
-        guard !didInitializeServices else { return }
-        didInitializeServices = true
+    func ensureViewServicesInitialized(settings: AppSettings, coordinator: AppCoordinator) {
+        if coordinator.knowledgeBase != nil {
+            didInitializeViewServices = true
+            return
+        }
+        guard !didInitializeViewServices else { return }
+        didInitializeViewServices = true
 
-        let services = makeServices(settings: settings, coordinator: coordinator)
-        coordinator.transcriptionEngine = services.transcriptionEngine
-        coordinator.liveTranscriptCleaner = services.liveTranscriptCleaner
-        coordinator.audioRecorder = services.audioRecorder
-        coordinator.batchAudioTranscriber = services.batchAudioTranscriber
+        let services = makeViewServices(settings: settings, coordinator: coordinator)
         coordinator.setViewServices(
             knowledgeBase: services.knowledgeBase,
             suggestionEngine: services.suggestionEngine,
             sidecastEngine: services.sidecastEngine
         )
+    }
+
+    func ensureRecordingServicesInitialized(settings: AppSettings, coordinator: AppCoordinator) {
+        if coordinator.transcriptionEngine != nil {
+            didInitializeRecordingServices = true
+            return
+        }
+        guard !didInitializeRecordingServices else { return }
+        didInitializeRecordingServices = true
+
+        let services = makeRecordingServices(settings: settings, coordinator: coordinator)
+        coordinator.transcriptionEngine = services.transcriptionEngine
+        coordinator.liveTranscriptCleaner = services.liveTranscriptCleaner
+        coordinator.audioRecorder = services.audioRecorder
+        coordinator.batchAudioTranscriber = services.batchAudioTranscriber
+    }
+
+    func ensureMeetingServicesInitialized(settings: AppSettings, coordinator: AppCoordinator) {
+        ensureViewServicesInitialized(settings: settings, coordinator: coordinator)
+        ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
     }
 
     /// Create and start the detection controller, wire the coordinator event loop.

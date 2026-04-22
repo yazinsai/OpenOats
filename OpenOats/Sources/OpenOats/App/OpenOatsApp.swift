@@ -150,6 +150,7 @@ extension OpenOatsRootApp {
 
         guard panel.runModal() == .OK, let fileURL = panel.url else { return }
 
+        container.ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
         guard let batchAudioTranscriber = coordinator.batchAudioTranscriber else { return }
 
         let model = settings.transcriptionModel
@@ -244,12 +245,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     ) {
         guard menuBarController == nil else { return }
 
-        container?.ensureServicesInitialized(settings: settings, coordinator: coordinator)
-
         let controller = MenuBarController(
             coordinator: coordinator,
             settings: settings,
-            onCheckForUpdates: checkForUpdates
+            onCheckForUpdates: checkForUpdates,
+            onToggleMeeting: { [weak self] in
+                self?.toggleMeeting()
+            }
         )
         controller.onShowMainWindow = showMainWindow
         controller.onQuitApp = { [weak self] in
@@ -431,6 +433,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func toggleMeeting() {
         guard let coordinator, let settings else { return }
         guard settings.hasAcknowledgedRecordingConsent else { return }
+
+        container?.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
 
         if coordinator.isRecording {
             coordinator.handle(.userStopped, settings: settings)
