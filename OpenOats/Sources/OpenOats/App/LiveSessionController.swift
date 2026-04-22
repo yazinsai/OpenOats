@@ -322,12 +322,18 @@ final class LiveSessionController {
         }
 
         let templateID = coordinator.selectedTemplate?.id
-        let handle = await coordinator.sessionRepository.startSession(
-            config: SessionStartConfig(
-                templateID: templateID,
-                templateSnapshot: coordinator.sessionTemplateSnapshot
-            )
+        let startConfig = SessionStartConfig(
+            templateID: templateID,
+            templateSnapshot: coordinator.sessionTemplateSnapshot,
+            title: metadata.title ?? metadata.calendarEvent?.title,
+            calendarEvent: metadata.calendarEvent
         )
+        let handle: SessionHandle
+        if let resumed = await coordinator.sessionRepository.resumeAbandonedSession(config: startConfig) {
+            handle = resumed
+        } else {
+            handle = await coordinator.sessionRepository.startSession(config: startConfig)
+        }
         _currentSessionID = handle.sessionID
         let initialScratchpad = pendingInitialScratchpad?.trimmingCharacters(in: .whitespacesAndNewlines)
         pendingInitialScratchpad = nil
