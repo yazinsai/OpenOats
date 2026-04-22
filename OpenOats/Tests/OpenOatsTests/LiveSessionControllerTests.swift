@@ -143,6 +143,50 @@ final class LiveSessionControllerTests: XCTestCase {
         }
     }
 
+    func testStartSessionReusesAbandonedMeetingStubForSameCalendarEvent() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let now = Date()
+        let event = CalendarEvent(
+            id: "evt-resume-stub",
+            title: "Payment Ops / Merchant stand up",
+            startDate: now.addingTimeInterval(-120),
+            endDate: now.addingTimeInterval(780),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: true,
+            meetingURL: URL(string: "https://meet.example.com/payment-ops")
+        )
+
+        let repository = SessionRepository(rootDirectory: dirs.root)
+        let abandonedHandle = await repository.startSession(
+            config: SessionStartConfig(
+                templateSnapshot: nil,
+                title: event.title,
+                calendarEvent: event
+            )
+        )
+        await repository.endSession()
+
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: [Utterance(text: "Recovered", speaker: .you)]
+        )
+
+        controller.startSession(settings: settings, calendarEventOverride: event)
+
+        var activeSessionID: String?
+        for _ in 0..<20 {
+            activeSessionID = await coordinator.sessionRepository.getCurrentSessionID()
+            if activeSessionID != nil { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        XCTAssertEqual(activeSessionID, abandonedHandle.sessionID)
+    }
+
     func testStartSessionInitializesServicesOnDemand() async {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)
