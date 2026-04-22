@@ -611,6 +611,49 @@ final class SessionRepositoryTests: XCTestCase {
         await repo.deleteSession(sessionID: sessionID)
     }
 
+    func testRestorePreBatchTranscriptRestoresBackupIntoFinalTranscript() async {
+        let sessionID = "session_restore_pre_batch"
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        await repo.seedSession(
+            id: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Live transcript", timestamp: startedAt)],
+            startedAt: startedAt
+        )
+
+        await repo.saveFinalTranscript(
+            sessionID: sessionID,
+            records: [SessionRecord(speaker: .them, text: "Batch transcript", timestamp: startedAt.addingTimeInterval(15))],
+            backupCurrentTranscript: true
+        )
+
+        let restored = await repo.restorePreBatchTranscript(sessionID: sessionID)
+        XCTAssertTrue(restored)
+
+        let transcript = await repo.loadTranscript(sessionID: sessionID)
+        XCTAssertEqual(transcript.map(\.text), ["Live transcript"])
+
+        let sessions = await repo.listSessions()
+        let saved = sessions.first(where: { $0.id == sessionID })
+        XCTAssertEqual(saved?.utteranceCount, 1)
+        XCTAssertEqual(saved?.startedAt, startedAt)
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
+    func testRestorePreBatchTranscriptReturnsFalseWhenBackupMissing() async {
+        let sessionID = "session_restore_missing"
+        await repo.seedSession(
+            id: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Live transcript", timestamp: Date())],
+            startedAt: Date()
+        )
+
+        let restored = await repo.restorePreBatchTranscript(sessionID: sessionID)
+        XCTAssertFalse(restored)
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
     func testReconcileGhostSessionMergesCalendarEventIntoRecentRealSession() async {
         let calendarEvent = makeCalendarEvent()
         let realStartedAt = Date().addingTimeInterval(-180)

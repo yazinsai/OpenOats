@@ -36,6 +36,10 @@ struct NotesState {
     var audioFileURL: URL?
     /// Whether audio is currently playing.
     var isPlayingAudio: Bool = false
+    /// Whether retained batch audio exists for the selected session.
+    var canRetranscribeSelectedSession: Bool = false
+    /// Whether a pre-batch transcript backup exists for the selected session.
+    var hasOriginalTranscriptBackup: Bool = false
     /// Sessions whose notes were freshly generated while the user was on a different session.
     /// Cleared when the user opens that session. Used to show the blue "unread" indicator.
     var freshlyGeneratedSessionIDs: Set<String> = []
@@ -242,6 +246,8 @@ final class NotesController {
             state.selectedSessionDirectory = nil
             state.availableAudioSources = []
             state.audioFileURL = nil
+            state.canRetranscribeSelectedSession = false
+            state.hasOriginalTranscriptBackup = false
             return
         }
 
@@ -253,6 +259,8 @@ final class NotesController {
         state.loadedCalendarEvent = nil
         state.availableAudioSources = []
         state.audioFileURL = nil
+        state.canRetranscribeSelectedSession = false
+        state.hasOriginalTranscriptBackup = false
         state.selectedSessionDirectory = coordinator.sessionRepository.sessionsDirectoryURL
             .appendingPathComponent(sessionID, isDirectory: true)
         state.showingOriginal = false
@@ -267,7 +275,10 @@ final class NotesController {
         }
 
         Task {
-            let data = await coordinator.sessionRepository.loadSessionData(sessionID: sessionID)
+            async let sessionData = coordinator.sessionRepository.loadSessionData(sessionID: sessionID)
+            async let canRetranscribe = coordinator.sessionRepository.hasRetainedBatchAudio(sessionID: sessionID)
+            async let hasBackup = coordinator.sessionRepository.hasPreBatchTranscriptBackup(sessionID: sessionID)
+            let data = await sessionData
             let unsavedDraft = unsavedManualNotesDraftsBySessionID[sessionID]
 
             state.loadedNotes = data.notes
@@ -278,6 +289,8 @@ final class NotesController {
             state.loadedCalendarEvent = data.calendarEvent
             state.availableAudioSources = data.audioSources
             state.audioFileURL = data.audioURL
+            state.canRetranscribeSelectedSession = await canRetranscribe
+            state.hasOriginalTranscriptBackup = await hasBackup
 
             let session = state.sessionHistory.first { $0.id == sessionID }
             let familySelection = session.map { Self.meetingFamilySelection(for: $0, calendarEvent: data.calendarEvent) }
@@ -357,6 +370,8 @@ final class NotesController {
         state.loadedCalendarEvent = nil
         state.availableAudioSources = []
         state.audioFileURL = nil
+        state.canRetranscribeSelectedSession = false
+        state.hasOriginalTranscriptBackup = false
         state.selectedSessionDirectory = nil
         state.showingOriginal = false
         coordinator.batchTextCleaner.cancel()
@@ -649,6 +664,37 @@ final class NotesController {
 
     func toggleShowingOriginal() {
         state.showingOriginal.toggle()
+    }
+
+    func rerunBatchTranscription(model: TranscriptionModel, settings: AppSettings) {
+        guard let sessionID = state.selectedSessionID,
+              state.canRetranscribeSelectedSession,
+              let batchAudioTranscriber = coordinator.batchAudioTranscriber else { return }
+
+        let notesDirectory = URL(fileURLWithPath: settings.notesFolderPath)
+        Task {
+            await batchAudioTranscriber.process(
+                sessionID: sessionID,
+                model: model,
+                locale: settings.locale,
+                sessionRepository: coordinator.sessionRepository,
+                notesDirectory: notesDirectory,
+                enableDiarization: settings.enableDiarization,
+                diarizationVariant: settings.diarizationVariant
+            )
+            await reloadSessionAfterTranscriptMutation(sessionID: sessionID)
+        }
+    }
+
+    func restoreOriginalTranscript() {
+        guard let sessionID = state.selectedSessionID,
+              state.hasOriginalTranscriptBackup else { return }
+
+        Task {
+            let restored = await coordinator.sessionRepository.restorePreBatchTranscript(sessionID: sessionID)
+            guard restored else { return }
+            await reloadSessionAfterTranscriptMutation(sessionID: sessionID)
+        }
     }
 
     // MARK: - Session Management
@@ -952,6 +998,13 @@ final class NotesController {
         } else {
             unsavedManualNotesDraftsBySessionID[sessionID] = state.manualNotesDraft
         }
+    }
+
+    private func reloadSessionAfterTranscriptMutation(sessionID: String) async {
+        await coordinator.loadHistory()
+        await loadHistory()
+        guard state.selectedSessionID == sessionID else { return }
+        selectSession(sessionID)
     }
 
     func loadHistory() async {

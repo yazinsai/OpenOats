@@ -181,6 +181,60 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.audioFileURL?.lastPathComponent, "sys.caf")
     }
 
+    func testSelectSessionLoadsBatchTranscriptActionsWhenArtifactsExist() async throws {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_batch_transcript_actions"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID)
+
+        let audioDir = coordinator.sessionRepository.sessionsDirectoryURL
+            .appendingPathComponent(sessionID, isDirectory: true)
+            .appendingPathComponent("audio", isDirectory: true)
+        try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+        try Data("sys".utf8).write(to: audioDir.appendingPathComponent("sys.caf"))
+        try Data("live".utf8).write(
+            to: coordinator.sessionRepository.sessionsDirectoryURL
+                .appendingPathComponent(sessionID, isDirectory: true)
+                .appendingPathComponent("transcript.pre-batch.jsonl")
+        )
+
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertTrue(controller.state.canRetranscribeSelectedSession)
+        XCTAssertTrue(controller.state.hasOriginalTranscriptBackup)
+    }
+
+    func testRestoreOriginalTranscriptReloadsSelectedSession() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_restore_transcript"
+
+        await seedSession(
+            coordinator: coordinator,
+            sessionID: sessionID,
+            utterances: [SessionRecord(speaker: .you, text: "Original live", timestamp: Date(timeIntervalSince1970: 1_700_000_000))]
+        )
+
+        await coordinator.sessionRepository.saveFinalTranscript(
+            sessionID: sessionID,
+            records: [SessionRecord(speaker: .them, text: "Batch overwrite", timestamp: Date(timeIntervalSince1970: 1_700_000_030))],
+            backupCurrentTranscript: true
+        )
+        await coordinator.loadHistory()
+
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(controller.state.loadedTranscript.map(\.text), ["Batch overwrite"])
+        XCTAssertTrue(controller.state.hasOriginalTranscriptBackup)
+
+        controller.restoreOriginalTranscript()
+        try? await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(controller.state.loadedTranscript.map(\.text), ["Original live"])
+    }
+
     func testGenerateNotesUpdatesStatus() async {
         let (root, notes) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)

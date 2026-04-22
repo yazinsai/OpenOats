@@ -26,6 +26,7 @@ struct NotesView: View {
     @State private var editingTags: [String] = []
     @State private var newTagText: String = ""
     @State private var availableTags: [String] = []
+    @State private var confirmRestoreOriginalTranscript = false
 
     enum DetailViewMode: String, CaseIterable {
         case transcript = "Transcript"
@@ -123,6 +124,18 @@ struct NotesView: View {
             appleNotesSyncState = .idle
             appleNotesLastSyncDate = controller.state.selectedSessionID
                 .flatMap { AppleNotesService.lastSyncDate(for: $0) }
+        }
+        .confirmationDialog(
+            "Restore original transcript?",
+            isPresented: $confirmRestoreOriginalTranscript,
+            titleVisibility: .visible
+        ) {
+            Button("Restore Original Transcript") {
+                controller.restoreOriginalTranscript()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This replaces the current transcript with the saved pre-batch version for this session.")
         }
         .sheet(
             isPresented: Binding(
@@ -1726,6 +1739,11 @@ struct NotesView: View {
                 notesToolbarActions(controller: controller, state: state)
             }
 
+            if state.selectedSessionID != nil,
+               (state.canRetranscribeSelectedSession || state.hasOriginalTranscriptBackup) {
+                transcriptMaintenanceMenu(controller: controller, state: state)
+            }
+
             if !state.availableAudioSources.isEmpty {
                 audioPlaybackButton(controller: controller, state: state)
             }
@@ -1881,6 +1899,70 @@ struct NotesView: View {
         .buttonStyle(.bordered)
         .fixedSize()
         .help(state.isPlayingAudio ? "Pause audio recording" : "Play audio recording")
+    }
+
+    @ViewBuilder
+    private func transcriptMaintenanceMenu(controller: NotesController, state: NotesState) -> some View {
+        let isBatchBusy = coordinator.batchStatus != .idle
+
+        Menu {
+            if state.canRetranscribeSelectedSession {
+                Button {
+                    container.ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
+                    controller.rerunBatchTranscription(model: settings.batchTranscriptionModel, settings: settings)
+                } label: {
+                    Label(
+                        "Re-transcribe with \(settings.batchTranscriptionModel.displayName)",
+                        systemImage: "arrow.trianglehead.2.clockwise.rotate.90"
+                    )
+                }
+                .disabled(isBatchBusy)
+
+                if TranscriptionModel.batchSuitableModels.count > 1 {
+                    Menu("Re-transcribe with…") {
+                        ForEach(TranscriptionModel.batchSuitableModels) { model in
+                            Button {
+                                container.ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
+                                controller.rerunBatchTranscription(model: model, settings: settings)
+                            } label: {
+                                Label(model.displayName, systemImage: model == settings.batchTranscriptionModel ? "checkmark" : "")
+                            }
+                            .disabled(isBatchBusy)
+                        }
+                    }
+                    .disabled(isBatchBusy)
+                }
+
+                Divider()
+
+                Label(
+                    settings.enableDiarization
+                        ? "Speaker diarization: \(settings.diarizationVariant.displayName)"
+                        : "Speaker diarization off",
+                    systemImage: settings.enableDiarization ? "person.2" : "person.2.slash"
+                )
+                .foregroundStyle(.secondary)
+            }
+
+            if state.hasOriginalTranscriptBackup {
+                if state.canRetranscribeSelectedSession {
+                    Divider()
+                }
+                Button {
+                    confirmRestoreOriginalTranscript = true
+                } label: {
+                    Label("Restore original transcript", systemImage: "clock.arrow.circlepath")
+                }
+                .disabled(isBatchBusy)
+            }
+        } label: {
+            Label("Transcript", systemImage: "text.badge.star")
+                .font(.system(size: 12))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.bordered)
+        .fixedSize()
+        .help("Re-transcribe this session or restore the pre-batch transcript")
     }
 
     @ViewBuilder
