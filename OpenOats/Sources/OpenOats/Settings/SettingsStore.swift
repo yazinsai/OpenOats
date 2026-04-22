@@ -29,6 +29,10 @@ final class SettingsStore {
         loadedSecretKeys.insert(key)
     }
 
+    func isSecretLoaded(_ key: String) -> Bool {
+        loadedSecretKeys.contains(key)
+    }
+
     // MARK: - AI Settings
 
     @ObservationIgnored nonisolated(unsafe) private var _llmProvider: LLMProvider

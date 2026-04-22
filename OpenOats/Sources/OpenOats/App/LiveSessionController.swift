@@ -56,9 +56,10 @@ final class LiveSessionController {
     private var observedAudioLevel: Float = 0
     private var observedSuggestions: [Suggestion] = []
     private var observedIsGenerating = false
-    private var observedKBFolderPath = ""
+    private var observedKBFolderPath: String?
     private var observedNotesFolderPath = ""
-    private var observedVoyageApiKey = ""
+    private var observedEmbeddingProvider: EmbeddingProvider?
+    private var observedVoyageApiKey: String?
     private var observedTranscriptionModel: TranscriptionModel = .parakeetV2
     private var observedInputDeviceID: AudioDeviceID = 0
     private var observedPendingExternalCommandID: UUID?
@@ -187,6 +188,11 @@ final class LiveSessionController {
             kb.clear()
             await kb.index(folderURL: url)
         }
+    }
+
+    func loadKBCacheIfAvailable(settings: AppSettings) {
+        guard let url = settings.kbFolderURL, let kb = coordinator.knowledgeBase else { return }
+        _ = kb.loadCachedStateIfAvailable(folderURL: url)
     }
 
     // MARK: - External Commands
@@ -640,12 +646,21 @@ final class LiveSessionController {
     private func synchronizeDerivedState(settings: AppSettings) {
         let currentState = state
 
-        if settings.kbFolderPath != observedKBFolderPath {
+        if let observedKBFolderPath {
+            if settings.kbFolderPath != observedKBFolderPath {
+                self.observedKBFolderPath = settings.kbFolderPath
+                if settings.kbFolderPath.isEmpty {
+                    coordinator.knowledgeBase?.clear()
+                } else {
+                    indexKBIfNeeded(settings: settings)
+                }
+            }
+        } else {
             observedKBFolderPath = settings.kbFolderPath
             if settings.kbFolderPath.isEmpty {
                 coordinator.knowledgeBase?.clear()
             } else {
-                indexKBIfNeeded(settings: settings)
+                loadKBCacheIfAvailable(settings: settings)
             }
         }
 
@@ -665,13 +680,34 @@ final class LiveSessionController {
             }
         }
 
-        if !settings.kbFolderPath.isEmpty,
-           settings.embeddingProvider == .voyageAI,
-           settings.voyageApiKey != observedVoyageApiKey {
-            observedVoyageApiKey = settings.voyageApiKey
-            indexKBIfNeeded(settings: settings)
-        } else if settings.kbFolderPath.isEmpty || settings.embeddingProvider != .voyageAI {
-            observedVoyageApiKey = ""
+        if settings.kbFolderPath.isEmpty {
+            observedEmbeddingProvider = nil
+            observedVoyageApiKey = nil
+        } else {
+            if let observedEmbeddingProvider {
+                if settings.embeddingProvider != observedEmbeddingProvider {
+                    self.observedEmbeddingProvider = settings.embeddingProvider
+                    indexKBIfNeeded(settings: settings)
+                }
+            } else {
+                observedEmbeddingProvider = settings.embeddingProvider
+            }
+
+            if settings.embeddingProvider == .voyageAI {
+                if settings.isSecretLoaded("voyageApiKey") {
+                    let voyageApiKey = settings.voyageApiKey
+                    if let observedVoyageApiKey {
+                        if voyageApiKey != observedVoyageApiKey {
+                            self.observedVoyageApiKey = voyageApiKey
+                            indexKBIfNeeded(settings: settings)
+                        }
+                    } else {
+                        observedVoyageApiKey = voyageApiKey
+                    }
+                }
+            } else {
+                observedVoyageApiKey = nil
+            }
         }
 
         if settings.transcriptionModel != observedTranscriptionModel {

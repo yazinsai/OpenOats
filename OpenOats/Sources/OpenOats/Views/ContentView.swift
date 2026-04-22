@@ -302,7 +302,6 @@ struct ContentView: View {
             overlayManager.defaults = container.defaults
             miniBarManager.defaults = container.defaults
             await container.seedIfNeeded(coordinator: coordinator)
-            controller.indexKBIfNeeded(settings: settings)
             controller.handlePendingExternalCommandIfPossible(settings: settings) {
                 openWindow(id: "notes")
             }

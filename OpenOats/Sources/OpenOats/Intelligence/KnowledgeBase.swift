@@ -40,6 +40,8 @@ private struct KBCache: Codable, Sendable {
     var entries: [String: [KBChunk]]
     /// Fingerprint of the embedding config used to produce these vectors.
     var embeddingConfigFingerprint: String?
+    /// Canonical folder path the cache was built from.
+    var folderPath: String?
 }
 
 enum KnowledgeBaseIndexingStatus: Equatable, Sendable {
@@ -185,6 +187,29 @@ final class KnowledgeBase {
         self.settings = settings
     }
 
+    /// Restore indexed chunks from disk without re-scanning the configured folder.
+    /// Returns true only when the cached embedding config and folder path match.
+    @discardableResult
+    func loadCachedStateIfAvailable(folderURL: URL) -> Bool {
+        let cache = loadCache()
+        let fingerprint = embeddingConfigFingerprint()
+        let canonicalFolderPath = Self.canonicalFolderPath(folderURL)
+
+        guard cache.embeddingConfigFingerprint == fingerprint,
+              cache.folderPath == canonicalFolderPath else {
+            return false
+        }
+
+        let cachedChunks = cache.entries.values.flatMap { $0 }
+        guard !cachedChunks.isEmpty else {
+            return false
+        }
+
+        finishIndexing(chunks: cachedChunks, fileCount: cache.entries.count)
+        indexingStatus = .idle
+        return true
+    }
+
     func index(folderURL: URL) async {
         let provider = settings.embeddingProvider
 
@@ -200,9 +225,14 @@ final class KnowledgeBase {
 
         // Load existing cache; invalidate if embedding config changed
         let fingerprint = embeddingConfigFingerprint()
+        let canonicalFolderPath = Self.canonicalFolderPath(folderURL)
         var cache = loadCache()
-        if cache.embeddingConfigFingerprint != fingerprint {
-            cache = KBCache(entries: [:], embeddingConfigFingerprint: fingerprint)
+        if cache.embeddingConfigFingerprint != fingerprint || cache.folderPath != canonicalFolderPath {
+            cache = KBCache(
+                entries: [:],
+                embeddingConfigFingerprint: fingerprint,
+                folderPath: canonicalFolderPath
+            )
         }
 
         // Move all blocking file I/O off the main thread
@@ -375,6 +405,8 @@ final class KnowledgeBase {
     /// Core search implementation. Returns chunk indices alongside results so callers
     /// don't need to re-scan the chunks array to locate matched entries.
     private func searchRaw(queries: [String], topK: Int) async -> [(chunkIndex: Int, result: KBResult)] {
+        await ensureSearchReady()
+
         let provider = settings.embeddingProvider
         guard isIndexed, !chunks.isEmpty else { return [] }
 
@@ -820,11 +852,23 @@ final class KnowledgeBase {
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
+    private func ensureSearchReady() async {
+        guard !isIndexed, let folderURL = settings.kbFolderURL else { return }
+        if loadCachedStateIfAvailable(folderURL: folderURL) {
+            return
+        }
+        await index(folderURL: folderURL)
+    }
+
     // MARK: - Hashing
 
     private nonisolated static func sha256Static(_ string: String) -> String {
         let data = Data(string.utf8)
         let hash = SHA256.hash(data: data)
         return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    private nonisolated static func canonicalFolderPath(_ url: URL) -> String {
+        url.standardizedFileURL.path
     }
 }

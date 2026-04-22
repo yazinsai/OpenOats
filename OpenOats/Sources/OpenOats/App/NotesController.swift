@@ -1057,8 +1057,7 @@ final class NotesController {
 
         guard let settings,
               settings.kbFolderURL != nil,
-              let knowledgeBase = coordinator.knowledgeBase,
-              knowledgeBase.isIndexed else {
+              let knowledgeBase = coordinator.knowledgeBase else {
             return
         }
 

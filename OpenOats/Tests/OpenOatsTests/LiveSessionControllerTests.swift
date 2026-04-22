@@ -443,6 +443,52 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertFalse(tracker.loadedKeys.contains("voyageApiKey"))
     }
 
+    func testPollingDoesNotReadVoyageKeyOnStartupWhenKnowledgeBaseFolderSet() async {
+        let dirs = makeTempDirs()
+        let kbDirectory = dirs.root.appendingPathComponent("KnowledgeBase", isDirectory: true)
+        try? FileManager.default.createDirectory(at: kbDirectory, withIntermediateDirectories: true)
+
+        let tracker = SecretLoadTracker()
+        let secretStore = AppSecretStore(
+            loadValue: { key in
+                tracker.loadedKeys.append(key)
+                return key == "voyageApiKey" ? "pa-existing" : nil
+            },
+            saveValue: { _, _ in }
+        )
+        let settings = makeSettings(notesDirectory: dirs.notes, secretStore: secretStore)
+        settings.kbFolderPath = kbDirectory.path
+        settings.embeddingProvider = .voyageAI
+
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+        let knowledgeBase = KnowledgeBase(settings: settings)
+        coordinator.setViewServices(
+            knowledgeBase: knowledgeBase,
+            suggestionEngine: SuggestionEngine(
+                transcriptStore: coordinator.transcriptStore,
+                knowledgeBase: knowledgeBase,
+                settings: settings
+            ),
+            sidecastEngine: SidecastEngine(
+                transcriptStore: coordinator.transcriptStore,
+                knowledgeBase: knowledgeBase,
+                settings: settings
+            )
+        )
+
+        let task = Task {
+            await controller.runPollingLoop(settings: settings)
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+        task.cancel()
+
+        XCTAssertFalse(tracker.loadedKeys.contains("voyageApiKey"))
+    }
+
     func testFullSessionLifecycle() async {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)
