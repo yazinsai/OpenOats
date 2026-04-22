@@ -122,8 +122,8 @@ struct NotesView: View {
         }
         .onChange(of: controller.state.selectedSessionID) {
             appleNotesSyncState = .idle
-            appleNotesLastSyncDate = controller.state.selectedSessionID
-                .flatMap { AppleNotesService.lastSyncDate(for: $0) }
+            let sid = controller.state.selectedSessionID
+            appleNotesLastSyncDate = sid.flatMap { AppleNotesService.lastSyncDate(for: $0) }
         }
         .confirmationDialog(
             "Restore original transcript?",
