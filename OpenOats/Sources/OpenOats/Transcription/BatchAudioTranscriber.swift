@@ -1,6 +1,55 @@
 @preconcurrency import AVFoundation
 import FluidAudio
 
+struct BatchTranscriptOverwriteGuard {
+    private struct TranscriptStats {
+        let recordCount: Int
+        let nonWhitespaceCharacterCount: Int
+        let duration: TimeInterval
+
+        init(records: [SessionRecord]) {
+            recordCount = records.count
+            nonWhitespaceCharacterCount = records.reduce(into: 0) { total, record in
+                let text = record.cleanedText ?? record.text
+                total += text.unicodeScalars.reduce(into: 0) { count, scalar in
+                    if !CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                        count += 1
+                    }
+                }
+            }
+            if let first = records.first?.timestamp, let last = records.last?.timestamp {
+                duration = max(0, last.timeIntervalSince(first))
+            } else {
+                duration = 0
+            }
+        }
+
+        var isSubstantial: Bool {
+            recordCount >= 4 || nonWhitespaceCharacterCount >= 120
+        }
+    }
+
+    static func rejectionReason(
+        existingRecords: [SessionRecord],
+        replacementRecords: [SessionRecord]
+    ) -> String? {
+        let existing = TranscriptStats(records: existingRecords)
+        guard existing.isSubstantial else { return nil }
+
+        let replacement = TranscriptStats(records: replacementRecords)
+        let characterCollapseThreshold = max(40, Int(Double(existing.nonWhitespaceCharacterCount) * 0.35))
+        let characterCollapse = replacement.nonWhitespaceCharacterCount < characterCollapseThreshold
+        let recordCollapse = replacement.recordCount * 3 < existing.recordCount
+        let durationCollapse = existing.duration >= 60 && replacement.duration < existing.duration * 0.4
+
+        guard characterCollapse && (recordCollapse || durationCollapse) else {
+            return nil
+        }
+
+        return "Batch re-transcription looks unreliable; kept existing transcript"
+    }
+}
+
 /// Offline two-pass transcription engine that processes recorded CAF files
 /// using a higher-quality model after a meeting ends.
 actor BatchAudioTranscriber {
@@ -297,10 +346,26 @@ actor BatchAudioTranscriber {
         // Interleave by timestamp
         var allRecords = micRecords + sysRecords
         allRecords.sort { $0.timestamp < $1.timestamp }
+        let existingRecords = await sessionRepository.loadTranscript(sessionID: sessionID)
 
         guard !allRecords.isEmpty else {
             Log.batchTranscription.warning("Batch transcription produced no records for \(sessionID, privacy: .public)")
-            status = .completed(sessionID: sessionID)
+            if existingRecords.isEmpty {
+                status = .failed("Batch re-transcription produced no speech")
+            } else {
+                status = .failed("Batch re-transcription produced no speech; kept existing transcript")
+            }
+            return
+        }
+
+        if let rejectionReason = BatchTranscriptOverwriteGuard.rejectionReason(
+            existingRecords: existingRecords,
+            replacementRecords: allRecords
+        ) {
+            Log.batchTranscription.warning(
+                "Skipping batch transcript overwrite for \(sessionID, privacy: .public): \(rejectionReason, privacy: .public)"
+            )
+            status = .failed(rejectionReason)
             return
         }
 
