@@ -551,6 +551,66 @@ final class SessionRepositoryTests: XCTestCase {
         await repo.deleteSession(sessionID: sessionID)
     }
 
+    func testSaveFinalTranscriptBacksUpLiveTranscriptWhenRequested() async {
+        let sessionID = "session_backup_live"
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        await repo.seedSession(
+            id: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Original live", timestamp: startedAt)],
+            startedAt: startedAt
+        )
+
+        await repo.saveFinalTranscript(
+            sessionID: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Batch final", timestamp: startedAt.addingTimeInterval(30))],
+            backupCurrentTranscript: true
+        )
+
+        let backupURL = rootDir
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(sessionID, isDirectory: true)
+            .appendingPathComponent("transcript.pre-batch.jsonl")
+
+        let backup = try? String(contentsOf: backupURL, encoding: .utf8)
+        XCTAssertNotNil(backup)
+        XCTAssertTrue(backup?.contains("Original live") == true)
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
+    func testSaveFinalTranscriptBacksUpExistingFinalTranscriptWhenRequested() async {
+        let sessionID = "session_backup_final"
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        await repo.seedSession(
+            id: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Original live", timestamp: startedAt)],
+            startedAt: startedAt
+        )
+
+        await repo.saveFinalTranscript(
+            sessionID: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Original final", timestamp: startedAt.addingTimeInterval(10))]
+        )
+
+        await repo.saveFinalTranscript(
+            sessionID: sessionID,
+            records: [SessionRecord(speaker: .them, text: "New final", timestamp: startedAt.addingTimeInterval(20))],
+            backupCurrentTranscript: true
+        )
+
+        let backupURL = rootDir
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(sessionID, isDirectory: true)
+            .appendingPathComponent("transcript.pre-batch.jsonl")
+
+        let backup = try? String(contentsOf: backupURL, encoding: .utf8)
+        XCTAssertNotNil(backup)
+        XCTAssertTrue(backup?.contains("Original final") == true)
+        XCTAssertFalse(backup?.contains("New final") == true)
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
     func testReconcileGhostSessionMergesCalendarEventIntoRecentRealSession() async {
         let calendarEvent = makeCalendarEvent()
         let realStartedAt = Date().addingTimeInterval(-180)

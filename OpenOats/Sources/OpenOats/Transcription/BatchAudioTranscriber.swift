@@ -263,8 +263,11 @@ actor BatchAudioTranscriber {
                 let variant = LSEENDVariant(rawValue: diarizationVariant.rawValue) ?? .dihard3
                 try await dm.load(variant: variant)
                 // Process complete audio file through diarizer
-                let converter = AudioConverter(sampleRate: 16000)
-                let samples = try converter.resampleAudioFile(sysURL)
+                let samples = try BatchAudioSampleReader.readAll(
+                    url: sysURL,
+                    targetRate: 16000,
+                    overrideSampleRate: anchors?.sysSampleRate
+                )
                 try await dm.feedAudio(samples)
                 await dm.finalize()
                 batchDiarizer = dm
@@ -302,7 +305,11 @@ actor BatchAudioTranscriber {
         }
 
         // Atomic write of final transcript + full markdown regeneration via mirroring
-        await sessionRepository.saveFinalTranscript(sessionID: sessionID, records: allRecords)
+        await sessionRepository.saveFinalTranscript(
+            sessionID: sessionID,
+            records: allRecords,
+            backupCurrentTranscript: true
+        )
         // Retain batch stems/metadata for a bounded rerun/debug window.
         // SessionRepository purges expired retained assets on startup.
 
@@ -337,7 +344,7 @@ actor BatchAudioTranscriber {
         let resolvedSampleRate = sampleRate ?? fileSampleRate
 
         // Process in 30-second chunks
-        let chunkFrames = Int64(30.0 * fileSampleRate)
+        let chunkFrames = Int64(30.0 * resolvedSampleRate)
         var records: [SessionRecord] = []
         var frameOffset: Int64 = 0
 
@@ -348,7 +355,8 @@ actor BatchAudioTranscriber {
             let chunk = try readChunk(
                 file: audioFile,
                 startFrame: frameOffset,
-                frameCount: AVAudioFrameCount(framesToRead)
+                frameCount: AVAudioFrameCount(framesToRead),
+                overrideSampleRate: sampleRate
             )
 
             guard !chunk.isEmpty else {
@@ -366,7 +374,7 @@ actor BatchAudioTranscriber {
                 guard !text.isEmpty else { continue }
 
                 // Calculate timestamp from frame position
-                let sampleOffsetInFile = Double(frameOffset) + Double(segment.startSample) * fileSampleRate / 16000.0
+                let sampleOffsetInFile = Double(frameOffset) + Double(segment.startSample) * resolvedSampleRate / 16000.0
                 let timeOffset = sampleOffsetInFile / resolvedSampleRate
                 let timestamp = resolvedStartDate.addingTimeInterval(timeOffset)
 
@@ -374,7 +382,7 @@ actor BatchAudioTranscriber {
                 let resolvedSpeaker: Speaker
                 if let dm = diarizationManager {
                     let endSample = segment.startSample + segment.samples.count
-                    let segEndOffset = Double(frameOffset) + Double(endSample) * fileSampleRate / 16000.0
+                    let segEndOffset = Double(frameOffset) + Double(endSample) * resolvedSampleRate / 16000.0
                     let segEndTime = segEndOffset / resolvedSampleRate
                     resolvedSpeaker = await dm.dominantSpeaker(from: timeOffset, to: segEndTime)
                 } else {
@@ -404,78 +412,16 @@ actor BatchAudioTranscriber {
     private func readChunk(
         file: AVAudioFile,
         startFrame: Int64,
-        frameCount: AVAudioFrameCount
+        frameCount: AVAudioFrameCount,
+        overrideSampleRate: Double? = nil
     ) throws -> [Float] {
-        let srcFormat = file.processingFormat
         file.framePosition = startFrame
-
-        guard let readBuf = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: frameCount) else {
-            return []
-        }
-        try file.read(into: readBuf)
-
-        let targetFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: 16000,
-            channels: 1,
-            interleaved: false
-        )!
-
-        // Fast path: already at target format
-        if srcFormat.sampleRate == 16000 && srcFormat.channelCount == 1
-            && srcFormat.commonFormat == .pcmFormatFloat32 {
-            guard let data = readBuf.floatChannelData else { return [] }
-            return Array(UnsafeBufferPointer(start: data[0], count: Int(readBuf.frameLength)))
-        }
-
-        // Downmix to mono first if needed
-        var inputBuffer = readBuf
-        if srcFormat.channelCount > 1, let src = readBuf.floatChannelData {
-            let monoFormat = AVAudioFormat(
-                commonFormat: .pcmFormatFloat32,
-                sampleRate: srcFormat.sampleRate,
-                channels: 1,
-                interleaved: false
-            )!
-            if let monoBuf = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: readBuf.frameCapacity),
-               let dst = monoBuf.floatChannelData?[0] {
-                monoBuf.frameLength = readBuf.frameLength
-                let channels = Int(srcFormat.channelCount)
-                let scale = 1.0 / Float(channels)
-                for i in 0..<Int(readBuf.frameLength) {
-                    var sum: Float = 0
-                    for ch in 0..<channels { sum += src[ch][i] }
-                    dst[i] = sum * scale
-                }
-                inputBuffer = monoBuf
-            }
-        }
-
-        // Resample via AVAudioConverter
-        guard let converter = AVAudioConverter(from: inputBuffer.format, to: targetFormat) else {
-            // If conversion not possible, try direct extraction
-            guard let data = inputBuffer.floatChannelData else { return [] }
-            return Array(UnsafeBufferPointer(start: data[0], count: Int(inputBuffer.frameLength)))
-        }
-
-        let ratio = 16000.0 / inputBuffer.format.sampleRate
-        let outFrames = AVAudioFrameCount(Double(inputBuffer.frameLength) * ratio) + 1
-        guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outFrames) else {
-            return []
-        }
-
-        nonisolated(unsafe) var consumed = false
-        nonisolated(unsafe) let inputRef = inputBuffer
-        var convError: NSError?
-        converter.convert(to: outBuf, error: &convError) { _, status in
-            if consumed { status.pointee = .endOfStream; return nil }
-            consumed = true
-            status.pointee = .haveData
-            return inputRef
-        }
-
-        guard let data = outBuf.floatChannelData else { return [] }
-        return Array(UnsafeBufferPointer(start: data[0], count: Int(outBuf.frameLength)))
+        return try BatchAudioSampleReader.readChunk(
+            from: file,
+            frameCount: frameCount,
+            targetRate: 16000,
+            overrideSampleRate: overrideSampleRate
+        )
     }
 
     // MARK: - VAD
@@ -572,6 +518,136 @@ actor BatchAudioTranscriber {
         )
     }
 
+}
+
+enum BatchAudioSampleReader {
+    static func readAll(
+        url: URL,
+        targetRate: Double,
+        overrideSampleRate: Double? = nil
+    ) throws -> [Float] {
+        let file = try AVAudioFile(forReading: url)
+        guard file.length > 0 else { return [] }
+        file.framePosition = 0
+        return try readChunk(
+            from: file,
+            frameCount: AVAudioFrameCount(file.length),
+            targetRate: targetRate,
+            overrideSampleRate: overrideSampleRate
+        )
+    }
+
+    static func readChunk(
+        from file: AVAudioFile,
+        frameCount: AVAudioFrameCount,
+        targetRate: Double,
+        overrideSampleRate: Double? = nil
+    ) throws -> [Float] {
+        let srcFormat = file.processingFormat
+        guard let readBuf = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: frameCount) else {
+            return []
+        }
+        try file.read(into: readBuf)
+        return resample(readBuf, targetRate: targetRate, overrideSampleRate: overrideSampleRate)
+    }
+
+    static func resample(
+        _ readBuf: AVAudioPCMBuffer,
+        targetRate: Double,
+        overrideSampleRate: Double? = nil
+    ) -> [Float] {
+        let srcFormat = readBuf.format
+        guard readBuf.frameLength > 0 else { return [] }
+
+        let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: targetRate,
+            channels: 1,
+            interleaved: false
+        )!
+
+        if overrideSampleRate == nil,
+           srcFormat.sampleRate == targetRate,
+           srcFormat.channelCount == 1,
+           srcFormat.commonFormat == .pcmFormatFloat32
+        {
+            return extractSamples(from: readBuf)
+        }
+
+        let converterInput: AVAudioPCMBuffer
+        let converterSrcFormat: AVAudioFormat
+        if let overrideSampleRate, overrideSampleRate != srcFormat.sampleRate {
+            guard let retaggedFormat = AVAudioFormat(
+                commonFormat: srcFormat.commonFormat,
+                sampleRate: overrideSampleRate,
+                channels: srcFormat.channelCount,
+                interleaved: srcFormat.isInterleaved
+            ),
+            let retaggedBuffer = AVAudioPCMBuffer(
+                pcmFormat: retaggedFormat,
+                frameCapacity: readBuf.frameCapacity
+            )
+            else {
+                return extractMonoSamples(from: readBuf)
+            }
+            retaggedBuffer.frameLength = readBuf.frameLength
+            if let src = readBuf.floatChannelData, let dst = retaggedBuffer.floatChannelData {
+                for ch in 0..<Int(srcFormat.channelCount) {
+                    memcpy(dst[ch], src[ch], Int(readBuf.frameLength) * MemoryLayout<Float>.size)
+                }
+            }
+            converterInput = retaggedBuffer
+            converterSrcFormat = retaggedFormat
+        } else {
+            converterInput = readBuf
+            converterSrcFormat = srcFormat
+        }
+
+        guard let converter = AVAudioConverter(from: converterSrcFormat, to: targetFormat) else {
+            return extractMonoSamples(from: converterInput)
+        }
+
+        let ratio = targetRate / converterSrcFormat.sampleRate
+        let outFrames = AVAudioFrameCount(Double(converterInput.frameLength) * ratio) + 1
+        guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outFrames) else {
+            return []
+        }
+
+        nonisolated(unsafe) var consumed = false
+        nonisolated(unsafe) let inputRef = converterInput
+        var convError: NSError?
+        converter.convert(to: outBuf, error: &convError) { _, status in
+            if consumed {
+                status.pointee = .endOfStream
+                return nil
+            }
+            consumed = true
+            status.pointee = .haveData
+            return inputRef
+        }
+
+        return extractSamples(from: outBuf)
+    }
+
+    private static func extractSamples(from buffer: AVAudioPCMBuffer) -> [Float] {
+        let count = Int(buffer.frameLength)
+        guard count > 0, let data = buffer.floatChannelData?[0] else { return [] }
+        return Array(UnsafeBufferPointer(start: data, count: count))
+    }
+
+    private static func extractMonoSamples(from buffer: AVAudioPCMBuffer) -> [Float] {
+        let count = Int(buffer.frameLength)
+        guard count > 0, let data = buffer.floatChannelData else { return [] }
+        let channels = Int(buffer.format.channelCount)
+        if channels <= 1 { return extractSamples(from: buffer) }
+
+        let scale = 1.0 / Float(channels)
+        return (0..<count).map { i in
+            var sum: Float = 0
+            for ch in 0..<channels { sum += data[ch][i] }
+            return sum * scale
+        }
+    }
 }
 
 // MARK: - JSONDecoder Extension

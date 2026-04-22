@@ -496,9 +496,17 @@ actor SessionRepository {
 
     // MARK: - Final Transcript
 
-    func saveFinalTranscript(sessionID: String, records: [SessionRecord]) {
+    func saveFinalTranscript(
+        sessionID: String,
+        records: [SessionRecord],
+        backupCurrentTranscript: Bool = false
+    ) {
         let dir = sessionDirectory(for: sessionID)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        if backupCurrentTranscript {
+            backupTranscriptForBatchOverwrite(sessionID: sessionID)
+        }
 
         var payload = Data()
         for record in records {
@@ -544,6 +552,32 @@ actor SessionRepository {
 
         // Mirror to notesFolderPath
         scheduleMirror(sessionID: sessionID)
+    }
+
+    private func backupTranscriptForBatchOverwrite(sessionID: String) {
+        let dir = sessionDirectory(for: sessionID)
+        let fm = FileManager.default
+        let finalURL = dir.appendingPathComponent("transcript.final.jsonl")
+        let liveURL = dir.appendingPathComponent("transcript.live.jsonl")
+        let backupURL = dir.appendingPathComponent("transcript.pre-batch.jsonl")
+
+        let sourceURL: URL?
+        if fm.fileExists(atPath: finalURL.path), let data = try? Data(contentsOf: finalURL), !data.isEmpty {
+            sourceURL = finalURL
+        } else if fm.fileExists(atPath: liveURL.path), let data = try? Data(contentsOf: liveURL), !data.isEmpty {
+            sourceURL = liveURL
+        } else {
+            sourceURL = nil
+        }
+
+        guard let sourceURL else { return }
+
+        try? fm.removeItem(at: backupURL)
+        do {
+            try fm.copyItem(at: sourceURL, to: backupURL)
+        } catch {
+            Log.sessionRepository.error("Failed to back up transcript before batch overwrite: \(error, privacy: .public)")
+        }
     }
 
     // MARK: - Notes
