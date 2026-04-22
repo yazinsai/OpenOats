@@ -11,10 +11,19 @@ typealias SessionIndexEntry = SessionIndex
 struct SessionStartConfig: Sendable {
     let templateID: UUID?
     let templateSnapshot: TemplateSnapshot?
+    let title: String?
+    let calendarEvent: CalendarEvent?
 
-    init(templateID: UUID? = nil, templateSnapshot: TemplateSnapshot? = nil) {
+    init(
+        templateID: UUID? = nil,
+        templateSnapshot: TemplateSnapshot? = nil,
+        title: String? = nil,
+        calendarEvent: CalendarEvent? = nil
+    ) {
         self.templateID = templateID
         self.templateSnapshot = templateSnapshot
+        self.title = title
+        self.calendarEvent = calendarEvent
     }
 }
 
@@ -230,25 +239,47 @@ actor SessionRepository {
         let fm = FileManager.default
         try? fm.createDirectory(at: sessionDir, withIntermediateDirectories: true)
 
-        // Create transcript.live.jsonl and keep handle open
-        let liveFile = sessionDir.appendingPathComponent("transcript.live.jsonl")
-        fm.createFile(atPath: liveFile.path, contents: nil,
-                      attributes: [.posixPermissions: 0o600])
-        do {
-            liveFileHandle = try FileHandle(forWritingTo: liveFile)
-        } catch {
-            reportWriteError("Failed to open live transcript file: \(error.localizedDescription)")
-        }
+        openLiveTranscriptFileHandle(sessionID: sessionID)
 
         // Write initial session.json
         let metadata = SessionMetadata(
             id: sessionID,
             startedAt: Date(),
             templateSnapshot: config.templateSnapshot,
+            title: config.title,
             utteranceCount: 0,
-            hasNotes: false
+            hasNotes: false,
+            calendarEvent: config.calendarEvent
         )
         writeSessionMetadata(metadata, sessionID: sessionID)
+
+        return SessionHandle(sessionID: sessionID)
+    }
+
+    @discardableResult
+    func resumeAbandonedSession(
+        config: SessionStartConfig,
+        maximumGap: TimeInterval = 6 * 60 * 60
+    ) -> SessionHandle? {
+        guard let sessionID = resumableSessionID(config: config, maximumGap: maximumGap) else {
+            return nil
+        }
+
+        currentSessionID = sessionID
+        hasReportedWriteError = false
+        liveUtteranceCount = 0
+        openLiveTranscriptFileHandle(sessionID: sessionID)
+
+        if var metadata = loadSessionMetadataFile(sessionID: sessionID) {
+            metadata.templateSnapshot = config.templateSnapshot ?? metadata.templateSnapshot
+            if let title = config.title {
+                metadata.title = title
+            }
+            if let calendarEvent = config.calendarEvent {
+                metadata.calendarEvent = calendarEvent
+            }
+            writeSessionMetadata(metadata, sessionID: sessionID)
+        }
 
         return SessionHandle(sessionID: sessionID)
     }
@@ -948,6 +979,51 @@ actor SessionRepository {
         NotesFolderDefinition.normalizePath(folderPath ?? "")
     }
 
+    private func resumableSessionID(
+        config: SessionStartConfig,
+        maximumGap: TimeInterval
+    ) -> String? {
+        let referenceTitle = config.title ?? config.calendarEvent?.title
+        let historyKey = MeetingHistoryResolver.historyKey(for: referenceTitle ?? "")
+        guard !historyKey.isEmpty else { return nil }
+
+        let referenceDate = config.calendarEvent?.startDate ?? Date()
+        let referenceEventID = config.calendarEvent?.id
+
+        let candidates = listSessions().compactMap { candidate -> (id: String, exactEventMatch: Bool, gap: TimeInterval)? in
+            guard candidate.endedAt == nil,
+                  candidate.utteranceCount == 0,
+                  candidate.hasNotes == false,
+                  !sessionHasMeaningfulArtifacts(sessionID: candidate.id),
+                  let metadata = loadSessionMetadataFile(sessionID: candidate.id) else {
+                return nil
+            }
+
+            let gap = abs(metadata.startedAt.timeIntervalSince(referenceDate))
+            guard gap <= maximumGap else { return nil }
+
+            if let referenceEventID,
+               metadata.calendarEvent?.id == referenceEventID {
+                return (candidate.id, true, gap)
+            }
+
+            let candidateTitle = metadata.title ?? metadata.calendarEvent?.title
+            guard MeetingHistoryResolver.historyKey(for: candidateTitle ?? "") == historyKey else {
+                return nil
+            }
+
+            return (candidate.id, false, gap)
+        }
+        .sorted { lhs, rhs in
+            if lhs.exactEventMatch != rhs.exactEventMatch {
+                return lhs.exactEventMatch && !rhs.exactEventMatch
+            }
+            return lhs.gap < rhs.gap
+        }
+
+        return candidates.first?.id
+    }
+
     private func sessionHasMeaningfulArtifacts(sessionID: String) -> Bool {
         if !loadTranscript(sessionID: sessionID).isEmpty { return true }
         if !loadLiveTranscript(sessionID: sessionID).isEmpty { return true }
@@ -1411,6 +1487,29 @@ actor SessionRepository {
         guard !hasReportedWriteError else { return }
         hasReportedWriteError = true
         onWriteError?(message)
+    }
+
+    private func openLiveTranscriptFileHandle(sessionID: String) {
+        try? liveFileHandle?.close()
+        liveFileHandle = nil
+
+        let liveFile = sessionDirectory(for: sessionID).appendingPathComponent("transcript.live.jsonl")
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: liveFile.path) {
+            fm.createFile(
+                atPath: liveFile.path,
+                contents: nil,
+                attributes: [.posixPermissions: 0o600]
+            )
+        }
+
+        do {
+            let handle = try FileHandle(forWritingTo: liveFile)
+            handle.seekToEndOfFile()
+            liveFileHandle = handle
+        } catch {
+            reportWriteError("Failed to open live transcript file: \(error.localizedDescription)")
+        }
     }
 
     @discardableResult

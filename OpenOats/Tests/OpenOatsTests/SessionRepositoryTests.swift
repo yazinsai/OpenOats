@@ -70,6 +70,25 @@ final class SessionRepositoryTests: XCTestCase {
         await repo.deleteSession(sessionID: handle.sessionID)
     }
 
+    func testStartSessionPersistsInitialMeetingIdentity() async {
+        let calendarEvent = makeCalendarEvent()
+        let handle = await repo.startSession(
+            config: SessionStartConfig(
+                templateSnapshot: nil,
+                title: "Customer Sync",
+                calendarEvent: calendarEvent
+            )
+        )
+
+        let session = await repo.loadSession(id: handle.sessionID)
+        XCTAssertEqual(session.index.title, "Customer Sync")
+        XCTAssertEqual(session.calendarEvent?.id, calendarEvent.id)
+        XCTAssertEqual(session.calendarEvent?.calendarTitle, calendarEvent.calendarTitle)
+
+        await repo.endSession()
+        await repo.deleteSession(sessionID: handle.sessionID)
+    }
+
     // MARK: - appendLiveUtterance writes to JSONL
 
     func testAppendLiveUtteranceWritesToJSONL() async {
@@ -619,6 +638,93 @@ final class SessionRepositoryTests: XCTestCase {
 
         await repo.deleteSession(sessionID: ghostHandle.sessionID)
         await repo.deleteSession(sessionID: "session_real")
+    }
+
+    func testResumeAbandonedSessionReusesEmptyUnfinishedMeetingRow() async {
+        let now = Date()
+        let calendarEvent = CalendarEvent(
+            id: "event-resume",
+            title: "Customer Sync",
+            startDate: now.addingTimeInterval(-120),
+            endDate: now.addingTimeInterval(780),
+            calendarID: "calendar-123",
+            calendarTitle: "Customer Meetings",
+            calendarColorHex: "#3366FF",
+            organizer: "Aly",
+            participants: [],
+            isOnlineMeeting: true,
+            meetingURL: URL(string: "https://meet.example.com/customer-sync")
+        )
+        let originalHandle = await repo.startSession(
+            config: SessionStartConfig(
+                templateSnapshot: nil,
+                title: calendarEvent.title,
+                calendarEvent: calendarEvent
+            )
+        )
+        await repo.endSession()
+
+        let resumedHandle = await repo.resumeAbandonedSession(
+            config: SessionStartConfig(
+                templateSnapshot: nil,
+                title: calendarEvent.title,
+                calendarEvent: calendarEvent
+            )
+        )
+
+        XCTAssertEqual(resumedHandle?.sessionID, originalHandle.sessionID)
+        let currentSessionID = await repo.getCurrentSessionID()
+        XCTAssertEqual(currentSessionID, originalHandle.sessionID)
+
+        let utterance = Utterance(text: "Recovered recording", speaker: .you, timestamp: Date())
+        await repo.appendLiveUtterance(sessionID: originalHandle.sessionID, utterance: utterance)
+        await repo.endSession()
+
+        let liveTranscript = await repo.loadLiveTranscript(sessionID: originalHandle.sessionID)
+        XCTAssertEqual(liveTranscript.count, 1)
+        XCTAssertEqual(liveTranscript.first?.text, "Recovered recording")
+
+        await repo.deleteSession(sessionID: originalHandle.sessionID)
+    }
+
+    func testResumeAbandonedSessionSkipsRowsWithTranscriptArtifacts() async {
+        let now = Date()
+        let calendarEvent = CalendarEvent(
+            id: "event-resume-skip",
+            title: "Customer Sync",
+            startDate: now.addingTimeInterval(-120),
+            endDate: now.addingTimeInterval(780),
+            calendarID: "calendar-123",
+            calendarTitle: "Customer Meetings",
+            calendarColorHex: "#3366FF",
+            organizer: "Aly",
+            participants: [],
+            isOnlineMeeting: true,
+            meetingURL: URL(string: "https://meet.example.com/customer-sync")
+        )
+        let originalHandle = await repo.startSession(
+            config: SessionStartConfig(
+                templateSnapshot: nil,
+                title: calendarEvent.title,
+                calendarEvent: calendarEvent
+            )
+        )
+
+        let utterance = Utterance(text: "Existing transcript", speaker: .you, timestamp: Date())
+        await repo.appendLiveUtterance(sessionID: originalHandle.sessionID, utterance: utterance)
+        await repo.endSession()
+
+        let resumedHandle = await repo.resumeAbandonedSession(
+            config: SessionStartConfig(
+                templateSnapshot: nil,
+                title: calendarEvent.title,
+                calendarEvent: calendarEvent
+            )
+        )
+
+        XCTAssertNil(resumedHandle)
+
+        await repo.deleteSession(sessionID: originalHandle.sessionID)
     }
 
     func testBatchMetaPersistsEffectiveSystemSampleRate() async {
