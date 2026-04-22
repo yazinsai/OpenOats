@@ -97,35 +97,8 @@ struct NotesView: View {
     @ViewBuilder
     private func mainContent(controller: NotesController) -> some View {
         let state = controller.state
-        HStack(spacing: 0) {
-            sidebar(controller: controller, state: state)
-                .frame(width: 250)
-            Divider()
-            detailContent(controller: controller, state: state)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .onChange(of: coordinator.lastEndedSession?.id) {
-            Task { await controller.handleLastEndedSessionChanged() }
-        }
-        .onChange(of: coordinator.sessionHistory.count) {
-            Task { await controller.loadHistory() }
-        }
-        .onChange(of: coordinator.requestedNotesNavigation?.id) {
-            if controller.handleRequestedSessionSelection() {
-                detailViewMode = .notes
-            }
-        }
-        .onChange(of: state.selectedMeetingFamily?.key) {
-            meetingFamilyBottomTab = .history
-            isMeetingFamilyBottomCollapsed = false
-            pendingMeetingFamilyFolderChange = nil
-        }
-        .onChange(of: controller.state.selectedSessionID) {
-            appleNotesSyncState = .idle
-            let sid = controller.state.selectedSessionID
-            appleNotesLastSyncDate = sid.flatMap { AppleNotesService.lastSyncDate(for: $0) }
-        }
-        .confirmationDialog(
+        mainLayout(controller: controller, state: state)
+            .confirmationDialog(
             "Restore original transcript?",
             isPresented: $confirmRestoreOriginalTranscript,
             titleVisibility: .visible
@@ -187,6 +160,38 @@ struct NotesView: View {
                 }
         } message: { pendingChange in
             Text(meetingFamilyFolderChangeMessage(for: pendingChange))
+        }
+    }
+
+    @ViewBuilder
+    private func mainLayout(controller: NotesController, state: NotesState) -> some View {
+        HStack(spacing: 0) {
+            sidebar(controller: controller, state: state)
+                .frame(width: 250)
+            Divider()
+            detailContent(controller: controller, state: state)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .onChange(of: coordinator.lastEndedSession?.id) {
+            Task { await controller.handleLastEndedSessionChanged() }
+        }
+        .onChange(of: coordinator.sessionHistory.count) {
+            Task { await controller.loadHistory() }
+        }
+        .onChange(of: coordinator.requestedNotesNavigation?.id) {
+            if controller.handleRequestedSessionSelection() {
+                detailViewMode = .notes
+            }
+        }
+        .onChange(of: state.selectedMeetingFamily?.key) {
+            meetingFamilyBottomTab = .history
+            isMeetingFamilyBottomCollapsed = false
+            pendingMeetingFamilyFolderChange = nil
+        }
+        .onChange(of: controller.state.selectedSessionID) {
+            appleNotesSyncState = .idle
+            let sid = controller.state.selectedSessionID
+            appleNotesLastSyncDate = sid.flatMap { AppleNotesService.lastSyncDate(for: $0) }
         }
     }
 
