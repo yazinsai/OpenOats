@@ -900,10 +900,65 @@ private struct TemplatesSettingsTab: View {
 
 private struct IntegrationsSettingsTab: View {
     @Bindable var settings: AppSettings
+    @State private var appleNotesAuthFailed = false
 
     var body: some View {
         ScrollView {
             Form {
+                Section("Apple Notes") {
+                    Toggle("Enable Apple Notes export", isOn: $settings.appleNotesEnabled)
+                        .font(.system(size: 12))
+                        .onChange(of: settings.appleNotesEnabled) { _, enabled in
+                            if enabled {
+                                Task {
+                                    let authorized = await AppleNotesService.requestAuthorization()
+                                    if !authorized {
+                                        settings.appleNotesEnabled = false
+                                        appleNotesAuthFailed = true
+                                    }
+                                }
+                            }
+                        }
+
+                    Text("Creates or updates a note in Apple Notes for each meeting. Use the \"Sync to Apple Notes\" button in the Notes view to push updated notes manually.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    if appleNotesAuthFailed {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red)
+                                .font(.system(size: 12))
+                            Text("Permission denied. Enable OpenOats under System Settings → Privacy & Security → Automation.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.red)
+                        }
+                    }
+
+                    if settings.appleNotesEnabled {
+                        Toggle("Include transcript", isOn: $settings.appleNotesIncludeTranscript)
+                            .font(.system(size: 12))
+
+                        Toggle("Auto-export transcript when meeting ends", isOn: $settings.appleNotesAutoExport)
+                            .font(.system(size: 12))
+                            .disabled(!settings.appleNotesIncludeTranscript)
+                        Text(settings.appleNotesIncludeTranscript
+                             ? "Exports the transcript to Apple Notes immediately when the meeting ends. Notes are generated later — use the Export button in the Notes view to sync them."
+                             : "Enable \"Include transcript\" to auto-export when a meeting ends.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+
+                        TextField("Account", text: $settings.appleNotesAccountName, prompt: Text("iCloud"))
+                            .font(.system(size: 12))
+                        Text("Enter the exact account name as it appears in the Notes sidebar (e.g. \"iCloud\" or your email address).")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+
+                        TextField("Folder name", text: $settings.appleNotesFolderName, prompt: Text("OpenOats"))
+                            .font(.system(size: 12))
+                    }
+                }
+
                 Section("Webhook") {
                     Toggle("Send webhook when meeting ends", isOn: $settings.webhookEnabled)
                         .font(.system(size: 12))

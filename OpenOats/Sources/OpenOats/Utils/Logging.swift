@@ -15,6 +15,7 @@ enum Log {
     static let markdownMeetingWriter = Logger(subsystem: subsystem, category: "MarkdownMeetingWriter")
     static let meetingDetection = Logger(subsystem: subsystem, category: "MeetingDetection")
     static let sessionRepository = Logger(subsystem: subsystem, category: "SessionRepository")
+    static let appleNotes = Logger(subsystem: subsystem, category: "AppleNotes")
     static let webhook = Logger(subsystem: subsystem, category: "Webhook")
     static let whisperkit = Logger(subsystem: subsystem, category: "WhisperKitManager")
 

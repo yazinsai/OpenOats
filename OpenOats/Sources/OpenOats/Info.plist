@@ -37,6 +37,8 @@
     <string>OpenOats needs system audio recording access to transcribe other participants in real time.</string>
     <key>NSCalendarsFullAccessUsageDescription</key>
     <string>OpenOats can use your calendar to automatically title meeting sessions with the event name and show participant info.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>OpenOats uses Apple Notes to export your meeting notes.</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>SUFeedURL</key>

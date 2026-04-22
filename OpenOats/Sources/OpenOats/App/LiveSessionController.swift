@@ -449,6 +449,15 @@ final class LiveSessionController {
             )
         }
 
+        // 5c. Export to Apple Notes if configured
+        if let settings {
+            AppleNotesService.exportIfEnabled(
+                settings: settings,
+                sessionIndex: index,
+                utterances: utterancesSnapshot
+            )
+        }
+
         // 6. Handle audio recording
         if let settings, let recorder = coordinator.audioRecorder {
             let wantsBatch = settings.enableBatchRetranscription

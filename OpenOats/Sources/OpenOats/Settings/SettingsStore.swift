@@ -751,6 +751,63 @@ final class SettingsStore {
         }
     }
 
+    // MARK: - Apple Notes Settings
+
+    @ObservationIgnored nonisolated(unsafe) private var _appleNotesEnabled: Bool
+    var appleNotesEnabled: Bool {
+        get { access(keyPath: \.appleNotesEnabled); return _appleNotesEnabled }
+        set {
+            withMutation(keyPath: \.appleNotesEnabled) {
+                _appleNotesEnabled = newValue
+                defaults.set(newValue, forKey: "appleNotesEnabled")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _appleNotesIncludeTranscript: Bool
+    var appleNotesIncludeTranscript: Bool {
+        get { access(keyPath: \.appleNotesIncludeTranscript); return _appleNotesIncludeTranscript }
+        set {
+            withMutation(keyPath: \.appleNotesIncludeTranscript) {
+                _appleNotesIncludeTranscript = newValue
+                defaults.set(newValue, forKey: "appleNotesIncludeTranscript")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _appleNotesFolderName: String
+    var appleNotesFolderName: String {
+        get { access(keyPath: \.appleNotesFolderName); return _appleNotesFolderName }
+        set {
+            withMutation(keyPath: \.appleNotesFolderName) {
+                _appleNotesFolderName = newValue
+                defaults.set(newValue, forKey: "appleNotesFolderName")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _appleNotesAccountName: String
+    var appleNotesAccountName: String {
+        get { access(keyPath: \.appleNotesAccountName); return _appleNotesAccountName }
+        set {
+            withMutation(keyPath: \.appleNotesAccountName) {
+                _appleNotesAccountName = newValue
+                defaults.set(newValue, forKey: "appleNotesAccountName")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _appleNotesAutoExport: Bool
+    var appleNotesAutoExport: Bool {
+        get { access(keyPath: \.appleNotesAutoExport); return _appleNotesAutoExport }
+        set {
+            withMutation(keyPath: \.appleNotesAutoExport) {
+                _appleNotesAutoExport = newValue
+                defaults.set(newValue, forKey: "appleNotesAutoExport")
+            }
+        }
+    }
+
     // MARK: - Webhook Settings
 
     @ObservationIgnored nonisolated(unsafe) private var _webhookEnabled: Bool
@@ -1160,6 +1217,21 @@ final class SettingsStore {
 
         // Import Settings
         self._granolaApiKey = ""
+
+        // Apple Notes Settings
+        self._appleNotesEnabled = defaults.bool(forKey: "appleNotesEnabled")
+        if defaults.object(forKey: "appleNotesIncludeTranscript") == nil {
+            self._appleNotesIncludeTranscript = true
+        } else {
+            self._appleNotesIncludeTranscript = defaults.bool(forKey: "appleNotesIncludeTranscript")
+        }
+        self._appleNotesFolderName = defaults.string(forKey: "appleNotesFolderName") ?? "OpenOats"
+        self._appleNotesAccountName = defaults.string(forKey: "appleNotesAccountName") ?? "iCloud"
+        if defaults.object(forKey: "appleNotesAutoExport") == nil {
+            self._appleNotesAutoExport = false
+        } else {
+            self._appleNotesAutoExport = defaults.bool(forKey: "appleNotesAutoExport")
+        }
 
         // Webhook Settings
         self._webhookEnabled = defaults.bool(forKey: "webhookEnabled")
