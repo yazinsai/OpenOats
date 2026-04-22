@@ -74,35 +74,14 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
 
         // 2. Build multipart/form-data body
         let boundary = UUID().uuidString
-        var body = Data()
-
-        body.appendMultipart(boundary: boundary, name: "model_id", value: "scribe_v2")
-
         let languageCode = locale.language.languageCode?.identifier ?? ""
-        if !languageCode.isEmpty {
-            body.appendMultipart(boundary: boundary, name: "language_code", value: languageCode)
-        }
-
-        body.appendMultipart(
+        let body = Self.buildMultipartBody(
             boundary: boundary,
-            name: "file",
-            filename: "audio.wav",
-            contentType: "audio/wav",
-            data: wavData
+            wavData: wavData,
+            languageCode: languageCode,
+            keyterms: keyterms,
+            removeFillerWords: removeFillerWords
         )
-
-        if !keyterms.isEmpty {
-            let jsonData = try JSONSerialization.data(withJSONObject: keyterms)
-            let jsonString = String(data: jsonData, encoding: .utf8) ?? "[]"
-            body.appendMultipart(boundary: boundary, name: "keyterms", value: jsonString)
-        }
-
-        if removeFillerWords {
-            body.appendMultipart(boundary: boundary, name: "no_verbatim", value: "true")
-        }
-
-        // Closing boundary
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
         // 3. POST to speech-to-text endpoint
         try Task.checkCancellation()
@@ -122,6 +101,8 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
                     throw CloudASRError.invalidAPIKey(backend: "ElevenLabs")
                 }
                 if !(200 ..< 300).contains(http.statusCode) {
+                    let errorBody = String(data: Data(responseData.prefix(2048)), encoding: .utf8) ?? "<non-utf8 body>"
+                    Self.log.error("ElevenLabs Scribe request failed: status \(http.statusCode, privacy: .public), body: \(errorBody, privacy: .private)")
                     throw CloudASRError.httpError(statusCode: http.statusCode)
                 }
             }
@@ -135,6 +116,50 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
 
         Self.log.info("ElevenLabs Scribe transcription completed")
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Multipart Body Builder (internal for tests)
+
+    /// Builds the multipart/form-data body posted to /v1/speech-to-text.
+    ///
+    /// `keyterms` are emitted as one multipart part per term, matching the
+    /// ElevenLabs JS SDK and the Speech-to-Text API reference. Sending a single
+    /// field with a JSON-array string as the value causes the server to validate
+    /// the whole literal as one keyterm, which fails with
+    /// `invalid_keyword` / "Some keyword contains invalid characters".
+    static func buildMultipartBody(
+        boundary: String,
+        wavData: Data,
+        languageCode: String,
+        keyterms: [String],
+        removeFillerWords: Bool
+    ) -> Data {
+        var body = Data()
+
+        body.appendMultipart(boundary: boundary, name: "model_id", value: "scribe_v2")
+
+        if !languageCode.isEmpty {
+            body.appendMultipart(boundary: boundary, name: "language_code", value: languageCode)
+        }
+
+        body.appendMultipart(
+            boundary: boundary,
+            name: "file",
+            filename: "audio.wav",
+            contentType: "audio/wav",
+            data: wavData
+        )
+
+        for keyterm in keyterms {
+            body.appendMultipart(boundary: boundary, name: "keyterms", value: keyterm)
+        }
+
+        if removeFillerWords {
+            body.appendMultipart(boundary: boundary, name: "no_verbatim", value: "true")
+        }
+
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        return body
     }
 
     // MARK: - Private: Keyterms Parser
