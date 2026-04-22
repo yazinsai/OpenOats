@@ -404,6 +404,12 @@ final class LiveSessionController {
             )
         )
 
+        if let settings,
+           let event = endingMetadata?.calendarEvent,
+           let folderPath = settings.meetingFamilyPreferences(for: event)?.folderPath {
+            await coordinator.sessionRepository.updateSessionFolder(sessionID: sessionID, folderPath: folderPath)
+        }
+
         // 5. Build index for UI state
         let index = SessionIndex(
             id: sessionID,

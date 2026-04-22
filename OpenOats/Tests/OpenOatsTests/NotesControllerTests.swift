@@ -160,6 +160,27 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.loadedCalendarEvent?.participants.count, 2)
     }
 
+    func testSelectSessionLoadsRawAudioSources() async throws {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_raw_audio_sources"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID)
+
+        let audioDir = coordinator.sessionRepository.sessionsDirectoryURL
+            .appendingPathComponent(sessionID, isDirectory: true)
+            .appendingPathComponent("audio", isDirectory: true)
+        try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+        try Data("sys".utf8).write(to: audioDir.appendingPathComponent("sys.caf"))
+        try Data("mic".utf8).write(to: audioDir.appendingPathComponent("mic.caf"))
+
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(controller.state.availableAudioSources.map(\.kind), [.system, .microphone])
+        XCTAssertEqual(controller.state.audioFileURL?.lastPathComponent, "sys.caf")
+    }
+
     func testGenerateNotesUpdatesStatus() async {
         let (root, notes) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)
@@ -196,6 +217,77 @@ final class NotesControllerTests: XCTestCase {
         let savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
         XCTAssertNotNil(savedNotes)
         XCTAssertTrue(savedNotes?.markdown.contains("Test Notes") ?? false)
+    }
+
+    func testSaveManualNotesForSessionWithoutTranscript() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_manual_notes"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID, utterances: [])
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertTrue(controller.state.loadedTranscript.isEmpty)
+        XCTAssertNil(controller.state.loadedNotes)
+
+        controller.startManualNotesEditing()
+        controller.updateManualNotesDraft("Manual notes for a failed recording.")
+        controller.saveManualNotes()
+        try? await Task.sleep(for: .milliseconds(250))
+
+        let savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
+        XCTAssertEqual(savedNotes?.markdown, "Manual notes for a failed recording.")
+        XCTAssertEqual(controller.state.loadedNotes?.markdown, "Manual notes for a failed recording.")
+        XCTAssertFalse(controller.hasUnsavedManualNotesChanges)
+        XCTAssertFalse(controller.state.isEditingManualNotes)
+
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(controller.state.manualNotesDraft, "Manual notes for a failed recording.")
+        XCTAssertFalse(controller.state.isEditingManualNotes)
+    }
+
+    func testInsertImagePreservesUnsavedManualNotesDraft() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_manual_notes_image"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID, utterances: [])
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        controller.startManualNotesEditing()
+        controller.updateManualNotesDraft("Prep observations")
+        controller.insertImage(imageData: Data([0x89, 0x50, 0x4E, 0x47]))
+        try? await Task.sleep(for: .milliseconds(250))
+
+        let savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
+        XCTAssertNotNil(savedNotes)
+        XCTAssertTrue(savedNotes?.markdown.contains("Prep observations") ?? false)
+        XCTAssertTrue(savedNotes?.markdown.contains("![](images/") ?? false)
+    }
+
+    func testUnsavedManualNotesDraftSurvivesSessionSwitch() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+
+        await seedSession(coordinator: coordinator, sessionID: "manual", title: "Manual Notes Session", utterances: [])
+        await seedSession(coordinator: coordinator, sessionID: "other", title: "Other Session")
+
+        controller.selectSession("manual")
+        try? await Task.sleep(for: .milliseconds(200))
+        controller.startManualNotesEditing()
+        controller.updateManualNotesDraft("Unsaved draft that should survive switching away.")
+
+        controller.selectSession("other")
+        try? await Task.sleep(for: .milliseconds(200))
+        controller.selectSession("manual")
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(controller.state.manualNotesDraft, "Unsaved draft that should survive switching away.")
+        XCTAssertTrue(controller.state.isEditingManualNotes)
+        XCTAssertNil(controller.state.loadedNotes)
     }
 
     func testCleanupProgressMapsCorrectly() async {
@@ -672,6 +764,81 @@ final class NotesControllerTests: XCTestCase {
         try? await Task.sleep(for: .milliseconds(250))
 
         XCTAssertEqual(controller.state.selectedTemplate?.id, TemplateStore.standUpID)
+    }
+
+    func testApplyMeetingFamilyFolderPreferenceCanMoveExistingSessions() async {
+        let (root, notes) = makeTempDirs()
+        let settings = makeSettings(notesDirectory: notes)
+        let (controller, coordinator) = makeController(root: root, settings: settings)
+
+        await seedSession(coordinator: coordinator, sessionID: "current", title: "Weekly All Hands")
+        await seedSession(coordinator: coordinator, sessionID: "older", title: "Weekly All Hands")
+        await controller.loadHistory()
+
+        let event = CalendarEvent(
+            id: "evt_family_folder",
+            title: "Weekly All Hands",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        controller.showMeetingHistory(for: event)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        controller.applyMeetingFamilyFolderPreference("Work/All Hands", moveExistingSessions: true)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertEqual(settings.meetingFamilyPreferences(for: event)?.folderPath, "Work/All Hands")
+        XCTAssertEqual(
+            controller.state.sessionHistory
+                .filter { ["current", "older"].contains($0.id) }
+                .map(\.folderPath),
+            ["Work/All Hands", "Work/All Hands"]
+        )
+    }
+
+    func testMeetingFamilyKnowledgeBaseCoverageDeduplicatesDocumentsByPath() {
+        let coverage = NotesController.meetingFamilyKnowledgeBaseCoverage(from: [
+            KBContextPack(
+                matchedText: "Merchant ops decisions",
+                relativePath: "ops/payment-ops.md",
+                documentTitle: "Payment Ops",
+                score: 0.91
+            ),
+            KBContextPack(
+                matchedText: "Older chunk",
+                relativePath: "ops/payment-ops.md",
+                documentTitle: "Payment Ops",
+                score: 0.44
+            ),
+            KBContextPack(
+                matchedText: "Platform notes",
+                relativePath: "platform/weekly.md",
+                documentTitle: "Weekly Platform",
+                score: 0.72
+            ),
+        ])
+
+        XCTAssertEqual(coverage?.documentCount, 2)
+        XCTAssertEqual(coverage?.topDocuments.map(\.title), ["Payment Ops", "Weekly Platform"])
+    }
+
+    func testMeetingFamilyKnowledgeBaseCoverageFallsBackToDocumentTitleWithoutPath() {
+        let coverage = NotesController.meetingFamilyKnowledgeBaseCoverage(from: [
+            KBContextPack(
+                matchedText: "Roadmap details",
+                relativePath: "",
+                documentTitle: "Roadmap",
+                score: 0.81
+            )
+        ])
+
+        XCTAssertEqual(coverage?.documentCount, 1)
+        XCTAssertEqual(coverage?.topDocuments.first?.title, "Roadmap")
     }
 
     func testNormalizedNotesMarkdownPrependsFallbackHeadingWhenMissing() {

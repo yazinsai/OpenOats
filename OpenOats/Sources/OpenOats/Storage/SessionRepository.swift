@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 // MARK: - Supporting Types
 
@@ -1208,32 +1209,28 @@ actor SessionRepository {
 
     func getCurrentSessionID() -> String? { currentSessionID }
 
-    /// Returns the URL of the playable audio file for a session, if one exists.
-    /// Checks for merged M4A exports and imported audio files.
+    /// Returns the default playable audio source URL for a session, if one exists.
     func audioFileURL(for sessionID: String) -> URL? {
-        let audioDir = sessionDirectory(for: sessionID)
-            .appendingPathComponent("audio", isDirectory: true)
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: audioDir.path) else { return nil }
+        audioSources(for: sessionID).first?.url
+    }
 
-        guard let contents = try? fm.contentsOfDirectory(
-            at: audioDir,
-            includingPropertiesForKeys: nil
-        ) else { return nil }
-
-        // Prefer M4A exports, then imported files — skip raw CAF and batch metadata
-        let skipExtensions: Set<String> = ["caf", "json"]
-        let playable = contents.filter { !skipExtensions.contains($0.pathExtension.lowercased()) }
-        return playable.first
+    func audioSources(for sessionID: String) -> [SessionAudioSource] {
+        SessionRepository.readAudioSources(dir: sessionDirectory(for: sessionID))
     }
 
     // MARK: - Concurrent Session Loading
 
-    /// Loads notes, transcript, audio URL, and persisted calendar context concurrently off the actor.
+    /// Loads notes, transcript, audio sources, and persisted calendar context concurrently off the actor.
     /// Prefer this over separate awaited calls to avoid sequential actor hops.
     nonisolated func loadSessionData(
         sessionID: String
-    ) async -> (notes: GeneratedNotes?, transcript: [SessionRecord], audioURL: URL?, calendarEvent: CalendarEvent?) {
+    ) async -> (
+        notes: GeneratedNotes?,
+        transcript: [SessionRecord],
+        audioURL: URL?,
+        audioSources: [SessionAudioSource],
+        calendarEvent: CalendarEvent?
+    ) {
         let sessDir = sessionsDirectoryURL
         let dir = sessDir.appendingPathComponent(sessionID, isDirectory: true)
 
@@ -1243,14 +1240,15 @@ actor SessionRepository {
         async let transcript = Task.detached(priority: .userInitiated) {
             SessionRepository.readTranscript(sessionID: sessionID, dir: dir, sessionsDirectory: sessDir)
         }.value
-        async let audioURL = Task.detached(priority: .userInitiated) {
-            SessionRepository.readAudioFileURL(dir: dir)
+        async let audioSources = Task.detached(priority: .userInitiated) {
+            SessionRepository.readAudioSources(dir: dir)
         }.value
         async let calendarEvent = Task.detached(priority: .userInitiated) {
             SessionRepository.readCalendarEvent(dir: dir)
         }.value
 
-        return await (notes, transcript, audioURL, calendarEvent)
+        let resolvedAudioSources = await audioSources
+        return await (notes, transcript, resolvedAudioSources.first?.url, resolvedAudioSources, calendarEvent)
     }
 
     private nonisolated static func readNotes(sessionID: String, dir: URL, sessionsDirectory: URL) -> GeneratedNotes? {
@@ -1307,14 +1305,66 @@ actor SessionRepository {
         return LegacySessionReader.loadTranscript(sessionID: sessionID, sessionsDirectory: sessionsDirectory)
     }
 
-    private nonisolated static func readAudioFileURL(dir: URL) -> URL? {
-        let audioDir = dir.appendingPathComponent("audio", isDirectory: true)
+    private nonisolated static func readAudioSources(dir: URL) -> [SessionAudioSource] {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: audioDir.path),
-              let contents = try? fm.contentsOfDirectory(at: audioDir, includingPropertiesForKeys: nil)
+        let audioDir = dir.appendingPathComponent("audio", isDirectory: true)
+        var sources: [SessionAudioSource] = []
+
+        if let url = readPrimaryPlayableAudioURL(in: audioDir) ?? readPrimaryPlayableAudioURL(in: dir) {
+            sources.append(SessionAudioSource(kind: .recording, url: url))
+        }
+
+        let canonicalSystemURL = audioDir.appendingPathComponent("sys.caf")
+        let legacySystemURL = dir.appendingPathComponent("sys.caf")
+        if fm.fileExists(atPath: canonicalSystemURL.path) {
+            sources.append(SessionAudioSource(kind: .system, url: canonicalSystemURL))
+        } else if fm.fileExists(atPath: legacySystemURL.path) {
+            sources.append(SessionAudioSource(kind: .system, url: legacySystemURL))
+        }
+
+        let canonicalMicURL = audioDir.appendingPathComponent("mic.caf")
+        let legacyMicURL = dir.appendingPathComponent("mic.caf")
+        if fm.fileExists(atPath: canonicalMicURL.path) {
+            sources.append(SessionAudioSource(kind: .microphone, url: canonicalMicURL))
+        } else if fm.fileExists(atPath: legacyMicURL.path) {
+            sources.append(SessionAudioSource(kind: .microphone, url: legacyMicURL))
+        }
+
+        return sources
+    }
+
+    private nonisolated static func readPrimaryPlayableAudioURL(in dir: URL) -> URL? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: dir.path),
+              let contents = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
         else { return nil }
         let skipExtensions: Set<String> = ["caf", "json"]
-        return contents.filter { !skipExtensions.contains($0.pathExtension.lowercased()) }.first
+        let skipFilenames: Set<String> = [
+            "session.json",
+            "transcript.live.jsonl",
+            "transcript.final.jsonl",
+            "notes.md",
+            "notes.meta.json",
+            "batch-meta.json",
+            "mic.caf",
+            "sys.caf",
+        ]
+        return contents
+            .filter {
+                var isDirectory: ObjCBool = false
+                guard fm.fileExists(atPath: $0.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+                    return false
+                }
+                guard !skipFilenames.contains($0.lastPathComponent.lowercased()) else {
+                    return false
+                }
+                let pathExtension = $0.pathExtension.lowercased()
+                guard !skipExtensions.contains(pathExtension) else { return false }
+                guard let contentType = UTType(filenameExtension: pathExtension) else { return false }
+                return contentType.conforms(to: .audio)
+            }
+            .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+            .first
     }
 
     // MARK: - Private Helpers

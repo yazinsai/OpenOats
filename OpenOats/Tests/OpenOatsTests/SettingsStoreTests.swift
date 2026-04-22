@@ -457,6 +457,68 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(store.meetingFamilyPreferencesByKey.isEmpty)
     }
 
+    func testMeetingFamilyFolderPreferenceCanonicalizesThroughAliases() {
+        let store = makeStore()
+        store.meetingHistoryAliasesByKey = [
+            "payment ops": "payment ops merchant standup",
+        ]
+
+        let renamedEvent = CalendarEvent(
+            id: "evt-renamed",
+            title: "Payment Ops / Merchant standup",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+        let legacyEvent = CalendarEvent(
+            id: "evt-legacy",
+            title: "Payment Ops",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        store.setMeetingFamilyFolderPreference("Work/Payments", for: renamedEvent)
+
+        XCTAssertEqual(
+            store.meetingFamilyPreferences(for: legacyEvent)?.folderPath,
+            "Work/Payments"
+        )
+        XCTAssertEqual(
+            store.meetingFamilyPreferencesByKey[MeetingHistoryResolver.historyKey(for: renamedEvent)]?.folderPath,
+            "Work/Payments"
+        )
+
+        store.setMeetingFamilyFolderPreference(nil, for: legacyEvent)
+        XCTAssertNil(store.meetingFamilyPreferences(for: renamedEvent))
+        XCTAssertTrue(store.meetingFamilyPreferencesByKey.isEmpty)
+    }
+
+    func testMeetingFamilyFolderPreferenceRejectsPathsDeeperThanOneSubfolder() {
+        let store = makeStore()
+        let event = CalendarEvent(
+            id: "evt",
+            title: "Payment Ops",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        store.setMeetingFamilyFolderPreference("Work/Payments/Merchant Standup", for: event)
+
+        XCTAssertNil(store.meetingFamilyPreferences(for: event))
+        XCTAssertTrue(store.meetingFamilyPreferencesByKey.isEmpty)
+    }
+
     func testKbFolderURLWhenEmpty() {
         let store = makeStore()
         XCTAssertNil(store.kbFolderURL)

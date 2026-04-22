@@ -10,10 +10,15 @@ struct NotesState {
     var selectedSessionID: String?
     var selectedMeetingFamily: MeetingFamilySelection?
     var meetingHistoryEntries: [MeetingHistoryEntry] = []
+    var meetingFamilyKnowledgeBaseCoverage: MeetingFamilyKnowledgeBaseCoverage?
+    var isMeetingFamilyKnowledgeBaseLoading: Bool = false
     var relatedMeetingSuggestions: [MeetingHistorySuggestion] = []
     var linkingMeetingSuggestionKey: String?
     var loadedTranscript: [SessionRecord] = []
     var loadedNotes: GeneratedNotes?
+    var manualNotesDraft: String = ""
+    var savedManualNotesMarkdown: String = ""
+    var isEditingManualNotes: Bool = false
     var loadedCalendarEvent: CalendarEvent?
     var notesGenerationStatus: GenerationStatus = .idle
     var cleanupStatus: CleanupStatus = .idle
@@ -25,7 +30,9 @@ struct NotesState {
     var tagFilter: String?
     /// Directory for the currently selected session (used for image loading).
     var selectedSessionDirectory: URL?
-    /// URL of the playable audio file for the selected session (nil if no audio).
+    /// All playable audio sources for the selected session.
+    var availableAudioSources: [SessionAudioSource] = []
+    /// URL of the currently selected playable audio source for the session (nil if no audio).
     var audioFileURL: URL?
     /// Whether audio is currently playing.
     var isPlayingAudio: Bool = false
@@ -81,6 +88,7 @@ struct MeetingHistorySelection: Equatable {
 struct MeetingHistoryEntry: Identifiable {
     let session: SessionIndex
     let notesPreview: String?
+    let hasAudio: Bool
 
     var id: String { session.id }
 }
@@ -93,6 +101,32 @@ struct MeetingHistorySuggestion: Identifiable, Equatable {
     let latestStartedAt: Date
 
     var id: String { key }
+}
+
+struct MeetingFamilyKnowledgeBaseDocument: Identifiable, Equatable {
+    let relativePath: String
+    let title: String
+    let score: Double
+
+    var id: String { relativePath }
+}
+
+struct MeetingFamilyKnowledgeBaseCoverage: Equatable {
+    let documentCount: Int
+    let topDocuments: [MeetingFamilyKnowledgeBaseDocument]
+
+    var badgeText: String {
+        "Knowledge available"
+    }
+
+    var helpText: String {
+        guard !topDocuments.isEmpty else { return "Knowledge base context is available for this meeting family." }
+
+        let lines = topDocuments.enumerated().map { offset, document in
+            "\(offset + 1). \(document.title)"
+        }
+        return "Relevant knowledge base documents:\n" + lines.joined(separator: "\n")
+    }
 }
 
 // MARK: - Controller
@@ -110,6 +144,8 @@ final class NotesController {
     /// Observation polling task for engine state mapping.
     @ObservationIgnored nonisolated(unsafe) private var engineObservationTask: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var meetingHistoryPreviewTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var meetingFamilyKnowledgeBaseTask: Task<Void, Never>?
+    @ObservationIgnored private var unsavedManualNotesDraftsBySessionID: [String: String] = [:]
 
     /// The session ID that triggered the currently in-progress generation, if any.
     /// Used to prevent bleeding status/content onto a different session when the user switches mid-generation.
@@ -129,6 +165,7 @@ final class NotesController {
     deinit {
         engineObservationTask?.cancel()
         meetingHistoryPreviewTask?.cancel()
+        meetingFamilyKnowledgeBaseTask?.cancel()
     }
 
     // MARK: - Lifecycle
@@ -185,7 +222,9 @@ final class NotesController {
     // MARK: - Session Selection
 
     func selectSession(_ sessionID: String?) {
+        persistCurrentManualNotesDraftIfNeeded()
         cancelMeetingHistoryPreviewHydration()
+        cancelMeetingFamilyKnowledgeBaseLoad()
         state.selectedSessionID = sessionID
         state.selectedMeetingFamily = nil
         state.meetingHistoryEntries = []
@@ -195,16 +234,24 @@ final class NotesController {
 
         guard let sessionID else {
             state.loadedNotes = nil
+            state.manualNotesDraft = ""
+            state.savedManualNotesMarkdown = ""
+            state.isEditingManualNotes = false
             state.loadedTranscript = []
             state.loadedCalendarEvent = nil
             state.selectedSessionDirectory = nil
+            state.availableAudioSources = []
             state.audioFileURL = nil
             return
         }
 
         state.loadedNotes = nil
+        state.manualNotesDraft = ""
+        state.savedManualNotesMarkdown = ""
+        state.isEditingManualNotes = false
         state.loadedTranscript = []
         state.loadedCalendarEvent = nil
+        state.availableAudioSources = []
         state.audioFileURL = nil
         state.selectedSessionDirectory = coordinator.sessionRepository.sessionsDirectoryURL
             .appendingPathComponent(sessionID, isDirectory: true)
@@ -221,10 +268,15 @@ final class NotesController {
 
         Task {
             let data = await coordinator.sessionRepository.loadSessionData(sessionID: sessionID)
+            let unsavedDraft = unsavedManualNotesDraftsBySessionID[sessionID]
 
             state.loadedNotes = data.notes
+            state.manualNotesDraft = unsavedDraft ?? data.notes?.markdown ?? ""
+            state.savedManualNotesMarkdown = data.notes?.markdown ?? ""
+            state.isEditingManualNotes = unsavedDraft != nil
             state.loadedTranscript = data.transcript
             state.loadedCalendarEvent = data.calendarEvent
+            state.availableAudioSources = data.audioSources
             state.audioFileURL = data.audioURL
 
             let session = state.sessionHistory.first { $0.id == sessionID }
@@ -245,7 +297,9 @@ final class NotesController {
     }
 
     func showMeetingFamily(for event: CalendarEvent) {
+        persistCurrentManualNotesDraftIfNeeded()
         cancelMeetingHistoryPreviewHydration()
+        cancelMeetingFamilyKnowledgeBaseLoad()
         state.selectedSessionID = nil
         let selection = Self.meetingFamilySelection(for: event)
         state.selectedMeetingFamily = selection
@@ -255,9 +309,13 @@ final class NotesController {
         stopAudio()
 
         state.loadedNotes = nil
+        state.manualNotesDraft = ""
+        state.savedManualNotesMarkdown = ""
+        state.isEditingManualNotes = false
         state.loadedTranscript = []
         state.loadedCalendarEvent = nil
         state.selectedSessionDirectory = nil
+        state.availableAudioSources = []
         state.audioFileURL = nil
         state.showingOriginal = false
         state.selectedTemplate = selectedTemplate(
@@ -288,11 +346,16 @@ final class NotesController {
 
     func showCurrentMeetingFamilyOverview() {
         guard state.selectedMeetingFamily != nil else { return }
+        persistCurrentManualNotesDraftIfNeeded()
         state.selectedSessionID = nil
         stopAudio()
         state.loadedNotes = nil
+        state.manualNotesDraft = ""
+        state.savedManualNotesMarkdown = ""
+        state.isEditingManualNotes = false
         state.loadedTranscript = []
         state.loadedCalendarEvent = nil
+        state.availableAudioSources = []
         state.audioFileURL = nil
         state.selectedSessionDirectory = nil
         state.showingOriginal = false
@@ -302,25 +365,31 @@ final class NotesController {
 
     // MARK: - Audio Playback
 
-    func toggleAudioPlayback() {
-        guard let url = state.audioFileURL else { return }
+    func toggleAudioPlayback(source: SessionAudioSource? = nil) {
+        let targetURL = source?.url ?? state.audioFileURL ?? state.availableAudioSources.first?.url
+        guard let targetURL else { return }
 
-        if state.isPlayingAudio {
+        let currentPlayerURL = (audioPlayer?.currentItem?.asset as? AVURLAsset)?.url
+        state.audioFileURL = targetURL
+
+        if state.isPlayingAudio, currentPlayerURL == targetURL {
             audioPlayer?.pause()
             state.isPlayingAudio = false
             return
         }
 
-        if audioPlayer?.currentItem?.asset != AVURLAsset(url: url) {
+        if currentPlayerURL != targetURL {
             stopAudio()
-            let player = AVPlayer(url: url)
+            let player = AVPlayer(url: targetURL)
             audioPlayer = player
             playerObservation = NotificationCenter.default.addObserver(
                 forName: .AVPlayerItemDidPlayToEndTime,
                 object: player.currentItem,
                 queue: .main
             ) { [weak self] _ in
-                self?.state.isPlayingAudio = false
+                Task { @MainActor [weak self] in
+                    self?.state.isPlayingAudio = false
+                }
             }
         }
 
@@ -339,7 +408,7 @@ final class NotesController {
     }
 
     func revealAudioInFinder() {
-        guard let url = state.audioFileURL else { return }
+        guard let url = state.audioFileURL ?? state.availableAudioSources.first?.url else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
@@ -419,6 +488,9 @@ final class NotesController {
             if state.selectedSessionID == sessionID {
                 // User is still on this session — update UI directly
                 state.loadedNotes = notes
+                state.manualNotesDraft = notes.markdown
+                state.savedManualNotesMarkdown = notes.markdown
+                state.isEditingManualNotes = notes.markdown.isEmpty == false || state.loadedTranscript.isEmpty
                 state.notesGenerationStatus = .completed
             } else {
                 // User has moved away — show the blue "unread" badge in the sidebar
@@ -454,28 +526,89 @@ final class NotesController {
                 sessionID: sessionID, imageData: imageData
             )
             let imageRef = "\n\n![](images/\(filename))\n"
+            let isManualNotesSession = state.loadedTranscript.isEmpty
 
             if let existing = state.loadedNotes {
+                let baseMarkdown = isManualNotesSession ? state.manualNotesDraft : existing.markdown
                 let updated = GeneratedNotes(
                     template: existing.template,
                     generatedAt: existing.generatedAt,
-                    markdown: existing.markdown + imageRef
+                    markdown: baseMarkdown + imageRef
                 )
                 await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: updated)
                 state.loadedNotes = updated
+                state.manualNotesDraft = updated.markdown
+                state.savedManualNotesMarkdown = updated.markdown
             } else {
                 let template = state.selectedTemplate
                     ?? coordinator.templateStore.template(for: TemplateStore.genericID)
                     ?? TemplateStore.builtInTemplates.first!
+                let baseMarkdown = isManualNotesSession ? state.manualNotesDraft : ""
                 let notes = GeneratedNotes(
                     template: coordinator.templateStore.snapshot(of: template),
                     generatedAt: Date(),
-                    markdown: "![](images/\(filename))"
+                    markdown: baseMarkdown + (baseMarkdown.isEmpty ? "" : "\n\n") + "![](images/\(filename))"
                 )
                 await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: notes)
                 state.loadedNotes = notes
+                state.manualNotesDraft = notes.markdown
+                state.savedManualNotesMarkdown = notes.markdown
                 await loadHistory()
             }
+        }
+    }
+
+    // MARK: - Manual Notes
+
+    func updateManualNotesDraft(_ markdown: String) {
+        state.manualNotesDraft = markdown
+        state.isEditingManualNotes = true
+        guard let sessionID = state.selectedSessionID else { return }
+        if markdown == state.savedManualNotesMarkdown {
+            unsavedManualNotesDraftsBySessionID.removeValue(forKey: sessionID)
+        } else {
+            unsavedManualNotesDraftsBySessionID[sessionID] = markdown
+        }
+    }
+
+    func startManualNotesEditing() {
+        state.isEditingManualNotes = true
+    }
+
+    func discardManualNotesDraft() {
+        state.manualNotesDraft = state.savedManualNotesMarkdown
+        state.isEditingManualNotes = false
+        if let sessionID = state.selectedSessionID {
+            unsavedManualNotesDraftsBySessionID.removeValue(forKey: sessionID)
+        }
+    }
+
+    func saveManualNotes() {
+        guard let sessionID = state.selectedSessionID else { return }
+
+        let template = state.loadedNotes.flatMap { existing in
+            coordinator.templateStore.template(for: existing.template.id)
+        } ?? state.selectedTemplate
+            ?? coordinator.templateStore.template(for: TemplateStore.genericID)
+            ?? TemplateStore.builtInTemplates.first!
+        let existingGeneratedAt = state.loadedNotes?.generatedAt
+        let markdown = state.manualNotesDraft
+
+        Task {
+            let notes = GeneratedNotes(
+                template: coordinator.templateStore.snapshot(of: template),
+                generatedAt: existingGeneratedAt ?? Date(),
+                markdown: markdown
+            )
+            await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: notes)
+            await loadHistory()
+
+            guard state.selectedSessionID == sessionID else { return }
+            state.loadedNotes = notes
+            state.manualNotesDraft = notes.markdown
+            state.savedManualNotesMarkdown = notes.markdown
+            state.isEditingManualNotes = false
+            unsavedManualNotesDraftsBySessionID.removeValue(forKey: sessionID)
         }
     }
 
@@ -714,6 +847,39 @@ final class NotesController {
         }
     }
 
+    func setMeetingFamilyFolderPreference(_ folderPath: String?) {
+        guard let settings,
+              let selection = state.selectedMeetingFamily else { return }
+        settings.setMeetingFamilyFolderPreference(folderPath, forHistoryKey: selection.key)
+    }
+
+    func applyMeetingFamilyFolderPreference(
+        _ folderPath: String?,
+        moveExistingSessions: Bool,
+        forHistoryKey historyKey: String? = nil
+    ) {
+        guard let settings else { return }
+        let key = historyKey ?? state.selectedMeetingFamily?.key
+        guard let key, !key.isEmpty else { return }
+
+        settings.setMeetingFamilyFolderPreference(folderPath, forHistoryKey: key)
+
+        guard moveExistingSessions else { return }
+
+        let sessionIDs = MeetingHistoryResolver.matchingSessions(
+            forHistoryKey: key,
+            sessionHistory: state.sessionHistory,
+            aliases: settings.meetingHistoryAliasesByKey
+        ).map(\.id)
+
+        Task {
+            for sessionID in sessionIDs {
+                await coordinator.sessionRepository.updateSessionFolder(sessionID: sessionID, folderPath: folderPath)
+            }
+            await loadHistory()
+        }
+    }
+
     // MARK: - Accessors
 
     /// Templates available for generation.
@@ -743,6 +909,15 @@ final class NotesController {
         return title.isEmpty ? "Untitled" : title
     }
 
+    var isManualNotesSession: Bool {
+        state.selectedSessionID != nil && state.loadedTranscript.isEmpty
+    }
+
+    var hasUnsavedManualNotesChanges: Bool {
+        guard isManualNotesSession else { return false }
+        return state.manualNotesDraft != state.savedManualNotesMarkdown
+    }
+
     // MARK: - Private
 
     private func selectedTemplate(
@@ -768,6 +943,15 @@ final class NotesController {
 
         return coordinator.templateStore.template(for: TemplateStore.genericID)
             ?? TemplateStore.builtInTemplates.first
+    }
+
+    private func persistCurrentManualNotesDraftIfNeeded() {
+        guard let sessionID = state.selectedSessionID, state.loadedTranscript.isEmpty else { return }
+        if state.manualNotesDraft.isEmpty || state.manualNotesDraft == state.savedManualNotesMarkdown {
+            unsavedManualNotesDraftsBySessionID.removeValue(forKey: sessionID)
+        } else {
+            unsavedManualNotesDraftsBySessionID[sessionID] = state.manualNotesDraft
+        }
     }
 
     func loadHistory() async {
@@ -818,9 +1002,10 @@ final class NotesController {
 
     private func presentMeetingHistory(for selection: MeetingFamilySelection) {
         cancelMeetingHistoryPreviewHydration()
+        loadMeetingFamilyKnowledgeBaseCoverage(for: selection)
 
         let sessions = matchingMeetingHistorySessions(for: selection)
-        let entries = sessions.map { MeetingHistoryEntry(session: $0, notesPreview: nil) }
+        let entries = sessions.map { MeetingHistoryEntry(session: $0, notesPreview: nil, hasAudio: false) }
         state.meetingHistoryEntries = entries
         state.relatedMeetingSuggestions = loadMeetingHistorySuggestions(
             for: selection,
@@ -842,6 +1027,7 @@ final class NotesController {
                 if Task.isCancelled { return }
 
                 let notes = await coordinator.sessionRepository.loadNotes(sessionID: session.id)
+                let hasAudio = !(await coordinator.sessionRepository.audioSources(for: session.id)).isEmpty
                 let preview = notes.flatMap { Self.notesPreview(from: $0.markdown) }
 
                 guard state.selectedMeetingFamily?.key == selection.key else { return }
@@ -849,10 +1035,12 @@ final class NotesController {
                     continue
                 }
 
-                if state.meetingHistoryEntries[index].notesPreview != preview {
+                if state.meetingHistoryEntries[index].notesPreview != preview
+                    || state.meetingHistoryEntries[index].hasAudio != hasAudio {
                     state.meetingHistoryEntries[index] = MeetingHistoryEntry(
                         session: state.meetingHistoryEntries[index].session,
-                        notesPreview: preview
+                        notesPreview: preview,
+                        hasAudio: hasAudio
                     )
                 }
             }
@@ -862,6 +1050,43 @@ final class NotesController {
     private func cancelMeetingHistoryPreviewHydration() {
         meetingHistoryPreviewTask?.cancel()
         meetingHistoryPreviewTask = nil
+    }
+
+    private func loadMeetingFamilyKnowledgeBaseCoverage(for selection: MeetingFamilySelection) {
+        cancelMeetingFamilyKnowledgeBaseLoad()
+
+        guard let settings,
+              settings.kbFolderURL != nil,
+              let knowledgeBase = coordinator.knowledgeBase,
+              knowledgeBase.isIndexed else {
+            return
+        }
+
+        let query = selection.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty,
+              query.localizedCaseInsensitiveCompare("Untitled") != .orderedSame else {
+            return
+        }
+
+        state.isMeetingFamilyKnowledgeBaseLoading = true
+
+        meetingFamilyKnowledgeBaseTask = Task { [weak self] in
+            guard let self else { return }
+
+            let packs = await knowledgeBase.searchContextPacks(queries: [query], topK: 5)
+            let coverage = Self.meetingFamilyKnowledgeBaseCoverage(from: packs)
+
+            guard state.selectedMeetingFamily?.key == selection.key else { return }
+            state.meetingFamilyKnowledgeBaseCoverage = coverage
+            state.isMeetingFamilyKnowledgeBaseLoading = false
+        }
+    }
+
+    private func cancelMeetingFamilyKnowledgeBaseLoad() {
+        meetingFamilyKnowledgeBaseTask?.cancel()
+        meetingFamilyKnowledgeBaseTask = nil
+        state.meetingFamilyKnowledgeBaseCoverage = nil
+        state.isMeetingFamilyKnowledgeBaseLoading = false
     }
 
     private func loadMeetingHistorySuggestions(
@@ -954,6 +1179,60 @@ final class NotesController {
             calendarTitle: event.calendarTitle,
             upcomingEvent: event
         )
+    }
+
+    static func meetingFamilyKnowledgeBaseCoverage(
+        from contextPacks: [KBContextPack]
+    ) -> MeetingFamilyKnowledgeBaseCoverage? {
+        var bestDocumentsByPath: [String: MeetingFamilyKnowledgeBaseDocument] = [:]
+
+        for pack in contextPacks {
+            let key = (
+                !pack.relativePath.isEmpty
+                    ? pack.relativePath
+                    : (!pack.documentTitle.isEmpty ? pack.documentTitle : pack.matchedText)
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            guard !key.isEmpty else { continue }
+
+            let document = MeetingFamilyKnowledgeBaseDocument(
+                relativePath: pack.relativePath,
+                title: Self.meetingFamilyKnowledgeBaseDocumentTitle(from: pack),
+                score: pack.score
+            )
+
+            if let existing = bestDocumentsByPath[key], existing.score >= document.score {
+                continue
+            }
+            bestDocumentsByPath[key] = document
+        }
+
+        let documents = bestDocumentsByPath.values.sorted { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+        }
+
+        guard !documents.isEmpty else { return nil }
+
+        return MeetingFamilyKnowledgeBaseCoverage(
+            documentCount: documents.count,
+            topDocuments: Array(documents.prefix(3))
+        )
+    }
+
+    private static func meetingFamilyKnowledgeBaseDocumentTitle(from pack: KBContextPack) -> String {
+        let title = pack.documentTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty {
+            return title
+        }
+
+        let relativePath = pack.relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !relativePath.isEmpty {
+            return URL(fileURLWithPath: relativePath).deletingPathExtension().lastPathComponent
+        }
+
+        return "Untitled document"
     }
 
     static func notesPreview(from markdown: String) -> String? {
