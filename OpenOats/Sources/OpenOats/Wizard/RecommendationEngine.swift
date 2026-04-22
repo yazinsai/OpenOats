@@ -306,17 +306,17 @@ enum RecommendationEngine {
         case .cloudEN, .cloudMulti:
             details.append("LLM: Gemini 3 Flash via OpenRouter")
             if intent == .fullCopilot {
-                details.append("Embeddings: Voyage AI")
+                details.append("Knowledge retrieval: Voyage AI")
             }
         case .localENLight, .localMultiLight:
             details.append("LLM: Phi 3.5 Mini via Ollama")
             if intent == .fullCopilot {
-                details.append("Embeddings: nomic-embed-text via Ollama")
+                details.append("Knowledge retrieval: nomic-embed-text via Ollama")
             }
         case .localENFull, .localMultiFull:
             details.append("LLM: Qwen3 8B via Ollama")
             if intent == .fullCopilot {
-                details.append("Embeddings: nomic-embed-text via Ollama")
+                details.append("Knowledge retrieval: nomic-embed-text via Ollama")
             }
         case .transcriptEN, .transcriptMulti:
             break
