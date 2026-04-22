@@ -114,8 +114,12 @@ struct ProviderSetupStepView: View {
 
             if viewModel.intent == .fullCopilot {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Voyage AI key (optional)")
+                    Text("Voyage AI key (optional, for knowledge retrieval)")
                         .font(.system(size: 12, weight: .medium))
+
+                    Text("Only needed if you want OpenOats to search a Knowledge Base folder for relevant context during meetings. This does not improve note generation directly.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
 
                     HStack(spacing: 8) {
                         TextField("pa-...", text: $viewModel.voyageKeyInput)

@@ -83,6 +83,7 @@ final class RecommendationEngineTests: XCTestCase {
         XCTAssertEqual(recommendation.profile, .cloudEN)
         XCTAssertEqual(recommendation.embeddingProvider, .voyageAI)
         XCTAssertTrue(recommendation.suggestionPanelEnabled)
+        XCTAssertTrue(recommendation.detailLines.contains("Knowledge retrieval: Voyage AI"))
     }
 
     func testCloudMultiLowRAM() {
@@ -175,6 +176,7 @@ final class RecommendationEngineTests: XCTestCase {
         XCTAssertEqual(recommendation.embeddingProvider, .ollama)
         XCTAssertEqual(recommendation.ollamaEmbedModel, "nomic-embed-text")
         XCTAssertTrue(recommendation.suggestionPanelEnabled)
+        XCTAssertTrue(recommendation.detailLines.contains("Knowledge retrieval: nomic-embed-text via Ollama"))
     }
 
     func testLocalNotesDoesNotIncludeEmbedding() {
