@@ -1206,6 +1206,31 @@ actor SessionRepository {
         )
     }
 
+    func hasRetainedBatchAudio(sessionID: String) -> Bool {
+        let urls = batchAudioURLs(sessionID: sessionID)
+        return urls.mic != nil || urls.sys != nil
+    }
+
+    func hasPreBatchTranscriptBackup(sessionID: String) -> Bool {
+        let backupURL = sessionDirectory(for: sessionID).appendingPathComponent("transcript.pre-batch.jsonl")
+        guard FileManager.default.fileExists(atPath: backupURL.path),
+              let data = try? Data(contentsOf: backupURL)
+        else {
+            return false
+        }
+        return !data.isEmpty
+    }
+
+    @discardableResult
+    func restorePreBatchTranscript(sessionID: String) -> Bool {
+        let backupURL = sessionDirectory(for: sessionID).appendingPathComponent("transcript.pre-batch.jsonl")
+        guard let content = try? String(contentsOf: backupURL, encoding: .utf8) else { return false }
+        let records = parseJSONL(content)
+        guard !records.isEmpty else { return false }
+        saveFinalTranscript(sessionID: sessionID, records: records)
+        return true
+    }
+
     func cleanupBatchAudio(sessionID: String) {
         let fm = FileManager.default
 
