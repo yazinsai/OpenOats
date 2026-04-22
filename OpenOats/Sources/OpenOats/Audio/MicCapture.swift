@@ -319,7 +319,7 @@ final class MicCapture: @unchecked Sendable {
             status = AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &name)
             guard status == noErr, let name else { continue }
 
-            result.append((id: deviceID, name: name.takeRetainedValue() as String))
+            result.append((id: deviceID, name: name.takeUnretainedValue() as String))
         }
 
         return result
@@ -336,7 +336,7 @@ final class MicCapture: @unchecked Sendable {
         var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
         let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &uid)
         guard status == noErr, let uid else { return nil }
-        return uid.takeRetainedValue() as String
+        return uid.takeUnretainedValue() as String
     }
 
     /// Query the nominal sample rate of a CoreAudio device directly from hardware.
