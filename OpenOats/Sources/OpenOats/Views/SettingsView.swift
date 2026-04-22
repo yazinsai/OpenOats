@@ -496,10 +496,18 @@ private struct TranscriptionSettingsTab: View {
 private struct IntelligenceSettingsTab: View {
     @Bindable var settings: AppSettings
 
+    private var knowledgeBaseConfigured: Bool {
+        !settings.kbFolderPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         ScrollView {
             Form {
-                Section("LLM Provider") {
+                Section("Notes generation") {
+                    Text("Choose the model OpenOats uses to generate meeting notes and other writing tasks. This is separate from knowledge-base retrieval.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
                     Picker("Provider", selection: $settings.llmProvider) {
                         ForEach(LLMProvider.allCases) { provider in
                             Text(provider.displayName).tag(provider)
@@ -538,34 +546,71 @@ private struct IntelligenceSettingsTab: View {
                     }
                 }
 
-                Section("Embedding Provider") {
-                    Picker("Provider", selection: $settings.embeddingProvider) {
-                        ForEach(EmbeddingProvider.allCases) { provider in
-                            Text(provider.displayName).tag(provider)
+                Section("Knowledge Base") {
+                    Text("Optional. Point this to a folder of reference material such as docs, notes, PRDs, or customer context. OpenOats reads this folder to find relevant background during meetings. It is separate from where your meeting notes are organized.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    HStack {
+                        Text(settings.kbFolderPath.isEmpty ? "Not set" : settings.kbFolderPath)
+                            .font(.system(size: 12))
+                            .foregroundStyle(settings.kbFolderPath.isEmpty ? .tertiary : .primary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+
+                        Spacer()
+
+                        if !settings.kbFolderPath.isEmpty {
+                            Button("Clear") {
+                                settings.kbFolderPath = ""
+                            }
+                            .font(.system(size: 12))
+                        }
+
+                        Button("Choose...") {
+                            chooseKBFolder()
                         }
                     }
-                    .font(.system(size: 12))
+                }
 
-                    switch settings.embeddingProvider {
-                    case .voyageAI:
-                        SecureField("API Key", text: $settings.voyageApiKey)
-                            .font(.system(size: 12, design: .monospaced))
-                    case .ollama:
-                        OllamaModelField(modelName: $settings.ollamaEmbedModel, baseURL: settings.ollamaBaseURL, placeholder: "e.g. nomic-embed-text")
+                Section("Knowledge base retrieval") {
+                    if knowledgeBaseConfigured {
+                        Text("Choose how OpenOats indexes and searches your Knowledge Base folder. This affects knowledge retrieval during meetings, not note generation. Indexed chunks and vectors are still cached locally on this Mac.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
 
-                        if settings.llmProvider != .ollama && settings.llmProvider != .mlx {
-                            TextField("Ollama URL", text: $settings.ollamaBaseURL, prompt: Text("http://localhost:11434"))
+                        Picker("Provider", selection: $settings.embeddingProvider) {
+                            ForEach(EmbeddingProvider.allCases) { provider in
+                                Text(provider.displayName).tag(provider)
+                            }
+                        }
+                        .font(.system(size: 12))
+
+                        switch settings.embeddingProvider {
+                        case .voyageAI:
+                            SecureField("Voyage AI Key", text: $settings.voyageApiKey)
+                                .font(.system(size: 12, design: .monospaced))
+                        case .ollama:
+                            OllamaModelField(modelName: $settings.ollamaEmbedModel, baseURL: settings.ollamaBaseURL, placeholder: "e.g. nomic-embed-text")
+
+                            if settings.llmProvider != .ollama && settings.llmProvider != .mlx {
+                                TextField("Ollama URL", text: $settings.ollamaBaseURL, prompt: Text("http://localhost:11434"))
+                                    .font(.system(size: 12, design: .monospaced))
+                            }
+                        case .openAICompatible:
+                            TextField("Endpoint URL", text: $settings.openAIEmbedBaseURL, prompt: Text("http://localhost:8080"))
+                                .font(.system(size: 12, design: .monospaced))
+
+                            SecureField("API Key (optional)", text: $settings.openAIEmbedApiKey)
+                                .font(.system(size: 12, design: .monospaced))
+
+                            TextField("Model", text: $settings.openAIEmbedModel, prompt: Text("e.g. text-embedding-3-small"))
                                 .font(.system(size: 12, design: .monospaced))
                         }
-                    case .openAICompatible:
-                        TextField("Endpoint URL", text: $settings.openAIEmbedBaseURL, prompt: Text("http://localhost:8080"))
-                            .font(.system(size: 12, design: .monospaced))
-
-                        SecureField("API Key (optional)", text: $settings.openAIEmbedApiKey)
-                            .font(.system(size: 12, design: .monospaced))
-
-                        TextField("Model", text: $settings.openAIEmbedModel, prompt: Text("e.g. text-embedding-3-small"))
-                            .font(.system(size: 12, design: .monospaced))
+                    } else {
+                        Text("Choose a Knowledge Base folder above to turn on retrieval settings. These controls are only used for Knowledge Base features such as relevant context and suggestions.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -595,33 +640,6 @@ private struct IntelligenceSettingsTab: View {
                         Text("Real-time suggestions currently reuse the active provider model for this provider.")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
-                    }
-                }
-
-                Section("Knowledge Base") {
-                    Text("Optional. Point this to a folder of notes, docs, or reference material (.md, .txt). During meetings, OpenOats searches this folder to surface relevant context and talking points.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-
-                    HStack {
-                        Text(settings.kbFolderPath.isEmpty ? "Not set" : settings.kbFolderPath)
-                            .font(.system(size: 12))
-                            .foregroundStyle(settings.kbFolderPath.isEmpty ? .tertiary : .primary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-
-                        Spacer()
-
-                        if !settings.kbFolderPath.isEmpty {
-                            Button("Clear") {
-                                settings.kbFolderPath = ""
-                            }
-                            .font(.system(size: 12))
-                        }
-
-                        Button("Choose...") {
-                            chooseKBFolder()
-                        }
                     }
                 }
 
