@@ -71,6 +71,51 @@ actor DiarizationManager {
         return .remote(bestSpeaker + 1)
     }
 
+    /// Returns diarized speaker runs overlapping the given range.
+    /// These runs can be used to split a longer speech segment into
+    /// smaller speaker-consistent chunks.
+    func speakerRuns(from startTime: TimeInterval, to endTime: TimeInterval) -> [BatchTranscriptionSegmentLayout.SpeakerRun] {
+        let timeline = diarizer.timeline
+        let speakers = timeline.speakers
+
+        guard !speakers.isEmpty else { return [] }
+
+        let queryStart = Float(startTime)
+        let queryEnd = Float(endTime)
+        let activeSpeakers = speakers.values.filter { $0.hasSegments }
+
+        if activeSpeakers.count <= 1 {
+            return [
+                BatchTranscriptionSegmentLayout.SpeakerRun(
+                    startTime: startTime,
+                    endTime: endTime,
+                    speaker: .them
+                )
+            ]
+        }
+
+        var runs: [BatchTranscriptionSegmentLayout.SpeakerRun] = []
+
+        for (index, speaker) in speakers {
+            let mappedSpeaker = Speaker.remote(index + 1)
+            let allSegments = speaker.finalizedSegments + speaker.tentativeSegments
+            for segment in allSegments {
+                let overlapStart = max(segment.startTime, queryStart)
+                let overlapEnd = min(segment.endTime, queryEnd)
+                guard overlapEnd > overlapStart else { continue }
+                runs.append(
+                    BatchTranscriptionSegmentLayout.SpeakerRun(
+                        startTime: TimeInterval(overlapStart),
+                        endTime: TimeInterval(overlapEnd),
+                        speaker: mappedSpeaker
+                    )
+                )
+            }
+        }
+
+        return runs
+    }
+
     /// Finalize the diarization session (flush tentative segments).
     func finalize() {
         guard isInitialized else { return }
