@@ -176,7 +176,7 @@ jobs:
             MERGE_METHOD=$(ruby -e 'require "yaml"; cfg = File.exist?(ARGV[0]) ? (YAML.load_file(ARGV[0]) || {}) : {}; puts(cfg["merge_strategy"] || "squash")' .github/repo-policy.yml 2>/dev/null || echo "squash")
 
             echo "PR #${PR_NUMBER}: all gates passed, merging with ${MERGE_METHOD}"
-            gh pr merge "$PR_NUMBER" --"${MERGE_METHOD}" --delete-branch --auto
+            gh pr merge "$PR_NUMBER" --"${MERGE_METHOD}" --delete-branch
 
             gh pr edit "$PR_NUMBER" --add-label "resolution:merged,state:done" --remove-label "state:ready-to-merge"
 
