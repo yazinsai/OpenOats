@@ -138,12 +138,17 @@ final class LiveSessionController {
         let calEvent = calendarEventOverride ?? (settings.calendarIntegrationEnabled
             ? container.calendarManager?.currentEvent()
             : nil)
+        DiagnosticsSupport.record(
+            category: "meeting",
+            message: "Start requested (calendarEvent=\(calEvent == nil ? "no" : "yes"))"
+        )
         pendingInitialScratchpad = initialScratchpad?.trimmingCharacters(in: .newlines)
         let metadata = MeetingMetadata.manual(calendarEvent: calEvent)
         coordinator.handle(.userStarted(metadata), settings: settings)
     }
 
     func stopSession(settings: AppSettings) {
+        DiagnosticsSupport.record(category: "meeting", message: "Stop requested")
         coordinator.handle(.userStopped, settings: settings)
     }
 
@@ -329,12 +334,19 @@ final class LiveSessionController {
             calendarEvent: metadata.calendarEvent
         )
         let handle: SessionHandle
+        let reusedAbandonedRow: Bool
         if let resumed = await coordinator.sessionRepository.resumeAbandonedSession(config: startConfig) {
             handle = resumed
+            reusedAbandonedRow = true
         } else {
             handle = await coordinator.sessionRepository.startSession(config: startConfig)
+            reusedAbandonedRow = false
         }
         _currentSessionID = handle.sessionID
+        DiagnosticsSupport.record(
+            category: "meeting",
+            message: "\(reusedAbandonedRow ? "Reused" : "Started") session \(handle.sessionID) model=\(settings?.transcriptionModel.rawValue ?? "unknown")"
+        )
         let initialScratchpad = pendingInitialScratchpad?.trimmingCharacters(in: .whitespacesAndNewlines)
         pendingInitialScratchpad = nil
         state.scratchpadText = initialScratchpad ?? ""
@@ -528,12 +540,20 @@ final class LiveSessionController {
            let mergedSessionID = await coordinator.sessionRepository.reconcileGhostSession(sessionID: sessionID) {
             effectiveIndex = await coordinator.sessionRepository.loadSession(id: mergedSessionID).index
             shouldRunBatchRetranscription = false
+            DiagnosticsSupport.record(
+                category: "meeting",
+                message: "Collapsed empty duplicate session \(sessionID) into \(mergedSessionID)"
+            )
         }
 
         // 8. Update UI state + refresh history
         coordinator.lastEndedSession = effectiveIndex
         coordinator.sessionTemplateSnapshot = nil
         _currentSessionID = nil
+        DiagnosticsSupport.record(
+            category: "meeting",
+            message: "Finalized session \(effectiveIndex.id) utterances=\(utteranceCount) batch=\(shouldRunBatchRetranscription ? "on" : "off")"
+        )
         await coordinator.loadHistory()
 
         // 9. Kick off batch transcription if enabled
@@ -563,6 +583,9 @@ final class LiveSessionController {
         coordinator.transcriptionEngine?.stop()
         coordinator.audioRecorder?.discardRecording()
         coordinator.transcriptStore.clear()
+        if let sessionID = _currentSessionID {
+            DiagnosticsSupport.record(category: "meeting", message: "Discarded session \(sessionID)")
+        }
         _currentSessionID = nil
         Task {
             await coordinator.sessionRepository.endSession()

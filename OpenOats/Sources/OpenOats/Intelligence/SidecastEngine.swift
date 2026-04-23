@@ -104,7 +104,7 @@ final class SidecastEngine {
                     self.isGenerating = false
                 }
             } catch {
-                print("[SidecastEngine] generation failed: \(error)")
+                Log.sidecast.error("Generation failed: \(error, privacy: .public)")
                 await MainActor.run {
                     self.isGenerating = false
                 }

@@ -18,6 +18,11 @@ enum Log {
     static let appleNotes = Logger(subsystem: subsystem, category: "AppleNotes")
     static let webhook = Logger(subsystem: subsystem, category: "Webhook")
     static let whisperkit = Logger(subsystem: subsystem, category: "WhisperKitManager")
+    static let knowledgeBase = Logger(subsystem: subsystem, category: "KnowledgeBase")
+    static let suggestionEngine = Logger(subsystem: subsystem, category: "SuggestionEngine")
+    static let sidecast = Logger(subsystem: subsystem, category: "SidecastEngine")
+    static let templateStore = Logger(subsystem: subsystem, category: "TemplateStore")
+    static let diagnostics = Logger(subsystem: subsystem, category: "Diagnostics")
 
     private static let subsystem = Bundle(for: BundleToken.self).bundleIdentifier ?? "com.openoats.app"
 }

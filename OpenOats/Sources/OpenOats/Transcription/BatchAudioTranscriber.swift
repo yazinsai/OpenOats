@@ -95,9 +95,11 @@ actor BatchAudioTranscriber {
                 )
             } catch is CancellationError {
                 await self.setStatus(.cancelled)
+                DiagnosticsSupport.record(category: "batch", message: "Batch transcription cancelled for \(sessionID)")
                 Log.batchTranscription.info("Batch transcription cancelled for \(sessionID, privacy: .public)")
             } catch {
                 await self.setStatus(.failed(error.localizedDescription))
+                DiagnosticsSupport.record(category: "batch", message: "Batch transcription failed for \(sessionID): \(error.localizedDescription)")
                 Log.batchTranscription.error("Batch transcription failed: \(error, privacy: .public)")
             }
         }
@@ -140,10 +142,12 @@ actor BatchAudioTranscriber {
             } catch is CancellationError {
                 await self.setStatus(.cancelled)
                 await self.setIsImporting(false)
+                DiagnosticsSupport.record(category: "batch", message: "Audio import cancelled for \(sessionID)")
                 Log.batchTranscription.info("Audio import cancelled for \(sessionID, privacy: .public)")
             } catch {
                 await self.setStatus(.failed(error.localizedDescription))
                 await self.setIsImporting(false)
+                DiagnosticsSupport.record(category: "batch", message: "Audio import failed for \(sessionID): \(error.localizedDescription)")
                 Log.batchTranscription.error("Audio import failed: \(error, privacy: .public)")
             }
         }
@@ -159,6 +163,7 @@ actor BatchAudioTranscriber {
         sessionRepository: SessionRepository
     ) async throws {
         Log.batchTranscription.info("Starting audio import for \(sessionID, privacy: .public) from \(url.lastPathComponent, privacy: .public)")
+        DiagnosticsSupport.record(category: "batch", message: "Starting audio import for \(sessionID) model=\(model.rawValue)")
         status = .loading(model: model.displayName)
 
         // Prepare backend and VAD
@@ -204,6 +209,7 @@ actor BatchAudioTranscriber {
 
         guard !records.isEmpty else {
             Log.batchTranscription.warning("Audio import produced no records for \(sessionID, privacy: .public)")
+            DiagnosticsSupport.record(category: "batch", message: "Audio import produced no speech for \(sessionID)")
             status = .failed("No speech detected in the audio file")
             isImporting = false
             return
@@ -227,6 +233,7 @@ actor BatchAudioTranscriber {
 
         status = .completed(sessionID: sessionID)
         isImporting = false
+        DiagnosticsSupport.record(category: "batch", message: "Audio import completed for \(sessionID) records=\(records.count)")
         Log.batchTranscription.info("Audio import completed for \(sessionID, privacy: .public): \(records.count, privacy: .public) records")
     }
 
@@ -250,12 +257,14 @@ actor BatchAudioTranscriber {
         diarizationVariant: DiarizationVariant
     ) async throws {
         Log.batchTranscription.info("Starting batch transcription for \(sessionID, privacy: .public) with \(model.rawValue, privacy: .public)")
+        DiagnosticsSupport.record(category: "batch", message: "Starting batch transcription for \(sessionID) model=\(model.rawValue)")
         status = .loading(model: model.displayName)
 
         // Load batch metadata
         let urls = await sessionRepository.batchAudioURLs(sessionID: sessionID)
         guard urls.mic != nil || urls.sys != nil else {
             Log.batchTranscription.warning("No batch audio found for \(sessionID, privacy: .public)")
+            DiagnosticsSupport.record(category: "batch", message: "No retained batch audio found for \(sessionID)")
             status = .failed("No audio files found")
             return
         }
@@ -351,8 +360,10 @@ actor BatchAudioTranscriber {
         guard !allRecords.isEmpty else {
             Log.batchTranscription.warning("Batch transcription produced no records for \(sessionID, privacy: .public)")
             if existingRecords.isEmpty {
+                DiagnosticsSupport.record(category: "batch", message: "Batch transcription produced no speech for \(sessionID)")
                 status = .failed("Batch re-transcription produced no speech")
             } else {
+                DiagnosticsSupport.record(category: "batch", message: "Batch transcription produced no speech for \(sessionID); kept existing transcript")
                 status = .failed("Batch re-transcription produced no speech; kept existing transcript")
             }
             return
@@ -365,6 +376,7 @@ actor BatchAudioTranscriber {
             Log.batchTranscription.warning(
                 "Skipping batch transcript overwrite for \(sessionID, privacy: .public): \(rejectionReason, privacy: .public)"
             )
+            DiagnosticsSupport.record(category: "batch", message: "Rejected batch overwrite for \(sessionID): \(rejectionReason)")
             status = .failed(rejectionReason)
             return
         }
@@ -379,6 +391,7 @@ actor BatchAudioTranscriber {
         // SessionRepository purges expired retained assets on startup.
 
         status = .completed(sessionID: sessionID)
+        DiagnosticsSupport.record(category: "batch", message: "Batch transcription completed for \(sessionID) records=\(allRecords.count)")
         Log.batchTranscription.info("Batch transcription completed for \(sessionID, privacy: .public): \(allRecords.count, privacy: .public) records")
     }
 
