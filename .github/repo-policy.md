@@ -42,7 +42,7 @@
 - Anything touching `Sources/OpenOats/Audio/` (MicCapture, SystemAudioCapture) or `Sources/OpenOats/Transcription/TranscriptionEngine.swift`.
 - Code signing, notarization, entitlements, `Info.plist`, Sparkle, appcast generation, the `gh-pages` branch, or Homebrew distribution.
 - `.github/workflows/release-dmg.yml`, `scripts/build_swift_app.sh`, or `scripts/make_dmg.sh`.
-- Any new outbound network call, new endpoint, or change to what gets sent to OpenRouter, Voyage AI, Ollama, or any OpenAI-compatible endpoint.
+- Any new outbound network call, new endpoint, or change that expands what gets sent to OpenRouter, Voyage AI, Ollama, or any OpenAI-compatible endpoint.
 - Screen-sharing visibility behavior.
 - The recording consent acknowledgement flow.
 - Keychain storage of API keys.
@@ -64,6 +64,7 @@
 ## Default Rules
 
 - Assign `risk:high` when a change affects trust boundaries, privacy guarantees, permissions, release/distribution flow, persistence format, or touches 9+ files across more than one core subsystem.
+- Privacy-restoring bug fixes that only block unintended outbound requests, skip provider calls when credentials or required config are missing, or otherwise reduce off-device traffic without expanding capability are `risk:medium`, not `risk:high`.
 - Architectural changes are not automatically `risk:high`. If they stay within existing product boundaries and do not alter trust boundaries, release/distribution flow, persistence format, or default behavior, classify them as `risk:medium` and require an explicit second review pass before merge.
 - Assign `risk:low` only when the change is small, isolated, touches 3 or fewer files in one subsystem, adds no dependency, setting, permission, or default-on behavior, and does not affect off-device data flow or persistence.
 - Anything in between is `risk:medium`.
@@ -72,6 +73,7 @@
 
 - Tooltip, copy tweak, icon alignment, or README fix: `risk:low`.
 - Contained bug fix in `KnowledgeBase` or `SuggestionEngine` with no new setting: `risk:medium`.
+- Guard against outbound provider requests when no API key or required config is present: `risk:medium` + `release:patch`.
 - New opt-in transcript cleanup setting: `risk:medium` + `release:minor`.
 - Default provider behavior change, consent flow change, or release automation change: `risk:high`.
 
@@ -86,12 +88,12 @@
 - Human label changes override agent judgment.
 
 ## Bugs
-
 - Before fixing, verify the bug is not already resolved on `main` or duplicated by an existing issue or PR. Check `gh release list` and recent commits.
 - Reproduce against a debug build (`swift build -c debug`) where feasible. If the bug is audio/transcription-related, say runtime verification is hardware-gated.
 - Fix the root cause, not the symptom. No temporary workarounds and no `// TODO: revisit`.
 - `validate-swift`, `ui-smoke`, and `package-smoke` must pass.
-- Bugs in Audio, Transcription, signing, privacy, or network paths require human review regardless of apparent size.
+- Bugs in Audio, Transcription, signing, or network/privacy paths that expand off-device behavior or alter trust boundaries require human review regardless of apparent size.
+- Privacy-restoring fixes that only prevent unintended requests or tighten missing-credential gating may proceed autonomously when otherwise contained.
 
 ## Features
 
