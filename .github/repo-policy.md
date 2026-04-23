@@ -88,7 +88,6 @@
 - Human label changes override agent judgment.
 
 ## Bugs
-
 - Before fixing, verify the bug is not already resolved on `main` or duplicated by an existing issue or PR. Check `gh release list` and recent commits.
 - Reproduce against a debug build (`swift build -c debug`) where feasible. If the bug is audio/transcription-related, say runtime verification is hardware-gated.
 - Fix the root cause, not the symptom. No temporary workarounds and no `// TODO: revisit`.

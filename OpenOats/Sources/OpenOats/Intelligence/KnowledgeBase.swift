@@ -421,7 +421,7 @@ final class KnowledgeBase {
         do {
             queryEmbeddings = try await embedTexts(validQueries, inputType: "query")
         } catch {
-            print("KB search embed error: \(error)")
+            Log.knowledgeBase.error("KB search embed error: \(error, privacy: .public)")
             return []
         }
 
@@ -466,7 +466,7 @@ final class KnowledgeBase {
                     ))
                 }
             } catch {
-                print("KB rerank error (falling back to cosine): \(error)")
+                Log.knowledgeBase.error("KB rerank error (falling back to cosine): \(error, privacy: .public)")
             }
         }
 

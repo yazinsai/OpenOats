@@ -221,6 +221,14 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(reopened.enableBatchRetranscription)
     }
 
+    func testDiagnosticLoggingRoundTrip() {
+        let store = makeStore()
+        XCTAssertFalse(store.diagnosticLoggingEnabled)
+
+        store.diagnosticLoggingEnabled = true
+        XCTAssertTrue(store.diagnosticLoggingEnabled)
+    }
+
     func testDefaultBatchTranscriptionModel() {
         let store = makeStore()
         XCTAssertEqual(store.batchTranscriptionModel, .whisperLargeV3Turbo)

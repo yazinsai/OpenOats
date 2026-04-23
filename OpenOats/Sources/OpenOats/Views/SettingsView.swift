@@ -63,6 +63,9 @@ private struct GeneralSettingsTab: View {
     @State private var showAutoDetectExplanation = false
     @State private var launchAtLoginEnabled = false
     @State private var showWizard = false
+    @State private var diagnosticsExportMessage: String?
+    @State private var diagnosticsExportHadError = false
+    @State private var diagnosticsExportInFlight = false
 
     var body: some View {
         ScrollView {
@@ -246,6 +249,31 @@ private struct GeneralSettingsTab: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
+
+                Section("Troubleshooting") {
+                    Toggle("Diagnostic logging", isOn: $settings.diagnosticLoggingEnabled)
+                        .font(.system(size: 12))
+
+                    Text("Keeps a small internal breadcrumb trail for session and batch lifecycle debugging. Use Export Diagnostics to share recent technical logs without exposing API keys.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    Button(diagnosticsExportInFlight ? "Exporting…" : "Export Diagnostics…") {
+                        exportDiagnostics()
+                    }
+                    .font(.system(size: 12))
+                    .disabled(diagnosticsExportInFlight)
+
+                    Text("Exports a plain-text bundle with recent unified logs, non-sensitive app settings, and any diagnostic breadcrumbs collected while the toggle was enabled.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    if let diagnosticsExportMessage {
+                        Text(diagnosticsExportMessage)
+                            .font(.system(size: 11))
+                            .foregroundStyle(diagnosticsExportHadError ? .red : .secondary)
+                    }
+                }
             }
             .formStyle(.grouped)
         }
@@ -274,6 +302,32 @@ private struct GeneralSettingsTab: View {
         if panel.runModal() == .OK, let url = panel.url {
             settings.notesFolderPath = url.path
             settings.saveNotesFolderBookmark(from: url)
+        }
+    }
+
+    private func exportDiagnostics() {
+        diagnosticsExportInFlight = true
+        diagnosticsExportMessage = nil
+        diagnosticsExportHadError = false
+
+        Task { @MainActor in
+            defer { diagnosticsExportInFlight = false }
+            do {
+                let url = try await DiagnosticsSupport.exportInteractively(settings: settings)
+                diagnosticsExportMessage = "Saved diagnostics to \(url.lastPathComponent)."
+                diagnosticsExportHadError = false
+            } catch let error as DiagnosticsSupport.Error {
+                switch error {
+                case .cancelled:
+                    diagnosticsExportMessage = nil
+                default:
+                    diagnosticsExportMessage = error.localizedDescription
+                    diagnosticsExportHadError = true
+                }
+            } catch {
+                diagnosticsExportMessage = error.localizedDescription
+                diagnosticsExportHadError = true
+            }
         }
     }
 }
