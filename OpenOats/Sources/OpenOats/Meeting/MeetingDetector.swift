@@ -388,5 +388,6 @@ actor MeetingDetector {
         MeetingAppEntry(bundleID: "com.hnc.Discord", displayName: "Discord"),
         MeetingAppEntry(bundleID: "net.whatsapp.WhatsApp", displayName: "WhatsApp"),
         MeetingAppEntry(bundleID: "com.google.Chrome.app.kjgfgldnnfobanmcafgkdilakhehfkbm", displayName: "Google Meet (PWA)"),
+        MeetingAppEntry(bundleID: "ca.illusive.openphone", displayName: "OpenPhone"),
     ]
 }
