@@ -1,0 +1,21 @@
+# Merge strategy: squash (default), merge, or rebase
+merge_strategy: squash
+
+# CI workflow name to watch for release gating.
+# This must match the `name:` field in your CI workflow YAML, not the filename.
+ci_workflow_name: "validate-swift"
+
+# Explicit PR checks that must be green before Gate Runner merges.
+# Leave empty to rely only on branch protection / mergeability.
+required_pr_checks: []
+# Example:
+# required_pr_checks:
+#   - validate-swift
+
+# Explicit checks that must be green on the release target SHA before Release
+# Runner cuts a release. Leave empty to disable named-check enforcement.
+required_release_checks: []
+# Example:
+# required_release_checks:
+#   - validate-swift
+#   - package-smoke
