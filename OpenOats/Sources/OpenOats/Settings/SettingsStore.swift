@@ -663,6 +663,17 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _diagnosticLoggingEnabled: Bool
+    var diagnosticLoggingEnabled: Bool {
+        get { access(keyPath: \.diagnosticLoggingEnabled); return _diagnosticLoggingEnabled }
+        set {
+            withMutation(keyPath: \.diagnosticLoggingEnabled) {
+                _diagnosticLoggingEnabled = newValue
+                defaults.set(newValue, forKey: "diagnosticLoggingEnabled")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _hasShownAutoDetectExplanation: Bool
     var hasShownAutoDetectExplanation: Bool {
         get { access(keyPath: \.hasShownAutoDetectExplanation); return _hasShownAutoDetectExplanation }
@@ -1202,6 +1213,7 @@ final class SettingsStore {
         self._silenceTimeoutMinutes = defaults.object(forKey: "silenceTimeoutMinutes") != nil
             ? defaults.integer(forKey: "silenceTimeoutMinutes") : 15
         self._detectionLogEnabled = defaults.bool(forKey: "detectionLogEnabled")
+        self._diagnosticLoggingEnabled = defaults.bool(forKey: "diagnosticLoggingEnabled")
         self._hasShownAutoDetectExplanation = defaults.bool(forKey: "hasShownAutoDetectExplanation")
         self._hasShownCameraDetectExplanation = defaults.bool(forKey: "hasShownCameraDetectExplanation")
         self._calendarIntegrationEnabled = defaults.bool(forKey: "calendarIntegrationEnabled")

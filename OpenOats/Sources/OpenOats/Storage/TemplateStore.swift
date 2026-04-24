@@ -238,7 +238,7 @@ final class TemplateStore {
                 }
             }
         } catch {
-            print("TemplateStore: failed to load, using defaults: \(error)")
+            Log.templateStore.error("Failed to load templates, using defaults: \(error, privacy: .public)")
             templates = Self.builtInTemplates
         }
         save()
@@ -251,7 +251,7 @@ final class TemplateStore {
             try data.write(to: storageURL, options: .atomic)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: storageURL.path)
         } catch {
-            print("TemplateStore: failed to save: \(error)")
+            Log.templateStore.error("Failed to save templates: \(error, privacy: .public)")
         }
     }
 }

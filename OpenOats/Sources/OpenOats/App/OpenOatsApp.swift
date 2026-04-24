@@ -21,6 +21,7 @@ public struct OpenOatsRootApp: App {
         self._container = State(initialValue: context.container)
         self.updaterController = context.updaterController
         self.defaults = context.container.defaults
+        DiagnosticsSupport.record(category: "app", message: "App initialized")
     }
 
     public var body: some Scene {
@@ -34,6 +35,7 @@ public struct OpenOatsRootApp: App {
                     appDelegate.settings = settings
                     appDelegate.defaults = defaults
                     appDelegate.container = container
+                    DiagnosticsSupport.record(category: "app", message: "Main window appeared")
                     if case .live = container.mode {
                         appDelegate.setupMenuBarIfNeeded(
                             coordinator: coordinator,

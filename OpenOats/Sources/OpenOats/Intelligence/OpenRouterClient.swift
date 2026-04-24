@@ -52,6 +52,18 @@ actor OpenRouterClient {
         return host.contains("openrouter.ai") || host.contains("openai.com")
     }
 
+    static func preflightError(for url: URL, apiKey: String?) -> OpenRouterError? {
+        guard let host = url.host?.lowercased(), host.contains("openrouter.ai") else {
+            return nil
+        }
+
+        guard let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .missingAPIKey(host: host)
+        }
+
+        return nil
+    }
+
     /// Streams the completion response, yielding text chunks.
     func streamCompletion(
         apiKey: String? = nil,
@@ -64,6 +76,10 @@ actor OpenRouterClient {
             let task = Task {
                 do {
                     let targetURL = baseURL ?? Self.defaultBaseURL
+                    if let preflightError = Self.preflightError(for: targetURL, apiKey: apiKey) {
+                        continuation.finish(throwing: preflightError)
+                        return
+                    }
                     let useNewParam = Self.usesMaxCompletionTokens(targetURL)
                     let request = ChatRequest(
                         model: model,
@@ -134,6 +150,9 @@ actor OpenRouterClient {
         webSearch: Bool = false
     ) async throws -> String {
         let targetURL = baseURL ?? Self.defaultBaseURL
+        if let preflightError = Self.preflightError(for: targetURL, apiKey: apiKey) {
+            throw preflightError
+        }
         let useNewParam = Self.usesMaxCompletionTokens(targetURL)
         let request = ChatRequest(
             model: model,
@@ -172,6 +191,7 @@ actor OpenRouterClient {
 
     enum OpenRouterError: Error, LocalizedError {
         case httpError(Int, host: String?)
+        case missingAPIKey(host: String?)
 
         var errorDescription: String? {
             switch self {
@@ -183,6 +203,13 @@ actor OpenRouterClient {
                 case nil: "LLM"
                 }
                 return "\(provider) API error (HTTP \(code))"
+            case .missingAPIKey(let host):
+                let provider = switch host {
+                case let h? where h.contains("openrouter.ai"): "OpenRouter"
+                case let h?: h
+                case nil: "LLM"
+                }
+                return "\(provider) API key required"
             }
         }
     }

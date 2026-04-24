@@ -198,7 +198,7 @@ final class SuggestionEngine {
                 transcriptStore.markConversationStateUpdated(processedThrough: processedThroughUtteranceID)
             }
         } catch {
-            print("[SuggestionEngine] Background state update failed: \(error)")
+            Log.suggestionEngine.error("Background state update failed: \(error, privacy: .public)")
         }
     }
 
@@ -419,7 +419,7 @@ final class SuggestionEngine {
         } catch is CancellationError {
             markSuperseded(suggestionID)
         } catch {
-            print("[SuggestionEngine] Synthesis stream error: \(error)")
+            Log.suggestionEngine.error("Synthesis stream error: \(error, privacy: .public)")
             if !Task.isCancelled {
                 if let idx = activeSuggestions.firstIndex(where: { $0.id == suggestionID }),
                    activeSuggestions[idx].lifecycle != .superseded {
