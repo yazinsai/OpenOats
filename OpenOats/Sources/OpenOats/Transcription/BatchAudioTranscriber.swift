@@ -1,6 +1,237 @@
 @preconcurrency import AVFoundation
 import FluidAudio
 
+struct BatchTranscriptionSegmentLayout {
+    struct SegmentWindow {
+        let startTime: TimeInterval
+        let endTime: TimeInterval
+        let sampleRate: Double
+
+        var duration: TimeInterval {
+            max(0, endTime - startTime)
+        }
+
+        var sampleCount: Int {
+            max(0, Int((duration * sampleRate).rounded()))
+        }
+    }
+
+    struct SpeakerRun: Equatable {
+        let startTime: TimeInterval
+        let endTime: TimeInterval
+        let speaker: Speaker
+
+        var duration: TimeInterval {
+            max(0, endTime - startTime)
+        }
+    }
+
+    struct Slice: Equatable {
+        let speaker: Speaker
+        let startSample: Int
+        let sampleCount: Int
+    }
+
+    static func slices(
+        for segment: SegmentWindow,
+        diarizedRuns: [SpeakerRun],
+        fallbackSpeaker: Speaker,
+        minimumRunDuration: TimeInterval = 0.8
+    ) -> [Slice] {
+        guard segment.sampleCount > 0 else { return [] }
+
+        let distinctSpeakers = Set(diarizedRuns.map(\.speaker))
+        var runs = diarizedRuns
+            .map { run in
+                SpeakerRun(
+                    startTime: max(segment.startTime, run.startTime),
+                    endTime: min(segment.endTime, run.endTime),
+                    speaker: run.speaker
+                )
+            }
+            .filter { $0.duration > 0 }
+            .sorted { lhs, rhs in
+                if lhs.startTime == rhs.startTime {
+                    return lhs.endTime < rhs.endTime
+                }
+                return lhs.startTime < rhs.startTime
+            }
+
+        guard !runs.isEmpty else {
+            return [Slice(speaker: fallbackSpeaker, startSample: 0, sampleCount: segment.sampleCount)]
+        }
+
+        runs = normalizeRuns(runs, for: segment)
+        runs = mergeShortRuns(runs, minimumRunDuration: minimumRunDuration)
+
+        if runs.isEmpty {
+            return [Slice(speaker: fallbackSpeaker, startSample: 0, sampleCount: segment.sampleCount)]
+        }
+
+        if runs.count == 1, distinctSpeakers.count > 1 {
+            return [Slice(speaker: fallbackSpeaker, startSample: 0, sampleCount: segment.sampleCount)]
+        }
+
+        var slices: [Slice] = []
+        for (index, run) in runs.enumerated() {
+            let startOffset = max(0, run.startTime - segment.startTime)
+            let endOffset = max(startOffset, run.endTime - segment.startTime)
+            let startSample = min(segment.sampleCount, max(0, Int((startOffset * segment.sampleRate).rounded())))
+            let computedEndSample = min(segment.sampleCount, max(startSample, Int((endOffset * segment.sampleRate).rounded())))
+            let endSample: Int
+            if index == runs.count - 1 {
+                endSample = segment.sampleCount
+            } else {
+                endSample = computedEndSample
+            }
+            let sampleCount = max(0, endSample - startSample)
+            guard sampleCount > 0 else { continue }
+            slices.append(Slice(speaker: run.speaker, startSample: startSample, sampleCount: sampleCount))
+        }
+
+        guard !slices.isEmpty else {
+            return [Slice(speaker: fallbackSpeaker, startSample: 0, sampleCount: segment.sampleCount)]
+        }
+
+        if slices.count > 1 {
+            for index in 0..<(slices.count - 1) {
+                let current = slices[index]
+                let next = slices[index + 1]
+                if current.startSample + current.sampleCount != next.startSample {
+                    let adjustedCurrent = Slice(
+                        speaker: current.speaker,
+                        startSample: current.startSample,
+                        sampleCount: max(0, next.startSample - current.startSample)
+                    )
+                    slices[index] = adjustedCurrent
+                }
+            }
+            let lastIndex = slices.index(before: slices.endIndex)
+            let last = slices[lastIndex]
+            slices[lastIndex] = Slice(
+                speaker: last.speaker,
+                startSample: last.startSample,
+                sampleCount: max(0, segment.sampleCount - last.startSample)
+            )
+        }
+
+        return slices.filter { $0.sampleCount > 0 }
+    }
+
+    private static func normalizeRuns(_ runs: [SpeakerRun], for segment: SegmentWindow) -> [SpeakerRun] {
+        guard !runs.isEmpty else { return [] }
+        var normalized = runs
+
+        if normalized[0].startTime > segment.startTime {
+            normalized[0] = SpeakerRun(
+                startTime: segment.startTime,
+                endTime: normalized[0].endTime,
+                speaker: normalized[0].speaker
+            )
+        }
+
+        if normalized[normalized.index(before: normalized.endIndex)].endTime < segment.endTime {
+            let lastIndex = normalized.index(before: normalized.endIndex)
+            normalized[lastIndex] = SpeakerRun(
+                startTime: normalized[lastIndex].startTime,
+                endTime: segment.endTime,
+                speaker: normalized[lastIndex].speaker
+            )
+        }
+
+        for index in 0..<(normalized.count - 1) {
+            let current = normalized[index]
+            let next = normalized[index + 1]
+            let midpoint = (current.endTime + next.startTime) / 2
+            normalized[index] = SpeakerRun(
+                startTime: current.startTime,
+                endTime: midpoint,
+                speaker: current.speaker
+            )
+            normalized[index + 1] = SpeakerRun(
+                startTime: midpoint,
+                endTime: next.endTime,
+                speaker: next.speaker
+            )
+        }
+
+        return mergeAdjacentSameSpeakerRuns(normalized)
+    }
+
+    private static func mergeShortRuns(
+        _ runs: [SpeakerRun],
+        minimumRunDuration: TimeInterval
+    ) -> [SpeakerRun] {
+        var merged = mergeAdjacentSameSpeakerRuns(runs)
+        guard minimumRunDuration > 0 else { return merged }
+
+        while let index = merged.firstIndex(where: { $0.duration < minimumRunDuration }), merged.count > 1 {
+            if index == 0 {
+                let next = merged[1]
+                merged[1] = SpeakerRun(
+                    startTime: merged[0].startTime,
+                    endTime: next.endTime,
+                    speaker: next.speaker
+                )
+                merged.remove(at: 0)
+            } else if index == merged.count - 1 {
+                let previousIndex = index - 1
+                let previous = merged[previousIndex]
+                merged[previousIndex] = SpeakerRun(
+                    startTime: previous.startTime,
+                    endTime: merged[index].endTime,
+                    speaker: previous.speaker
+                )
+                merged.remove(at: index)
+            } else {
+                let previousIndex = index - 1
+                let nextIndex = index + 1
+                let previous = merged[previousIndex]
+                let next = merged[nextIndex]
+                if previous.duration >= next.duration {
+                    merged[previousIndex] = SpeakerRun(
+                        startTime: previous.startTime,
+                        endTime: merged[index].endTime,
+                        speaker: previous.speaker
+                    )
+                    merged.remove(at: index)
+                } else {
+                    merged[nextIndex] = SpeakerRun(
+                        startTime: merged[index].startTime,
+                        endTime: next.endTime,
+                        speaker: next.speaker
+                    )
+                    merged.remove(at: index)
+                }
+            }
+            merged = mergeAdjacentSameSpeakerRuns(merged)
+        }
+
+        return merged
+    }
+
+    private static func mergeAdjacentSameSpeakerRuns(_ runs: [SpeakerRun]) -> [SpeakerRun] {
+        guard var current = runs.first else { return [] }
+        var merged: [SpeakerRun] = []
+
+        for run in runs.dropFirst() {
+            if run.speaker == current.speaker {
+                current = SpeakerRun(
+                    startTime: current.startTime,
+                    endTime: max(current.endTime, run.endTime),
+                    speaker: current.speaker
+                )
+            } else {
+                merged.append(current)
+                current = run
+            }
+        }
+
+        merged.append(current)
+        return merged
+    }
+}
+
 struct BatchTranscriptOverwriteGuard {
     private struct TranscriptStats {
         let recordCount: Int
@@ -447,31 +678,51 @@ actor BatchAudioTranscriber {
 
             for segment in speechSegments {
                 try Task.checkCancellation()
-
-                let text = try await backend.transcribe(segment.samples, locale: locale, previousContext: nil)
-                guard !text.isEmpty else { continue }
-
-                // Calculate timestamp from frame position
                 let sampleOffsetInFile = Double(frameOffset) + Double(segment.startSample) * resolvedSampleRate / 16000.0
-                let timeOffset = sampleOffsetInFile / resolvedSampleRate
-                let timestamp = resolvedStartDate.addingTimeInterval(timeOffset)
+                let segmentStartTime = sampleOffsetInFile / resolvedSampleRate
+                let segmentDuration = Double(segment.samples.count) / 16000.0
+                let segmentEndTime = segmentStartTime + segmentDuration
 
-                // Resolve speaker from diarizer if available
-                let resolvedSpeaker: Speaker
+                let slices: [BatchTranscriptionSegmentLayout.Slice]
                 if let dm = diarizationManager {
-                    let endSample = segment.startSample + segment.samples.count
-                    let segEndOffset = Double(frameOffset) + Double(endSample) * resolvedSampleRate / 16000.0
-                    let segEndTime = segEndOffset / resolvedSampleRate
-                    resolvedSpeaker = await dm.dominantSpeaker(from: timeOffset, to: segEndTime)
+                    let fallbackSpeaker = await dm.dominantSpeaker(from: segmentStartTime, to: segmentEndTime)
+                    let diarizedRuns = await dm.speakerRuns(from: segmentStartTime, to: segmentEndTime)
+                    slices = BatchTranscriptionSegmentLayout.slices(
+                        for: .init(
+                            startTime: segmentStartTime,
+                            endTime: segmentEndTime,
+                            sampleRate: 16_000
+                        ),
+                        diarizedRuns: diarizedRuns,
+                        fallbackSpeaker: fallbackSpeaker
+                    )
                 } else {
-                    resolvedSpeaker = speaker
+                    slices = [
+                        BatchTranscriptionSegmentLayout.Slice(
+                            speaker: speaker,
+                            startSample: 0,
+                            sampleCount: segment.samples.count
+                        )
+                    ]
                 }
 
-                records.append(SessionRecord(
-                    speaker: resolvedSpeaker,
-                    text: text,
-                    timestamp: timestamp
-                ))
+                for slice in slices {
+                    let rangeEnd = min(segment.samples.count, slice.startSample + slice.sampleCount)
+                    guard slice.startSample < rangeEnd else { continue }
+                    let sliceSamples = Array(segment.samples[slice.startSample..<rangeEnd])
+                    let text = try await backend.transcribe(sliceSamples, locale: locale, previousContext: nil)
+                    guard !text.isEmpty else { continue }
+
+                    let timestamp = resolvedStartDate.addingTimeInterval(
+                        segmentStartTime + (Double(slice.startSample) / 16_000.0)
+                    )
+
+                    records.append(SessionRecord(
+                        speaker: slice.speaker,
+                        text: text,
+                        timestamp: timestamp
+                    ))
+                }
             }
 
             frameOffset += framesToRead
