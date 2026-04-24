@@ -9,6 +9,10 @@ struct IdleHomeDashboardView: View {
 
     @State private var events: [CalendarEvent] = []
     @State private var refreshTick = 0
+    @State private var creatingFolderEvent: CalendarEvent?
+    @State private var newFolderPath = ""
+    @State private var newFolderColor: NotesFolderColor = .orange
+    @FocusState private var newFolderFieldFocused: Bool
 
     var body: some View {
         let accessState = currentAccessState
@@ -31,6 +35,14 @@ struct IdleHomeDashboardView: View {
         }
         .onChange(of: settings.calendarIntegrationEnabled) {
             refreshTick &+= 1
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { creatingFolderEvent != nil },
+                set: { if !$0 { cancelCreateFolder() } }
+            )
+        ) {
+            comingUpFolderSheet
         }
     }
 
@@ -116,8 +128,11 @@ struct IdleHomeDashboardView: View {
                 ComingUpDayGroupView(
                     group: group,
                     showCalendarTitle: shouldShowCalendarTitle,
+                    settings: settings,
+                    sessionHistory: coordinator.sessionHistory,
                     onJoinEvent: joinMeeting(for:),
-                    onOpenRelatedNotes: openRelatedNotes(for:)
+                    onOpenRelatedNotes: openRelatedNotes(for:),
+                    onCreateFolder: beginCreateFolder(for:)
                 )
                 if index < groups.count - 1 {
                     Divider()
@@ -222,13 +237,164 @@ struct IdleHomeDashboardView: View {
         coordinator.queueMeetingHistory(event)
         openWindow(id: "notes")
     }
+
+    private func beginCreateFolder(for event: CalendarEvent) {
+        let preferredFolderPath = settings.meetingFamilyPreferences(for: event)?.folderPath
+        newFolderPath = preferredFolderPath ?? ""
+        newFolderColor = folderDefinition(for: preferredFolderPath)?.color ?? .orange
+        creatingFolderEvent = event
+    }
+
+    private func cancelCreateFolder() {
+        creatingFolderEvent = nil
+        newFolderPath = ""
+        newFolderColor = .orange
+        newFolderFieldFocused = false
+    }
+
+    @ViewBuilder
+    private var comingUpFolderSheet: some View {
+        if let event = creatingFolderEvent {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("New Default Folder")
+                    .font(.headline)
+
+                Text("Use a top-level folder and at most one subfolder, like `Work` or `Work/1:1s`.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+
+                TextField("e.g. Work/1:1s", text: $newFolderPath)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($newFolderFieldFocused)
+                    .onAppear {
+                        newFolderFieldFocused = true
+                    }
+                    .onSubmit {
+                        commitCreateFolder(for: event)
+                    }
+
+                folderColorGrid(selectedColor: $newFolderColor)
+
+                HStack {
+                    Spacer()
+
+                    Button("Cancel") {
+                        cancelCreateFolder()
+                    }
+                    .keyboardShortcut(.cancelAction)
+
+                    Button("Create") {
+                        commitCreateFolder(for: event)
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(normalizedMeetingFamilyFolderPath(newFolderPath) == nil)
+                }
+            }
+            .padding(20)
+            .frame(width: 360)
+        }
+    }
+
+    @ViewBuilder
+    private func folderColorGrid(selectedColor: Binding<NotesFolderColor>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Color")
+                .font(.system(size: 12, weight: .medium))
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(28), spacing: 8), count: 4), spacing: 8) {
+                ForEach(NotesFolderColor.allCases) { color in
+                    Button {
+                        selectedColor.wrappedValue = color
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(folderColor(for: color))
+                                .frame(width: 18, height: 18)
+                            if selectedColor.wrappedValue == color {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                        .frame(width: 28, height: 28)
+                        .background(
+                            Circle()
+                                .stroke(
+                                    selectedColor.wrappedValue == color ? Color.primary.opacity(0.35) : Color.secondary.opacity(0.15),
+                                    lineWidth: 1
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help(color.displayName)
+                }
+            }
+        }
+    }
+
+    private func commitCreateFolder(for event: CalendarEvent) {
+        guard let normalizedPath = normalizedMeetingFamilyFolderPath(newFolderPath) else { return }
+
+        var folders = settings.notesFolders
+        if let existingIndex = folders.firstIndex(where: { $0.path.caseInsensitiveCompare(normalizedPath) == .orderedSame }) {
+            folders[existingIndex].color = newFolderColor
+        } else {
+            folders.append(NotesFolderDefinition(path: normalizedPath, color: newFolderColor))
+        }
+        settings.notesFolders = folders
+        settings.setMeetingFamilyFolderPreference(normalizedPath, for: event)
+        cancelCreateFolder()
+    }
+
+    private func normalizedMeetingFamilyFolderPath(_ rawPath: String) -> String? {
+        guard let normalized = NotesFolderDefinition.normalizePath(rawPath) else { return nil }
+        return normalized.split(separator: "/").count <= 2 ? normalized : nil
+    }
+
+    private func folderDefinition(for folderPath: String?) -> NotesFolderDefinition? {
+        guard let folderPath else { return nil }
+        return settings.notesFolders.first {
+            $0.path.localizedCaseInsensitiveCompare(folderPath) == .orderedSame
+        }
+    }
+
+    private func folderDisplayName(for folderPath: String?) -> String {
+        folderDefinition(for: folderPath)?.displayName ?? "My notes"
+    }
+
+    private func folderColor(for folderPath: String?) -> Color {
+        folderColor(for: folderDefinition(for: folderPath)?.color ?? .gray)
+    }
+
+    private func folderColor(for color: NotesFolderColor) -> Color {
+        switch color {
+        case .gray:
+            return Color.secondary
+        case .orange:
+            return .orange
+        case .gold:
+            return Color(red: 0.74, green: 0.61, blue: 0.23)
+        case .purple:
+            return Color(red: 0.58, green: 0.48, blue: 0.86)
+        case .blue:
+            return .blue
+        case .teal:
+            return .teal
+        case .green:
+            return .green
+        case .red:
+            return .red
+        }
+    }
 }
 
 private struct ComingUpDayGroupView: View {
     let group: UpcomingCalendarGrouping.DayGroup
     let showCalendarTitle: Bool
+    let settings: AppSettings
+    let sessionHistory: [SessionIndex]
     let onJoinEvent: (CalendarEvent) -> Void
     let onOpenRelatedNotes: (CalendarEvent) -> Void
+    let onCreateFolder: (CalendarEvent) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -242,8 +408,11 @@ private struct ComingUpDayGroupView: View {
                     ComingUpEventRow(
                         event: event,
                         showCalendarTitle: showCalendarTitle,
+                        settings: settings,
+                        sessionHistory: sessionHistory,
                         onJoinEvent: onJoinEvent,
-                        onOpenRelatedNotes: onOpenRelatedNotes
+                        onOpenRelatedNotes: onOpenRelatedNotes,
+                        onCreateFolder: onCreateFolder
                     )
                 }
             }
@@ -254,13 +423,16 @@ private struct ComingUpDayGroupView: View {
 private struct ComingUpEventRow: View {
     let event: CalendarEvent
     let showCalendarTitle: Bool
+    let settings: AppSettings
+    let sessionHistory: [SessionIndex]
     let onJoinEvent: (CalendarEvent) -> Void
     let onOpenRelatedNotes: (CalendarEvent) -> Void
+    let onCreateFolder: (CalendarEvent) -> Void
 
     @State private var isHovering = false
-
+    @State private var isFolderHovering = false
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             Button(action: {
                 onOpenRelatedNotes(event)
             }) {
@@ -280,11 +452,6 @@ private struct ComingUpEventRow: View {
                     }
 
                     Spacer(minLength: 0)
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .padding(.top, 2)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -300,6 +467,8 @@ private struct ComingUpEventRow: View {
             }
             .help("Open meeting history")
             .accessibilityIdentifier("idle.comingUp.event.\(event.id)")
+
+            folderMenu
 
             if event.meetingURL != nil {
                 Button(action: {
@@ -321,6 +490,93 @@ private struct ComingUpEventRow: View {
         }
     }
 
+    private var folderMenu: some View {
+        let preferredFolderPath = settings.meetingFamilyPreferences(for: event)?.folderPath
+        let choices = meetingFamilyFolderChoices(including: preferredFolderPath)
+
+        return Menu {
+            Button {
+                settings.setMeetingFamilyFolderPreference(nil, for: event)
+            } label: {
+                HStack {
+                    Image(systemName: "folder")
+                        .foregroundStyle(.secondary)
+                    Text("My notes")
+                    if preferredFolderPath == nil {
+                        Spacer()
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+
+            if !choices.isEmpty {
+                Divider()
+                ForEach(choices) { folder in
+                    Button {
+                        settings.setMeetingFamilyFolderPreference(folder.path, for: event)
+                    } label: {
+                        HStack {
+                            Image(systemName: "folder.fill")
+                                .foregroundStyle(folderColor(for: folder.color))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(folder.displayName)
+                                if let breadcrumb = folder.breadcrumb {
+                                    Text(breadcrumb)
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            if preferredFolderPath?.localizedCaseInsensitiveCompare(folder.path) == .orderedSame {
+                                Spacer()
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            Button {
+                onCreateFolder(event)
+            } label: {
+                HStack {
+                    Image(systemName: "folder.badge.plus")
+                    Text("New Folder…")
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                folderGlyphBadge(for: preferredFolderPath)
+
+                if isFolderHovering {
+                    Text(folderDisplayName(for: preferredFolderPath))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(minWidth: 28, minHeight: 28)
+            .padding(.horizontal, isFolderHovering ? 8 : 0)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isFolderHovering ? Color.primary.opacity(0.05) : .clear)
+            )
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onHover { hovering in
+            isFolderHovering = hovering
+        }
+        .help(folderHelpText(for: preferredFolderPath))
+        .accessibilityIdentifier("idle.comingUp.folder.\(event.id)")
+    }
+
     private func secondaryLine(for event: CalendarEvent) -> String {
         let time = CalendarEventDisplay.timeRange(for: event)
         guard showCalendarTitle,
@@ -337,6 +593,78 @@ private struct ComingUpEventRow: View {
             return .accentColor
         }
         return color
+    }
+
+    private func folderHelpText(for preferredFolderPath: String?) -> String {
+        let matchingHistoryCount = MeetingHistoryResolver.matchingSessions(
+            forHistoryKey: settings.canonicalMeetingHistoryKey(for: event),
+            sessionHistory: sessionHistory,
+            aliases: settings.meetingHistoryAliasesByKey
+        ).count
+        let base = "Default folder: \(folderDisplayName(for: preferredFolderPath))"
+        guard matchingHistoryCount > 0 else { return base }
+        let noun = matchingHistoryCount == 1 ? "saved meeting" : "saved meetings"
+        return "\(base). \(matchingHistoryCount) \(noun) already exist for this meeting family."
+    }
+
+    private func meetingFamilyFolderChoices(including preferredFolderPath: String?) -> [NotesFolderDefinition] {
+        settings.notesFolders
+            .filter {
+                $0.path.split(separator: "/").count <= 2
+                    || $0.path.localizedCaseInsensitiveCompare(preferredFolderPath ?? "") == .orderedSame
+            }
+            .sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+    }
+
+    private func folderDefinition(for folderPath: String?) -> NotesFolderDefinition? {
+        guard let folderPath else { return nil }
+        return settings.notesFolders.first {
+            $0.path.localizedCaseInsensitiveCompare(folderPath) == .orderedSame
+        }
+    }
+
+    private func folderDisplayName(for folderPath: String?) -> String {
+        folderDefinition(for: folderPath)?.displayName ?? "My notes"
+    }
+
+    private func folderColor(for folderPath: String?) -> Color {
+        folderColor(for: folderDefinition(for: folderPath)?.color ?? .gray)
+    }
+
+    @ViewBuilder
+    private func folderGlyphBadge(for folderPath: String?) -> some View {
+        let color = folderColor(for: folderPath)
+
+        ZStack {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(color.opacity(0.14))
+                .frame(width: 24, height: 24)
+
+            Image(systemName: folderPath == nil ? "folder" : "folder.fill")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(color)
+        }
+    }
+
+    private func folderColor(for color: NotesFolderColor) -> Color {
+        switch color {
+        case .gray:
+            return Color.secondary
+        case .orange:
+            return .orange
+        case .gold:
+            return Color(red: 0.74, green: 0.61, blue: 0.23)
+        case .purple:
+            return Color(red: 0.58, green: 0.48, blue: 0.86)
+        case .blue:
+            return .blue
+        case .teal:
+            return .teal
+        case .green:
+            return .green
+        case .red:
+            return .red
+        }
     }
 }
 
