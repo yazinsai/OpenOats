@@ -128,6 +128,78 @@ final class BatchAudioTranscriberTests: XCTestCase {
         XCTAssertNil(reason)
     }
 
+    func testSpeakerRunsSplitSegmentAcrossSpeakerBoundaries() {
+        let segment = BatchTranscriptionSegmentLayout.SegmentWindow(
+            startTime: 100,
+            endTime: 112,
+            sampleRate: 16_000
+        )
+        let runs = [
+            BatchTranscriptionSegmentLayout.SpeakerRun(startTime: 100, endTime: 104, speaker: .remote(1)),
+            BatchTranscriptionSegmentLayout.SpeakerRun(startTime: 104, endTime: 108, speaker: .remote(2)),
+            BatchTranscriptionSegmentLayout.SpeakerRun(startTime: 108, endTime: 112, speaker: .remote(1))
+        ]
+
+        let slices = BatchTranscriptionSegmentLayout.slices(
+            for: segment,
+            diarizedRuns: runs,
+            fallbackSpeaker: .them
+        )
+
+        XCTAssertEqual(slices.count, 3)
+        XCTAssertEqual(slices.map(\.speaker), [.remote(1), .remote(2), .remote(1)])
+        XCTAssertEqual(slices.map(\.startSample), [0, 64_000, 128_000])
+        XCTAssertEqual(slices.map(\.sampleCount), [64_000, 64_000, 64_000])
+    }
+
+    func testShortSpeakerRunsCollapseBackToFallbackSegment() {
+        let segment = BatchTranscriptionSegmentLayout.SegmentWindow(
+            startTime: 10,
+            endTime: 11.2,
+            sampleRate: 16_000
+        )
+        let runs = [
+            BatchTranscriptionSegmentLayout.SpeakerRun(startTime: 10, endTime: 10.4, speaker: .remote(1)),
+            BatchTranscriptionSegmentLayout.SpeakerRun(startTime: 10.4, endTime: 10.8, speaker: .remote(2)),
+            BatchTranscriptionSegmentLayout.SpeakerRun(startTime: 10.8, endTime: 11.2, speaker: .remote(1))
+        ]
+
+        let slices = BatchTranscriptionSegmentLayout.slices(
+            for: segment,
+            diarizedRuns: runs,
+            fallbackSpeaker: .them
+        )
+
+        XCTAssertEqual(slices.count, 1)
+        XCTAssertEqual(slices[0].speaker, .them)
+        XCTAssertEqual(slices[0].startSample, 0)
+        XCTAssertEqual(slices[0].sampleCount, segment.sampleCount)
+    }
+
+    func testTinyLeadingRunIsMergedIntoNeighbor() {
+        let segment = BatchTranscriptionSegmentLayout.SegmentWindow(
+            startTime: 50,
+            endTime: 54,
+            sampleRate: 16_000
+        )
+        let runs = [
+            BatchTranscriptionSegmentLayout.SpeakerRun(startTime: 50, endTime: 50.3, speaker: .remote(1)),
+            BatchTranscriptionSegmentLayout.SpeakerRun(startTime: 50.3, endTime: 52.3, speaker: .remote(2)),
+            BatchTranscriptionSegmentLayout.SpeakerRun(startTime: 52.3, endTime: 54, speaker: .remote(1))
+        ]
+
+        let slices = BatchTranscriptionSegmentLayout.slices(
+            for: segment,
+            diarizedRuns: runs,
+            fallbackSpeaker: .them
+        )
+
+        XCTAssertEqual(slices.count, 2)
+        XCTAssertEqual(slices.map(\.speaker), [.remote(2), .remote(1)])
+        XCTAssertEqual(slices.map(\.startSample), [0, 36_800])
+        XCTAssertEqual(slices.map(\.sampleCount), [36_800, 27_200])
+    }
+
     private func makeRecords(
         count: Int,
         startedAt: Date,
