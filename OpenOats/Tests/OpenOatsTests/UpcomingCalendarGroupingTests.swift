@@ -208,6 +208,39 @@ final class UpcomingCalendarGroupingTests: XCTestCase {
         XCTAssertEqual(selected.map(\.id), ["newer", "older"])
     }
 
+    func testComingUpGroupsIncludeTodayWhenOnlyEarlierTodayEventsExist() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+
+        let referenceDate = makeDate(year: 2026, month: 4, day: 24, hour: 17, minute: 0, calendar: calendar)
+        let earlierToday = [
+            makeEvent(
+                id: "ended",
+                title: "Standup",
+                start: makeDate(year: 2026, month: 4, day: 24, hour: 9, minute: 0, calendar: calendar)
+            )
+        ]
+        let future = [
+            makeEvent(
+                id: "future",
+                title: "Planning",
+                start: makeDate(year: 2026, month: 4, day: 27, hour: 11, minute: 30, calendar: calendar)
+            )
+        ]
+
+        let groups = ComingUpDayGroupSelection.groups(
+            for: future,
+            earlierTodayEvents: earlierToday,
+            referenceDate: referenceDate,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups[0].date, calendar.startOfDay(for: referenceDate))
+        XCTAssertTrue(groups[0].events.isEmpty)
+        XCTAssertEqual(groups[1].events.map(\.id), ["future"])
+    }
+
     private func makeEvent(
         id: String,
         title: String,

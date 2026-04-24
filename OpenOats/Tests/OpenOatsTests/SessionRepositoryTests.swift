@@ -497,6 +497,58 @@ final class SessionRepositoryTests: XCTestCase {
         await repo.deleteSession(sessionID: sessionID)
     }
 
+    func testCreateManualTranscriptSessionPersistsCalendarFolderAndSource() async {
+        let calendarEvent = makeCalendarEvent()
+        let sessionID = await repo.createManualTranscriptSession(
+            config: .init(
+                title: calendarEvent.title,
+                startedAt: calendarEvent.startDate,
+                endedAt: calendarEvent.endDate,
+                calendarEvent: calendarEvent,
+                folderPath: "Work/1:1s"
+            )
+        )
+
+        let session = await repo.loadSession(id: sessionID)
+        XCTAssertEqual(session.index.title, calendarEvent.title)
+        XCTAssertEqual(session.index.folderPath, "Work/1:1s")
+        XCTAssertEqual(session.index.source, "manual")
+        XCTAssertEqual(session.calendarEvent?.id, calendarEvent.id)
+        XCTAssertEqual(session.calendarEvent?.calendarTitle, calendarEvent.calendarTitle)
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
+    func testCreateManualTranscriptSessionReusesExistingExactCalendarEvent() async {
+        let calendarEvent = makeCalendarEvent()
+
+        let firstSessionID = await repo.createManualTranscriptSession(
+            config: .init(
+                title: calendarEvent.title,
+                startedAt: calendarEvent.startDate,
+                endedAt: calendarEvent.endDate,
+                calendarEvent: calendarEvent,
+                folderPath: nil
+            )
+        )
+
+        let secondSessionID = await repo.createManualTranscriptSession(
+            config: .init(
+                title: calendarEvent.title,
+                startedAt: calendarEvent.startDate.addingTimeInterval(60),
+                endedAt: calendarEvent.endDate.addingTimeInterval(60),
+                calendarEvent: calendarEvent,
+                folderPath: "Work"
+            )
+        )
+
+        XCTAssertEqual(secondSessionID, firstSessionID)
+        let sessions = await repo.listSessions()
+        XCTAssertEqual(sessions.count, 1)
+
+        await repo.deleteSession(sessionID: firstSessionID)
+    }
+
     func testSaveFinalTranscript() async {
         let sessionID = "session_final_test"
         let initialStart = Date(timeIntervalSince1970: 100)

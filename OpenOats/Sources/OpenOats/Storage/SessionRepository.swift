@@ -88,6 +88,14 @@ struct SessionFinalizeMetadata: Sendable {
     }
 }
 
+struct ManualTranscriptSessionConfig: Sendable {
+    let title: String
+    let startedAt: Date
+    let endedAt: Date
+    let calendarEvent: CalendarEvent
+    let folderPath: String?
+}
+
 /// Full session detail for loading.
 struct SessionDetail: Sendable {
     let index: SessionIndex
@@ -471,6 +479,35 @@ actor SessionRepository {
             language: config.language,
             engine: config.engine,
             source: "imported"
+        )
+        writeSessionMetadata(metadata, sessionID: sessionID)
+
+        return sessionID
+    }
+
+    @discardableResult
+    func createManualTranscriptSession(config: ManualTranscriptSessionConfig) -> String {
+        if let existingSessionID = existingSessionID(for: config.calendarEvent, referenceDate: config.startedAt) {
+            return existingSessionID
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        let sessionID = "session_\(formatter.string(from: config.startedAt))"
+
+        let sessionDir = sessionDirectory(for: sessionID)
+        try? FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
+
+        let metadata = SessionMetadata(
+            id: sessionID,
+            startedAt: config.startedAt,
+            endedAt: config.endedAt,
+            title: config.title,
+            utteranceCount: 0,
+            hasNotes: false,
+            folderPath: Self.normalizeSessionFolderPath(config.folderPath),
+            source: "manual",
+            calendarEvent: config.calendarEvent
         )
         writeSessionMetadata(metadata, sessionID: sessionID)
 
@@ -1059,6 +1096,44 @@ actor SessionRepository {
                metadata.calendarEvent?.id == referenceEventID {
                 return (candidate.id, true, gap)
             }
+
+            let candidateTitle = metadata.title ?? metadata.calendarEvent?.title
+            guard MeetingHistoryResolver.historyKey(for: candidateTitle ?? "") == historyKey else {
+                return nil
+            }
+
+            return (candidate.id, false, gap)
+        }
+        .sorted { lhs, rhs in
+            if lhs.exactEventMatch != rhs.exactEventMatch {
+                return lhs.exactEventMatch && !rhs.exactEventMatch
+            }
+            return lhs.gap < rhs.gap
+        }
+
+        return candidates.first?.id
+    }
+
+    private func existingSessionID(
+        for event: CalendarEvent,
+        referenceDate: Date,
+        maximumGap: TimeInterval = 6 * 60 * 60
+    ) -> String? {
+        let historyKey = MeetingHistoryResolver.historyKey(for: event)
+        let referenceEventID = event.id
+
+        let candidates = listSessions().compactMap { candidate -> (id: String, exactEventMatch: Bool, gap: TimeInterval)? in
+            guard let metadata = loadSessionMetadataFile(sessionID: candidate.id) else {
+                return nil
+            }
+
+            let gap = abs(metadata.startedAt.timeIntervalSince(referenceDate))
+
+            if metadata.calendarEvent?.id == referenceEventID {
+                return (candidate.id, true, gap)
+            }
+
+            guard gap <= maximumGap else { return nil }
 
             let candidateTitle = metadata.title ?? metadata.calendarEvent?.title
             guard MeetingHistoryResolver.historyKey(for: candidateTitle ?? "") == historyKey else {

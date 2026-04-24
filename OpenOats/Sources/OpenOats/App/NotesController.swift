@@ -188,6 +188,9 @@ final class NotesController {
             case .meetingHistory(let event):
                 showMeetingFamily(for: event)
                 return true
+            case .manualTranscript(let event):
+                _ = await prepareManualTranscriptSession(for: event)
+                return true
             case .clearSelection:
                 selectSession(nil)
                 return true
@@ -214,6 +217,8 @@ final class NotesController {
             case .session(let sessionID):
                 selectSession(sessionID)
             case .meetingHistory(let event):
+                showMeetingFamily(for: event)
+            case .manualTranscript(let event):
                 showMeetingFamily(for: event)
             case .clearSelection:
                 selectSession(nil)
@@ -342,6 +347,29 @@ final class NotesController {
 
     func showMeetingHistory(for event: CalendarEvent) {
         showMeetingFamily(for: event)
+    }
+
+    func createManualTranscriptSession(for event: CalendarEvent) async -> String {
+        let preferredFolderPath = settings?.meetingFamilyPreferences(for: event)?.folderPath
+        let sessionID = await coordinator.sessionRepository.createManualTranscriptSession(
+            config: .init(
+                title: event.title,
+                startedAt: event.startDate,
+                endedAt: event.endDate,
+                calendarEvent: event,
+                folderPath: preferredFolderPath
+            )
+        )
+        await coordinator.loadHistory()
+        await loadHistory()
+        selectSession(sessionID)
+        return sessionID
+    }
+
+    func prepareManualTranscriptSession(for event: CalendarEvent) async -> Bool {
+        let sessionID = await createManualTranscriptSession(for: event)
+        let transcript = await coordinator.sessionRepository.loadTranscript(sessionID: sessionID)
+        return transcript.isEmpty
     }
 
     func linkMeetingHistorySuggestion(_ suggestion: MeetingHistorySuggestion) {
