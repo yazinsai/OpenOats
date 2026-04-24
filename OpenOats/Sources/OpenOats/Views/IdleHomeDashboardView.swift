@@ -56,7 +56,7 @@ struct IdleHomeDashboardView: View {
             } else {
                 switch accessState {
                 case .authorized:
-                    if events.isEmpty {
+                    if events.isEmpty && earlierTodayEvents.isEmpty {
                         emptyStateCard(
                             title: "No upcoming meetings",
                             description: "OpenOats will show your next calendar meetings here."
@@ -122,7 +122,10 @@ struct IdleHomeDashboardView: View {
     }
 
     private var upcomingMeetingsCard: some View {
-        let groups = UpcomingCalendarGrouping.groups(for: events)
+        let groups = ComingUpDayGroupSelection.groups(
+            for: events,
+            earlierTodayEvents: earlierTodayEvents
+        )
         let shouldShowCalendarTitle = UpcomingEventSelection.distinctCalendarCount(in: events) > 1
 
         return VStack(alignment: .leading, spacing: 14) {
@@ -251,7 +254,11 @@ struct IdleHomeDashboardView: View {
     }
 
     private func openRelatedNotes(for event: CalendarEvent) {
-        coordinator.queueMeetingHistory(event)
+        if event.endDate <= Date() {
+            coordinator.queueManualTranscript(event)
+        } else {
+            coordinator.queueMeetingHistory(event)
+        }
         openWindow(id: "notes")
     }
 
@@ -844,6 +851,28 @@ enum EarlierTodaySelection {
                 }
                 return lhs.id > rhs.id
             }
+    }
+}
+
+enum ComingUpDayGroupSelection {
+    static func groups(
+        for upcomingEvents: [CalendarEvent],
+        earlierTodayEvents: [CalendarEvent],
+        referenceDate: Date = Date(),
+        calendar: Calendar = .current
+    ) -> [UpcomingCalendarGrouping.DayGroup] {
+        var groups = UpcomingCalendarGrouping.groups(for: upcomingEvents, calendar: calendar)
+        guard !earlierTodayEvents.isEmpty else { return groups }
+
+        let today = calendar.startOfDay(for: referenceDate)
+        let hasTodayGroup = groups.contains { calendar.isDate($0.date, inSameDayAs: today) }
+        guard !hasTodayGroup else { return groups }
+
+        groups.insert(
+            UpcomingCalendarGrouping.DayGroup(date: today, events: []),
+            at: 0
+        )
+        return groups
     }
 }
 

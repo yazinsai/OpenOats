@@ -277,6 +277,71 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.loadedTranscript.map(\.speaker), [.you, .remote(2), .them])
     }
 
+    func testPrepareManualTranscriptSessionCreatesAndSelectsPastMeetingSession() async {
+        let (root, notes) = makeTempDirs()
+        let settings = makeSettings(notesDirectory: notes)
+        let (controller, coordinator) = makeController(root: root, settings: settings)
+        let calendarEvent = CalendarEvent(
+            id: "evt-manual-past",
+            title: "Past Meeting",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            calendarTitle: "WFF",
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        settings.setMeetingFamilyFolderPreference("Work", for: calendarEvent)
+        controller.showMeetingFamily(for: calendarEvent)
+
+        let shouldPrompt = await controller.prepareManualTranscriptSession(for: calendarEvent)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertTrue(shouldPrompt)
+        XCTAssertNotNil(controller.state.selectedSessionID)
+        XCTAssertEqual(controller.state.loadedCalendarEvent?.id, calendarEvent.id)
+        XCTAssertTrue(controller.state.loadedTranscript.isEmpty)
+
+        if let sessionID = controller.state.selectedSessionID {
+            let session = await coordinator.sessionRepository.loadSession(id: sessionID)
+            XCTAssertEqual(session.index.folderPath, "Work")
+            XCTAssertEqual(session.index.source, "manual")
+        }
+    }
+
+    func testPrepareManualTranscriptSessionDoesNotPromptWhenTranscriptAlreadyExists() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let calendarEvent = CalendarEvent(
+            id: "evt-existing-past",
+            title: "Recorded Past Meeting",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            calendarTitle: "WFF",
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        await seedSession(
+            coordinator: coordinator,
+            sessionID: "session_existing_past",
+            title: calendarEvent.title,
+            utterances: [SessionRecord(speaker: .you, text: "Existing transcript", timestamp: calendarEvent.startDate)],
+            calendarEvent: calendarEvent
+        )
+        controller.showMeetingFamily(for: calendarEvent)
+
+        let shouldPrompt = await controller.prepareManualTranscriptSession(for: calendarEvent)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertFalse(shouldPrompt)
+        XCTAssertEqual(controller.state.loadedTranscript.map(\.text), ["Existing transcript"])
+    }
+
     func testGenerateNotesUpdatesStatus() async {
         let (root, notes) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)

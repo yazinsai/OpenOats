@@ -73,23 +73,8 @@ struct NotesView: View {
             notesController = controller
             await controller.loadHistory()
 
-            // Handle pending navigation — inline rather than via controller
-            // to ensure @State detailViewMode update happens in the same
-            // transaction as session selection (matches pre-Phase 6 behavior).
-            if let requested = coordinator.consumeRequestedSessionSelection() {
-                switch requested {
-                case .session(let sessionID):
-                    controller.selectSession(sessionID)
-                    // Show Transcript tab for imported sessions (no notes generated yet)
-                    let isImported = controller.state.sessionHistory.first(where: { $0.id == sessionID })?.source == "imported"
-                    detailViewMode = isImported ? .transcript : .notes
-                case .meetingHistory(let event):
-                    controller.showMeetingFamily(for: event)
-                    detailViewMode = .notes
-                case .clearSelection:
-                    controller.selectSession(nil)
-                    detailViewMode = .notes
-                }
+            if await handleRequestedNotesNavigation(controller: controller) {
+                return
             } else if let last = coordinator.lastEndedSession {
                 controller.selectSession(last.id)
             }
@@ -184,8 +169,8 @@ struct NotesView: View {
             Task { await controller.loadHistory() }
         }
         .onChange(of: coordinator.requestedNotesNavigation?.id) {
-            if controller.handleRequestedSessionSelection() {
-                detailViewMode = .notes
+            Task {
+                _ = await handleRequestedNotesNavigation(controller: controller)
             }
         }
         .onChange(of: state.selectedMeetingFamily?.key) {
@@ -1249,6 +1234,7 @@ struct NotesView: View {
         let folders = meetingFamilyFolderChoices(including: preferredFolderPath)
 
         if let event = selection.upcomingEvent {
+            let isPastEvent = event.endDate <= Date()
             let prepNotes = Binding(
                 get: { settings.meetingPrepNotes(for: event) },
                 set: { settings.setMeetingPrepNotes($0, for: event) }
@@ -1284,7 +1270,7 @@ struct NotesView: View {
                     Spacer(minLength: 0)
 
                     HStack(spacing: 8) {
-                        if event.meetingURL != nil {
+                        if !isPastEvent, event.meetingURL != nil {
                             Button {
                                 joinMeeting(for: event)
                             } label: {
@@ -1294,14 +1280,24 @@ struct NotesView: View {
                             .buttonStyle(.bordered)
                         }
 
-                        Button {
-                            startRecording(for: event, selectedTemplate: state.selectedTemplate)
-                        } label: {
-                            Label("Start recording", systemImage: "mic.fill")
-                                .font(.system(size: 12, weight: .semibold))
+                        if isPastEvent {
+                            Button {
+                                createManualTranscriptSessionAndMaybePrompt(controller: controller, event: event)
+                            } label: {
+                                Label("Add Transcript", systemImage: "text.badge.plus")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .buttonStyle(.bordered)
+                        } else {
+                            Button {
+                                startRecording(for: event, selectedTemplate: state.selectedTemplate)
+                            } label: {
+                                Label("Start recording", systemImage: "mic.fill")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(coordinator.isRecording)
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(coordinator.isRecording)
                     }
                 }
 
@@ -1706,6 +1702,16 @@ struct NotesView: View {
         )
         NSApp.activate(ignoringOtherApps: true)
         openWindow(id: OpenOatsRootApp.mainWindowID)
+    }
+
+    private func createManualTranscriptSessionAndMaybePrompt(controller: NotesController, event: CalendarEvent) {
+        Task {
+            let shouldPromptForTranscript = await controller.prepareManualTranscriptSession(for: event)
+            detailViewMode = .transcript
+            if shouldPromptForTranscript {
+                beginAddTranscript()
+            }
+        }
     }
 
     private func joinMeeting(for event: CalendarEvent) {
@@ -2883,6 +2889,32 @@ struct NotesView: View {
     private func beginAddTranscript() {
         manualTranscriptDraft = ""
         showingAddTranscriptSheet = true
+    }
+
+    @MainActor
+    private func handleRequestedNotesNavigation(controller: NotesController) async -> Bool {
+        guard let requested = coordinator.consumeRequestedSessionSelection() else { return false }
+
+        switch requested {
+        case .session(let sessionID):
+            controller.selectSession(sessionID)
+            let isImported = controller.state.sessionHistory.first(where: { $0.id == sessionID })?.source == "imported"
+            detailViewMode = isImported ? .transcript : .notes
+        case .meetingHistory(let event):
+            controller.showMeetingFamily(for: event)
+            detailViewMode = .notes
+        case .manualTranscript(let event):
+            detailViewMode = .transcript
+            let shouldPromptForTranscript = await controller.prepareManualTranscriptSession(for: event)
+            if shouldPromptForTranscript {
+                beginAddTranscript()
+            }
+        case .clearSelection:
+            controller.selectSession(nil)
+            detailViewMode = .notes
+        }
+
+        return true
     }
 
     private func cancelAddTranscript() {
