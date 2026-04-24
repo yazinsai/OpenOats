@@ -172,18 +172,55 @@ final class UpcomingCalendarGroupingTests: XCTestCase {
         XCTAssertEqual(UpcomingEventSelection.distinctCalendarCount(in: events), 2)
     }
 
+    func testEarlierTodaySelectionReturnsEndedMeetingsNewestFirst() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let older = makeEvent(
+            id: "older",
+            title: "Morning Sync",
+            start: now.addingTimeInterval(-4_000),
+            duration: 1_200
+        )
+        let newer = makeEvent(
+            id: "newer",
+            title: "Lunch Review",
+            start: now.addingTimeInterval(-2_000),
+            duration: 1_200
+        )
+        let current = makeEvent(
+            id: "current",
+            title: "Current Meeting",
+            start: now.addingTimeInterval(-300),
+            duration: 1_800
+        )
+        let future = makeEvent(
+            id: "future",
+            title: "Later Today",
+            start: now.addingTimeInterval(1_800),
+            duration: 1_200
+        )
+
+        let selected = EarlierTodaySelection.select(
+            from: [older, future, current, newer],
+            now: now,
+            currentEventID: current.id
+        )
+
+        XCTAssertEqual(selected.map(\.id), ["newer", "older"])
+    }
+
     private func makeEvent(
         id: String,
         title: String,
         start: Date,
         calendarID: String? = nil,
-        calendarTitle: String? = nil
+        calendarTitle: String? = nil,
+        duration: TimeInterval = 30 * 60
     ) -> CalendarEvent {
         CalendarEvent(
             id: id,
             title: title,
             startDate: start,
-            endDate: start.addingTimeInterval(30 * 60),
+            endDate: start.addingTimeInterval(duration),
             calendarID: calendarID,
             calendarTitle: calendarTitle,
             calendarColorHex: nil,

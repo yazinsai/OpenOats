@@ -94,6 +94,29 @@ final class CalendarManager {
         return events.map { CalendarEvent(from: $0) }
     }
 
+    /// Calendar events occurring on the same local day as the given date, ordered by start date.
+    /// Returns an empty array if access is not authorized.
+    func events(onSameDayAs date: Date = Date()) -> [CalendarEvent] {
+        guard accessState == .authorized else { return [] }
+        let calendars = eventCalendars()
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else {
+            return []
+        }
+
+        let predicate = store.predicateForEvents(
+            withStart: startOfDay,
+            end: endOfDay,
+            calendars: calendars
+        )
+        let events = store.events(matching: predicate)
+            .filter { !$0.isAllDay }
+            .sorted { $0.startDate < $1.startDate }
+
+        return events.map { CalendarEvent(from: $0) }
+    }
+
     // MARK: - Helpers
 
     private func eventCalendars() -> [EKCalendar] {

@@ -8,6 +8,8 @@ struct IdleHomeDashboardView: View {
     @Environment(\.openWindow) private var openWindow
 
     @State private var events: [CalendarEvent] = []
+    @State private var earlierTodayEvents: [CalendarEvent] = []
+    @State private var showsEarlierToday = false
     @State private var refreshTick = 0
     @State private var creatingFolderEvent: CalendarEvent?
     @State private var newFolderPath = ""
@@ -130,6 +132,9 @@ struct IdleHomeDashboardView: View {
                     showCalendarTitle: shouldShowCalendarTitle,
                     settings: settings,
                     sessionHistory: coordinator.sessionHistory,
+                    earlierTodayEvents: Calendar.current.isDateInToday(group.date) ? earlierTodayEvents : [],
+                    showsEarlierToday: Calendar.current.isDateInToday(group.date) ? showsEarlierToday : false,
+                    onToggleEarlierToday: { showsEarlierToday.toggle() },
                     onJoinEvent: joinMeeting(for:),
                     onOpenRelatedNotes: openRelatedNotes(for:),
                     onCreateFolder: beginCreateFolder(for:)
@@ -156,16 +161,19 @@ struct IdleHomeDashboardView: View {
     private func refresh() async {
         guard settings.calendarIntegrationEnabled, let manager = container.calendarManager else {
             events = []
+            earlierTodayEvents = []
             return
         }
 
         guard manager.accessState == .authorized else {
             events = []
+            earlierTodayEvents = []
             return
         }
 
         let now = Date()
         let currentEvent = manager.currentEvent(at: now)
+        let dayEvents = manager.events(onSameDayAs: now)
         let upcomingEvents = manager.upcomingEvents(
             from: now,
             within: 7 * 24 * 60 * 60,
@@ -184,6 +192,15 @@ struct IdleHomeDashboardView: View {
         )
         combined.append(contentsOf: selectedUpcoming)
         events = combined
+
+        earlierTodayEvents = EarlierTodaySelection.select(
+            from: dayEvents,
+            now: now,
+            currentEventID: currentEvent?.id
+        )
+        if earlierTodayEvents.isEmpty {
+            showsEarlierToday = false
+        }
     }
 
     private var currentAccessState: CalendarManager.AccessState {
@@ -392,6 +409,9 @@ private struct ComingUpDayGroupView: View {
     let showCalendarTitle: Bool
     let settings: AppSettings
     let sessionHistory: [SessionIndex]
+    let earlierTodayEvents: [CalendarEvent]
+    let showsEarlierToday: Bool
+    let onToggleEarlierToday: () -> Void
     let onJoinEvent: (CalendarEvent) -> Void
     let onOpenRelatedNotes: (CalendarEvent) -> Void
     let onCreateFolder: (CalendarEvent) -> Void
@@ -404,9 +424,14 @@ private struct ComingUpDayGroupView: View {
                 .textCase(.uppercase)
 
             VStack(alignment: .leading, spacing: 10) {
+                if !earlierTodayEvents.isEmpty {
+                    earlierTodayDisclosure
+                }
+
                 ForEach(group.events) { event in
                     ComingUpEventRow(
                         event: event,
+                        showJoinButton: true,
                         showCalendarTitle: showCalendarTitle,
                         settings: settings,
                         sessionHistory: sessionHistory,
@@ -418,10 +443,78 @@ private struct ComingUpDayGroupView: View {
             }
         }
     }
+
+    @ViewBuilder
+    private var earlierTodayDisclosure: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.18))
+                    .frame(height: 1)
+
+                Button(action: onToggleEarlierToday) {
+                    HStack(spacing: 5) {
+                        Image(systemName: showsEarlierToday ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("Earlier today")
+                        Text("\(earlierTodayEvents.count)")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(Color.primary.opacity(0.04))
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.18))
+                    .frame(height: 1)
+            }
+
+            if showsEarlierToday {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(earlierTodayEvents) { event in
+                        ComingUpEventRow(
+                            event: event,
+                            showJoinButton: false,
+                            showCalendarTitle: showCalendarTitle,
+                            settings: settings,
+                            sessionHistory: sessionHistory,
+                            onJoinEvent: onJoinEvent,
+                            onOpenRelatedNotes: onOpenRelatedNotes,
+                            onCreateFolder: onCreateFolder
+                        )
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+
+                if !group.events.isEmpty {
+                    DashedSeparator()
+                }
+            }
+        }
+        .padding(.top, 2)
+    }
+}
+
+private struct DashedSeparator: View {
+    var body: some View {
+        Rectangle()
+            .stroke(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+            .foregroundStyle(Color.secondary.opacity(0.24))
+            .frame(height: 1)
+            .padding(.vertical, 2)
+    }
 }
 
 private struct ComingUpEventRow: View {
     let event: CalendarEvent
+    let showJoinButton: Bool
     let showCalendarTitle: Bool
     let settings: AppSettings
     let sessionHistory: [SessionIndex]
@@ -470,7 +563,7 @@ private struct ComingUpEventRow: View {
 
             folderMenu
 
-            if event.meetingURL != nil {
+            if showJoinButton, event.meetingURL != nil {
                 Button(action: {
                     onJoinEvent(event)
                 }) {
@@ -732,6 +825,25 @@ enum UpcomingEventSelection {
             return "title:\(calendarTitle)"
         }
         return "event:\(event.id)"
+    }
+}
+
+enum EarlierTodaySelection {
+    static func select(
+        from dayEvents: [CalendarEvent],
+        now: Date,
+        currentEventID: String?
+    ) -> [CalendarEvent] {
+        dayEvents
+            .filter { event in
+                event.endDate <= now && event.id != currentEventID
+            }
+            .sorted { lhs, rhs in
+                if lhs.startDate != rhs.startDate {
+                    return lhs.startDate > rhs.startDate
+                }
+                return lhs.id > rhs.id
+            }
     }
 }
 
