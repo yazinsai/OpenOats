@@ -27,6 +27,8 @@ struct NotesView: View {
     @State private var newTagText: String = ""
     @State private var availableTags: [String] = []
     @State private var confirmRestoreOriginalTranscript = false
+    @State private var showingAddTranscriptSheet = false
+    @State private var manualTranscriptDraft = ""
 
     enum DetailViewMode: String, CaseIterable {
         case transcript = "Transcript"
@@ -137,6 +139,9 @@ struct NotesView: View {
             )
         ) {
             meetingFamilyFolderSheetContent(controller: controller)
+        }
+        .sheet(isPresented: $showingAddTranscriptSheet) {
+            addTranscriptSheet(controller: controller)
         }
         .confirmationDialog(
             "Update default folder?",
@@ -2585,7 +2590,18 @@ struct NotesView: View {
     @ViewBuilder
     private func transcriptView(controller: NotesController, state: NotesState) -> some View {
         if state.loadedTranscript.isEmpty {
-            ContentUnavailableView("No Transcript", systemImage: "waveform", description: Text("This session has no recorded utterances."))
+            ContentUnavailableView {
+                Label("No Transcript", systemImage: "waveform")
+            } description: {
+                Text("This session has no recorded utterances.")
+            } actions: {
+                Button {
+                    beginAddTranscript()
+                } label: {
+                    Label("Add Transcript", systemImage: "text.badge.plus")
+                }
+                .buttonStyle(.bordered)
+            }
         } else {
             ScrollView {
                 if case .inProgress(let completed, let total) = state.cleanupStatus {
@@ -2822,6 +2838,64 @@ struct NotesView: View {
         f.dateFormat = "HH:mm:ss"
         return f
     }()
+
+    @ViewBuilder
+    private func addTranscriptSheet(controller: NotesController) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Add Transcript")
+                .font(.headline)
+
+            Text("Paste transcript text for this meeting. One line per utterance works best. Prefix lines with `You:`, `Them:`, or `Speaker 2:` for basic speaker parsing.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+
+            TextEditor(text: $manualTranscriptDraft)
+                .font(.system(size: 13))
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 240)
+                .padding(10)
+                .background(Color(nsColor: .textBackgroundColor).opacity(0.85))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(.quaternary, lineWidth: 1)
+                )
+
+            HStack {
+                Spacer()
+
+                Button("Cancel") {
+                    cancelAddTranscript()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Add Transcript") {
+                    commitAddTranscript(controller: controller)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(manualTranscriptDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 540)
+    }
+
+    private func beginAddTranscript() {
+        manualTranscriptDraft = ""
+        showingAddTranscriptSheet = true
+    }
+
+    private func cancelAddTranscript() {
+        showingAddTranscriptSheet = false
+        manualTranscriptDraft = ""
+    }
+
+    private func commitAddTranscript(controller: NotesController) {
+        let trimmed = manualTranscriptDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        controller.addManualTranscript(trimmed)
+        cancelAddTranscript()
+    }
 }
 
 // MARK: - FlowLayout

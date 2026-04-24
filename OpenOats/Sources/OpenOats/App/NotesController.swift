@@ -627,6 +627,25 @@ final class NotesController {
         }
     }
 
+    func addManualTranscript(_ rawText: String) {
+        guard let sessionID = state.selectedSessionID else { return }
+
+        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let baseDate = state.sessionHistory.first(where: { $0.id == sessionID })?.startedAt
+            ?? state.loadedCalendarEvent?.startDate
+            ?? Date()
+        let records = ManualTranscriptImporter.records(from: trimmed, baseDate: baseDate)
+        guard !records.isEmpty else { return }
+
+        Task {
+            await coordinator.sessionRepository.saveManualTranscriptSource(sessionID: sessionID, text: trimmed)
+            await coordinator.sessionRepository.saveFinalTranscript(sessionID: sessionID, records: records)
+            await reloadSessionAfterTranscriptMutation(sessionID: sessionID)
+        }
+    }
+
     // MARK: - Transcript Cleanup
 
     func cleanUpTranscript(settings: AppSettings) {
@@ -1350,5 +1369,76 @@ final class NotesController {
         if state.streamingMarkdown != engine.generatedMarkdown {
             state.streamingMarkdown = engine.generatedMarkdown
         }
+    }
+}
+
+private enum ManualTranscriptImporter {
+    private static let timestampPrefixPattern = #"^\s*(?:\[\s*\d{1,2}:\d{2}(?::\d{2})?\s*\]|\d{1,2}:\d{2}(?::\d{2})?)\s*"#
+
+    static func records(from text: String, baseDate: Date) -> [SessionRecord] {
+        let lines = text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !lines.isEmpty else { return [] }
+
+        return lines.enumerated().compactMap { index, line in
+            let strippedTimestamp = line.replacingOccurrences(
+                of: timestampPrefixPattern,
+                with: "",
+                options: .regularExpression
+            )
+            let (speaker, body) = parseSpeakerAndBody(from: strippedTimestamp)
+            let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedBody.isEmpty else { return nil }
+
+            return SessionRecord(
+                speaker: speaker,
+                text: trimmedBody,
+                timestamp: baseDate.addingTimeInterval(TimeInterval(index * 30))
+            )
+        }
+    }
+
+    private static func parseSpeakerAndBody(from line: String) -> (Speaker, String) {
+        let separators = [":", "-", "–", "—"]
+        for separator in separators {
+            guard let range = line.range(of: separator) else { continue }
+            let rawSpeaker = line[..<range.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+            let body = String(line[range.upperBound...])
+            if let speaker = speaker(from: rawSpeaker) {
+                return (speaker, body)
+            }
+        }
+        return (.them, line)
+    }
+
+    private static func speaker(from raw: String) -> Speaker? {
+        let normalized = raw
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        switch normalized {
+        case "you", "me", "i":
+            return .you
+        case "them", "other", "speaker":
+            return .them
+        default:
+            break
+        }
+
+        if normalized.hasPrefix("speaker "),
+           let number = Int(normalized.dropFirst("speaker ".count)) {
+            return .remote(number)
+        }
+
+        if normalized.hasPrefix("remote "),
+           let number = Int(normalized.dropFirst("remote ".count)) {
+            return .remote(number)
+        }
+
+        return nil
     }
 }

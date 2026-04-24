@@ -554,6 +554,25 @@ actor SessionRepository {
         scheduleMirror(sessionID: sessionID)
     }
 
+    func saveManualTranscriptSource(sessionID: String, text: String) {
+        let dir = sessionDirectory(for: sessionID)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("transcript.manual.txt")
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+
+        try? trimmed.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    func loadManualTranscriptSource(sessionID: String) -> String? {
+        let url = sessionDirectory(for: sessionID).appendingPathComponent("transcript.manual.txt")
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
     private func backupTranscriptForBatchOverwrite(sessionID: String) {
         let dir = sessionDirectory(for: sessionID)
         let fm = FileManager.default

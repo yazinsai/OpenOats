@@ -478,6 +478,25 @@ final class SessionRepositoryTests: XCTestCase {
 
     // MARK: - saveFinalTranscript
 
+    func testSaveAndLoadManualTranscriptSource() async {
+        let sessionID = "session_manual_source"
+        await repo.seedSession(
+            id: sessionID,
+            records: [],
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        await repo.saveManualTranscriptSource(sessionID: sessionID, text: "You: Hello\nThem: Hi")
+        let saved = await repo.loadManualTranscriptSource(sessionID: sessionID)
+        XCTAssertEqual(saved, "You: Hello\nThem: Hi")
+
+        await repo.saveManualTranscriptSource(sessionID: sessionID, text: "   ")
+        let cleared = await repo.loadManualTranscriptSource(sessionID: sessionID)
+        XCTAssertNil(cleared)
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
     func testSaveFinalTranscript() async {
         let sessionID = "session_final_test"
         let initialStart = Date(timeIntervalSince1970: 100)

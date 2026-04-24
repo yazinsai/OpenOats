@@ -235,6 +235,48 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.loadedTranscript.map(\.text), ["Original live"])
     }
 
+    func testAddManualTranscriptPersistsSourceAndReloadsTranscript() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_add_manual_transcript"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID, utterances: [])
+
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+        XCTAssertTrue(controller.state.loadedTranscript.isEmpty)
+
+        controller.addManualTranscript("You: Hello there.\nThem: Hi, how are you?")
+        try? await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(controller.state.loadedTranscript.map(\.text), ["Hello there.", "Hi, how are you?"])
+        XCTAssertEqual(controller.state.loadedTranscript.map(\.speaker), [.you, .them])
+
+        let rawSource = await coordinator.sessionRepository.loadManualTranscriptSource(sessionID: sessionID)
+        XCTAssertEqual(rawSource, "You: Hello there.\nThem: Hi, how are you?")
+    }
+
+    func testAddManualTranscriptStripsTimestampsAndParsesRemoteSpeakers() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_manual_transcript_parsing"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID, utterances: [])
+
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        controller.addManualTranscript("""
+        [00:10] You: Kickoff
+        00:20 Speaker 2: Response
+        Loose closing line
+        """)
+        try? await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(controller.state.loadedTranscript.map(\.text), ["Kickoff", "Response", "Loose closing line"])
+        XCTAssertEqual(controller.state.loadedTranscript.map(\.speaker), [.you, .remote(2), .them])
+    }
+
     func testGenerateNotesUpdatesStatus() async {
         let (root, notes) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)
