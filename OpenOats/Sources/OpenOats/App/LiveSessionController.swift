@@ -85,8 +85,7 @@ final class LiveSessionController {
     /// Polls at 250ms while recording for responsive UI, and at 2s while idle
     /// to minimize observation churn and SwiftUI re-render cycles.
     func runPollingLoop(settings: AppSettings) async {
-        refreshState(settings: settings)
-        synchronizeDerivedState(settings: settings)
+        syncProjectedState(settings: settings)
 
         while !Task.isCancelled {
             let isActive = coordinator.transcriptionEngine?.isRunning == true
@@ -119,9 +118,13 @@ final class LiveSessionController {
                 }
             }
 
-            refreshState(settings: settings)
-            synchronizeDerivedState(settings: settings)
+            syncProjectedState(settings: settings)
         }
+    }
+
+    func syncProjectedState(settings: AppSettings) {
+        refreshState(settings: settings)
+        synchronizeDerivedState(settings: settings)
     }
 
     // MARK: - Session Actions
@@ -626,20 +629,28 @@ final class LiveSessionController {
             sidebarGenerating = coordinator.sidecastEngine?.isGenerating ?? false
         }
 
-        let isRunning = coordinator.transcriptionEngine?.isRunning ?? false
+        let lifecycleState = coordinator.state
+        let engineIsRunning = coordinator.transcriptionEngine?.isRunning ?? false
+        let isRunning: Bool
         let matchedCalendarEvent: CalendarEvent?
-        switch coordinator.state {
-        case .recording(let metadata), .ending(let metadata):
+        switch lifecycleState {
+        case .recording(let metadata):
+            // Prefer lifecycle state so the primary UI does not lag engine startup.
+            isRunning = true
+            matchedCalendarEvent = metadata.calendarEvent
+        case .ending(let metadata):
+            isRunning = engineIsRunning
             matchedCalendarEvent = metadata.calendarEvent
         case .idle:
+            isRunning = false
             matchedCalendarEvent = nil
         }
 
         // Use set(_:_:) for all Equatable fields: only fires @Observable withMutation
         // when the value actually changed, preventing spurious layout passes on NSHostingView.
         set(\.isRunning, isRunning)
-        set(\.sessionPhase, coordinator.state)
-        set(\.audioLevel, isRunning ? (coordinator.transcriptionEngine?.audioLevel ?? 0) : 0)
+        set(\.sessionPhase, lifecycleState)
+        set(\.audioLevel, engineIsRunning ? (coordinator.transcriptionEngine?.audioLevel ?? 0) : 0)
         set(\.volatileYouText, coordinator.transcriptStore.volatileYouText)
         set(\.volatileThemText, coordinator.transcriptStore.volatileThemText)
         set(\.isGeneratingSuggestions, sidebarGenerating)
