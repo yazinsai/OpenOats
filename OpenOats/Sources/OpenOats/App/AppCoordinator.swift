@@ -181,6 +181,10 @@ final class AppCoordinator {
     // MARK: - Side Effects
 
     private func performSideEffects(for event: MeetingEvent, settings: AppSettings?) {
+        if let settings {
+            liveSessionController?.syncProjectedState(settings: settings)
+        }
+
         switch event {
         case .userStarted(let metadata):
             Task { await liveSessionController?.startTranscription(metadata: metadata, settings: settings) }

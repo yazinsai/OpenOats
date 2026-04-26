@@ -217,6 +217,25 @@ final class LiveSessionControllerTests: XCTestCase {
         }
     }
 
+    func testCoordinatorStartProjectsRunningStateBeforeEngineStarts() {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeUninitializedController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+
+        XCTAssertFalse(controller.state.isRunning)
+        XCTAssertNil(coordinator.transcriptionEngine)
+
+        coordinator.handle(.userStarted(.manual()), settings: settings)
+
+        XCTAssertTrue(controller.state.isRunning)
+        XCTAssertEqual(controller.state.sessionPhase, coordinator.state)
+        XCTAssertNil(coordinator.transcriptionEngine)
+    }
+
     func testStopSessionWhileIdleIsNoOp() {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)
