@@ -12,9 +12,17 @@ struct IdleHomeDashboardView: View {
     @State private var showsEarlierToday = false
     @State private var refreshTick = 0
     @State private var creatingFolderEvent: CalendarEvent?
+    @State private var pendingMeetingFamilyFolderChange: PendingMeetingFamilyFolderChange?
     @State private var newFolderPath = ""
     @State private var newFolderColor: NotesFolderColor = .orange
     @FocusState private var newFolderFieldFocused: Bool
+
+    private struct PendingMeetingFamilyFolderChange: Equatable {
+        let historyKey: String
+        let familyTitle: String
+        let folderPath: String?
+        let existingMeetingCount: Int
+    }
 
     var body: some View {
         let accessState = currentAccessState
@@ -45,6 +53,29 @@ struct IdleHomeDashboardView: View {
             )
         ) {
             comingUpFolderSheet
+        }
+        .confirmationDialog(
+            "Update default folder?",
+            isPresented: Binding(
+                get: { pendingMeetingFamilyFolderChange != nil },
+                set: { if !$0 { pendingMeetingFamilyFolderChange = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingMeetingFamilyFolderChange
+        ) { pendingChange in
+            Button("Future meetings only") {
+                applyPendingMeetingFamilyFolderChange(moveExistingSessions: false)
+            }
+
+            Button(moveExistingMeetingsTitle(for: pendingChange)) {
+                applyPendingMeetingFamilyFolderChange(moveExistingSessions: true)
+            }
+
+            Button("Cancel", role: .cancel) {
+                pendingMeetingFamilyFolderChange = nil
+            }
+        } message: { pendingChange in
+            Text(meetingFamilyFolderChangeMessage(for: pendingChange))
         }
     }
 
@@ -140,6 +171,7 @@ struct IdleHomeDashboardView: View {
                     onToggleEarlierToday: { showsEarlierToday.toggle() },
                     onJoinEvent: joinMeeting(for:),
                     onOpenRelatedNotes: openRelatedNotes(for:),
+                    onRequestMeetingFamilyFolderChange: requestMeetingFamilyFolderChange(_:for:),
                     onCreateFolder: beginCreateFolder(for:)
                 )
                 if index < groups.count - 1 {
@@ -365,8 +397,84 @@ struct IdleHomeDashboardView: View {
             folders.append(NotesFolderDefinition(path: normalizedPath, color: newFolderColor))
         }
         settings.notesFolders = folders
-        settings.setMeetingFamilyFolderPreference(normalizedPath, for: event)
+        requestMeetingFamilyFolderChange(normalizedPath, for: event)
         cancelCreateFolder()
+    }
+
+    private func requestMeetingFamilyFolderChange(_ folderPath: String?, for event: CalendarEvent) {
+        let historyKey = settings.canonicalMeetingHistoryKey(for: event)
+        let currentFolderPath = settings.meetingFamilyPreferences(forHistoryKey: historyKey)?.folderPath
+        guard currentFolderPath != folderPath else { return }
+
+        let existingMeetingCount = matchingSavedMeetingCount(forHistoryKey: historyKey)
+        if existingMeetingCount > 0 {
+            pendingMeetingFamilyFolderChange = PendingMeetingFamilyFolderChange(
+                historyKey: historyKey,
+                familyTitle: event.title,
+                folderPath: folderPath,
+                existingMeetingCount: existingMeetingCount
+            )
+            return
+        }
+
+        applyMeetingFamilyFolderPreference(
+            folderPath,
+            moveExistingSessions: false,
+            forHistoryKey: historyKey
+        )
+    }
+
+    private func applyPendingMeetingFamilyFolderChange(moveExistingSessions: Bool) {
+        guard let pendingChange = pendingMeetingFamilyFolderChange else { return }
+        applyMeetingFamilyFolderPreference(
+            pendingChange.folderPath,
+            moveExistingSessions: moveExistingSessions,
+            forHistoryKey: pendingChange.historyKey
+        )
+        pendingMeetingFamilyFolderChange = nil
+    }
+
+    private func applyMeetingFamilyFolderPreference(
+        _ folderPath: String?,
+        moveExistingSessions: Bool,
+        forHistoryKey historyKey: String
+    ) {
+        settings.setMeetingFamilyFolderPreference(folderPath, forHistoryKey: historyKey)
+
+        guard moveExistingSessions else { return }
+
+        let sessionIDs = MeetingHistoryResolver.matchingSessions(
+            forHistoryKey: historyKey,
+            sessionHistory: coordinator.sessionHistory,
+            aliases: settings.meetingHistoryAliasesByKey
+        ).map(\.id)
+
+        Task {
+            for sessionID in sessionIDs {
+                await coordinator.sessionRepository.updateSessionFolder(sessionID: sessionID, folderPath: folderPath)
+            }
+            await coordinator.loadHistory()
+        }
+    }
+
+    private func matchingSavedMeetingCount(forHistoryKey historyKey: String) -> Int {
+        MeetingHistoryResolver.matchingSessions(
+            forHistoryKey: historyKey,
+            sessionHistory: coordinator.sessionHistory,
+            aliases: settings.meetingHistoryAliasesByKey
+        ).count
+    }
+
+    private func moveExistingMeetingsTitle(for pendingChange: PendingMeetingFamilyFolderChange) -> String {
+        let count = pendingChange.existingMeetingCount
+        return count == 1 ? "Move 1 saved meeting too" : "Move \(count) saved meetings too"
+    }
+
+    private func meetingFamilyFolderChangeMessage(for pendingChange: PendingMeetingFamilyFolderChange) -> String {
+        let destination = folderDisplayName(for: pendingChange.folderPath)
+        let count = pendingChange.existingMeetingCount
+        let noun = count == 1 ? "saved meeting" : "saved meetings"
+        return "Use \(destination) for future meetings in \"\(pendingChange.familyTitle)\", or move the existing \(count) \(noun) there too."
     }
 
     private func normalizedMeetingFamilyFolderPath(_ rawPath: String) -> String? {
@@ -421,6 +529,7 @@ private struct ComingUpDayGroupView: View {
     let onToggleEarlierToday: () -> Void
     let onJoinEvent: (CalendarEvent) -> Void
     let onOpenRelatedNotes: (CalendarEvent) -> Void
+    let onRequestMeetingFamilyFolderChange: (String?, CalendarEvent) -> Void
     let onCreateFolder: (CalendarEvent) -> Void
 
     var body: some View {
@@ -444,6 +553,7 @@ private struct ComingUpDayGroupView: View {
                         sessionHistory: sessionHistory,
                         onJoinEvent: onJoinEvent,
                         onOpenRelatedNotes: onOpenRelatedNotes,
+                        onRequestMeetingFamilyFolderChange: onRequestMeetingFamilyFolderChange,
                         onCreateFolder: onCreateFolder
                     )
                 }
@@ -494,6 +604,7 @@ private struct ComingUpDayGroupView: View {
                             sessionHistory: sessionHistory,
                             onJoinEvent: onJoinEvent,
                             onOpenRelatedNotes: onOpenRelatedNotes,
+                            onRequestMeetingFamilyFolderChange: onRequestMeetingFamilyFolderChange,
                             onCreateFolder: onCreateFolder
                         )
                     }
@@ -527,6 +638,7 @@ private struct ComingUpEventRow: View {
     let sessionHistory: [SessionIndex]
     let onJoinEvent: (CalendarEvent) -> Void
     let onOpenRelatedNotes: (CalendarEvent) -> Void
+    let onRequestMeetingFamilyFolderChange: (String?, CalendarEvent) -> Void
     let onCreateFolder: (CalendarEvent) -> Void
 
     @State private var isHovering = false
@@ -596,7 +708,7 @@ private struct ComingUpEventRow: View {
 
         return Menu {
             Button {
-                settings.setMeetingFamilyFolderPreference(nil, for: event)
+                onRequestMeetingFamilyFolderChange(nil, event)
             } label: {
                 HStack {
                     Image(systemName: "folder")
@@ -613,7 +725,7 @@ private struct ComingUpEventRow: View {
                 Divider()
                 ForEach(choices) { folder in
                     Button {
-                        settings.setMeetingFamilyFolderPreference(folder.path, for: event)
+                        onRequestMeetingFamilyFolderChange(folder.path, event)
                     } label: {
                         HStack {
                             Image(systemName: "folder.fill")
