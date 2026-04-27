@@ -36,9 +36,9 @@ final class NotesControllerTests: XCTestCase {
         sessionID: String = "session_test_001",
         title: String = "Test Meeting",
         utterances: [SessionRecord]? = nil,
-        calendarEvent: CalendarEvent? = nil
+        calendarEvent: CalendarEvent? = nil,
+        startedAt: Date = Date(timeIntervalSince1970: 1_700_000_000)
     ) async {
-        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let records = utterances ?? [
             SessionRecord(speaker: .you, text: "Hello there.", timestamp: startedAt),
             SessionRecord(speaker: .them, text: "Hi, how are you?", timestamp: startedAt.addingTimeInterval(10)),
@@ -515,18 +515,34 @@ final class NotesControllerTests: XCTestCase {
     func testFolderGroupsSessionsByPath() async {
         let (root, _) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
 
-        await seedSession(coordinator: coordinator, sessionID: "session_root", title: "Inbox Meeting")
-        await seedSession(coordinator: coordinator, sessionID: "session_team", title: "Team Sync")
-        await seedSession(coordinator: coordinator, sessionID: "session_ones", title: "Bertie 1:1")
+        await seedSession(
+            coordinator: coordinator,
+            sessionID: "session_root",
+            title: "Inbox Meeting",
+            startedAt: base
+        )
+        await seedSession(
+            coordinator: coordinator,
+            sessionID: "session_team",
+            title: "Team Sync",
+            startedAt: base.addingTimeInterval(300)
+        )
+        await seedSession(
+            coordinator: coordinator,
+            sessionID: "session_ones",
+            title: "Bertie 1:1",
+            startedAt: base.addingTimeInterval(150)
+        )
         await coordinator.sessionRepository.updateSessionFolder(sessionID: "session_team", folderPath: "Work/Team")
         await coordinator.sessionRepository.updateSessionFolder(sessionID: "session_ones", folderPath: "Work/1:1s")
         await controller.loadHistory()
 
         XCTAssertTrue(controller.showsFolderSections)
         XCTAssertEqual(controller.rootFolderSessions.map(\.id), ["session_root"])
-        XCTAssertEqual(controller.folderGroups.map(\.id), ["Work/1:1s", "Work/Team"])
-        XCTAssertEqual(controller.folderGroups.map(\.title), ["Work › 1:1s", "Work › Team"])
+        XCTAssertEqual(controller.folderGroups.map(\.id), ["Work/Team", "Work/1:1s", "__root__"])
+        XCTAssertEqual(controller.folderGroups.map(\.title), ["Work › Team", "Work › 1:1s", "My notes"])
     }
 
     func testDeleteSessionRemovesFromHistory() async {
@@ -1167,10 +1183,21 @@ final class NotesControllerTests: XCTestCase {
     func testSessionSourceGroupsKeepGranolaSeparateFromOpenOats() async {
         let (root, _) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
 
-        await seedSession(coordinator: coordinator, sessionID: "session_local", title: "Local")
+        await seedSession(
+            coordinator: coordinator,
+            sessionID: "session_local",
+            title: "Local",
+            startedAt: base
+        )
 
-        await seedSession(coordinator: coordinator, sessionID: "session_granola", title: "Imported")
+        await seedSession(
+            coordinator: coordinator,
+            sessionID: "session_granola",
+            title: "Imported",
+            startedAt: base.addingTimeInterval(300)
+        )
         await coordinator.sessionRepository.updateSessionSource(
             sessionID: "session_granola",
             source: "granola",
@@ -1181,9 +1208,9 @@ final class NotesControllerTests: XCTestCase {
 
         let groups = controller.sessionSourceGroups
 
-        XCTAssertEqual(groups.map(\.title), ["OpenOats", "Granola"])
-        XCTAssertEqual(groups.first?.sessions.map(\.id), ["session_local"])
-        XCTAssertEqual(groups.last?.sessions.map(\.id), ["session_granola"])
+        XCTAssertEqual(groups.map(\.title), ["Granola", "OpenOats"])
+        XCTAssertEqual(groups.first?.sessions.map(\.id), ["session_granola"])
+        XCTAssertEqual(groups.last?.sessions.map(\.id), ["session_local"])
         XCTAssertTrue(controller.showsSourceSections)
     }
 }

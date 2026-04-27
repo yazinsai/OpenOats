@@ -29,6 +29,7 @@ struct NotesView: View {
     @State private var confirmRestoreOriginalTranscript = false
     @State private var showingAddTranscriptSheet = false
     @State private var manualTranscriptDraft = ""
+    @State private var collapsedSidebarGroupIDs = Self.loadCollapsedSidebarGroupIDs()
 
     enum DetailViewMode: String, CaseIterable {
         case transcript = "Transcript"
@@ -226,30 +227,27 @@ struct NotesView: View {
             if bulkDeleteMode {
                 List(selection: $bulkDeleteSelection) {
                     if controller.showsFolderSections {
-                        if !controller.rootFolderSessions.isEmpty {
-                            Section {
-                                ForEach(controller.rootFolderSessions) { session in
-                                    sessionRow(controller: controller, session: session)
-                                }
-                            } header: {
-                                rootFolderSectionHeader()
-                            }
-                        }
                         ForEach(controller.folderGroups) { group in
                             Section {
-                                ForEach(group.sessions) { session in
-                                    sessionRow(controller: controller, session: session)
+                                if isSidebarGroupExpanded(collapseID(for: group)) {
+                                    ForEach(group.sessions) { session in
+                                        sessionRow(controller: controller, session: session)
+                                    }
                                 }
                             } header: {
-                                folderSectionHeader(group)
+                                collapsibleFolderSectionHeader(group)
                             }
                         }
                     } else if controller.showsSourceSections {
                         ForEach(controller.sessionSourceGroups) { group in
-                            Section(group.title) {
-                                ForEach(group.sessions) { session in
-                                    sessionRow(controller: controller, session: session)
+                            Section {
+                                if isSidebarGroupExpanded(collapseID(for: group)) {
+                                    ForEach(group.sessions) { session in
+                                        sessionRow(controller: controller, session: session)
+                                    }
                                 }
+                            } header: {
+                                collapsibleSourceSectionHeader(group)
                             }
                         }
                     } else {
@@ -266,30 +264,27 @@ struct NotesView: View {
                 )
                 List(selection: selectedBinding) {
                     if controller.showsFolderSections {
-                        if !controller.rootFolderSessions.isEmpty {
-                            Section {
-                                ForEach(controller.rootFolderSessions) { session in
-                                    sessionListEntry(controller: controller, session: session)
-                                }
-                            } header: {
-                                rootFolderSectionHeader()
-                            }
-                        }
                         ForEach(controller.folderGroups) { group in
                             Section {
-                                ForEach(group.sessions) { session in
-                                    sessionListEntry(controller: controller, session: session)
+                                if isSidebarGroupExpanded(collapseID(for: group)) {
+                                    ForEach(group.sessions) { session in
+                                        sessionListEntry(controller: controller, session: session)
+                                    }
                                 }
                             } header: {
-                                folderSectionHeader(group)
+                                collapsibleFolderSectionHeader(group)
                             }
                         }
                     } else if controller.showsSourceSections {
                         ForEach(controller.sessionSourceGroups) { group in
-                            Section(group.title) {
-                                ForEach(group.sessions) { session in
-                                    sessionListEntry(controller: controller, session: session)
+                            Section {
+                                if isSidebarGroupExpanded(collapseID(for: group)) {
+                                    ForEach(group.sessions) { session in
+                                        sessionListEntry(controller: controller, session: session)
+                                    }
                                 }
+                            } header: {
+                                collapsibleSourceSectionHeader(group)
                             }
                         }
                     } else {
@@ -728,23 +723,49 @@ struct NotesView: View {
     }
 
     @ViewBuilder
-    private func folderSectionHeader(_ group: SessionFolderGroup) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "folder.fill")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(folderColor(for: group.id))
-            Text(group.title)
-        }
+    private func collapsibleFolderSectionHeader(_ group: SessionFolderGroup) -> some View {
+        collapsibleSidebarSectionHeader(
+            title: group.title,
+            systemImage: group.isRoot ? "folder" : "folder.fill",
+            iconColor: group.isRoot ? .secondary : folderColor(for: group.id),
+            collapseID: collapseID(for: group)
+        )
     }
 
     @ViewBuilder
-    private func rootFolderSectionHeader() -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "folder")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text("My notes")
+    private func collapsibleSourceSectionHeader(_ group: SessionSourceGroup) -> some View {
+        collapsibleSidebarSectionHeader(
+            title: group.title,
+            systemImage: "tray.full",
+            iconColor: .secondary,
+            collapseID: collapseID(for: group)
+        )
+    }
+
+    @ViewBuilder
+    private func collapsibleSidebarSectionHeader(
+        title: String,
+        systemImage: String,
+        iconColor: Color,
+        collapseID: String
+    ) -> some View {
+        Button {
+            toggleSidebarGroup(collapseID)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: isSidebarGroupExpanded(collapseID) ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 10)
+                Image(systemName: systemImage)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(iconColor)
+                Text(title)
+                Spacer()
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 
     private func renamePlaceholder(for sessionID: String, controller: NotesController) -> String {
@@ -2942,6 +2963,37 @@ struct NotesView: View {
     private func beginAddTranscript() {
         manualTranscriptDraft = ""
         showingAddTranscriptSheet = true
+    }
+
+    private func collapseID(for group: SessionFolderGroup) -> String {
+        "folder:\(group.id)"
+    }
+
+    private func collapseID(for group: SessionSourceGroup) -> String {
+        "source:\(group.id)"
+    }
+
+    private func isSidebarGroupExpanded(_ collapseID: String) -> Bool {
+        !collapsedSidebarGroupIDs.contains(collapseID)
+    }
+
+    private func toggleSidebarGroup(_ collapseID: String) {
+        if collapsedSidebarGroupIDs.contains(collapseID) {
+            collapsedSidebarGroupIDs.remove(collapseID)
+        } else {
+            collapsedSidebarGroupIDs.insert(collapseID)
+        }
+        persistCollapsedSidebarGroupIDs()
+    }
+
+    private func persistCollapsedSidebarGroupIDs() {
+        UserDefaults.standard.set(Array(collapsedSidebarGroupIDs).sorted(), forKey: Self.collapsedSidebarGroupsDefaultsKey)
+    }
+
+    private static let collapsedSidebarGroupsDefaultsKey = "notesCollapsedSidebarGroups"
+
+    private static func loadCollapsedSidebarGroupIDs() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: collapsedSidebarGroupsDefaultsKey) ?? [])
     }
 
     @MainActor
