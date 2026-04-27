@@ -1773,7 +1773,22 @@ struct NotesView: View {
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
 
-                                if let preview = entry.notesPreview {
+                                if !entry.highlights.isEmpty {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        ForEach(entry.highlights) { highlight in
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(highlight.title)
+                                                    .font(.system(size: 11, weight: .semibold))
+                                                    .foregroundStyle(.secondary)
+                                                Text(highlight.value)
+                                                    .font(.system(size: 13))
+                                                    .foregroundStyle(.primary)
+                                                    .lineLimit(2)
+                                                    .multilineTextAlignment(.leading)
+                                            }
+                                        }
+                                    }
+                                } else if let preview = entry.notesPreview {
                                     Text(preview)
                                         .font(.system(size: 13))
                                         .foregroundStyle(.secondary)

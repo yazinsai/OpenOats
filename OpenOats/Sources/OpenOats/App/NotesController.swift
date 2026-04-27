@@ -92,10 +92,18 @@ struct MeetingHistorySelection: Equatable {
 
 struct MeetingHistoryEntry: Identifiable {
     let session: SessionIndex
+    let highlights: [MeetingHistoryHighlight]
     let notesPreview: String?
     let hasAudio: Bool
 
     var id: String { session.id }
+}
+
+struct MeetingHistoryHighlight: Identifiable, Equatable {
+    let title: String
+    let value: String
+
+    var id: String { "\(title)|\(value)" }
 }
 
 struct MeetingHistorySuggestion: Identifiable, Equatable {
@@ -1113,7 +1121,7 @@ final class NotesController {
         loadMeetingFamilyKnowledgeBaseCoverage(for: selection)
 
         let sessions = matchingMeetingHistorySessions(for: selection)
-        let entries = sessions.map { MeetingHistoryEntry(session: $0, notesPreview: nil, hasAudio: false) }
+        let entries = sessions.map { MeetingHistoryEntry(session: $0, highlights: [], notesPreview: nil, hasAudio: false) }
         state.meetingHistoryEntries = entries
         state.relatedMeetingSuggestions = loadMeetingHistorySuggestions(
             for: selection,
@@ -1136,6 +1144,7 @@ final class NotesController {
 
                 let notes = await coordinator.sessionRepository.loadNotes(sessionID: session.id)
                 let hasAudio = !(await coordinator.sessionRepository.audioSources(for: session.id)).isEmpty
+                let highlights = notes.map { Self.meetingHistoryHighlights(from: $0.markdown) } ?? []
                 let preview = notes.flatMap { Self.notesPreview(from: $0.markdown) }
 
                 guard state.selectedMeetingFamily?.key == selection.key else { return }
@@ -1143,10 +1152,12 @@ final class NotesController {
                     continue
                 }
 
-                if state.meetingHistoryEntries[index].notesPreview != preview
+                if state.meetingHistoryEntries[index].highlights != highlights
+                    || state.meetingHistoryEntries[index].notesPreview != preview
                     || state.meetingHistoryEntries[index].hasAudio != hasAudio {
                     state.meetingHistoryEntries[index] = MeetingHistoryEntry(
                         session: state.meetingHistoryEntries[index].session,
+                        highlights: highlights,
                         notesPreview: preview,
                         hasAudio: hasAudio
                     )
@@ -1342,27 +1353,118 @@ final class NotesController {
         return "Untitled document"
     }
 
+    static func meetingHistoryHighlights(from markdown: String, limit: Int = 2) -> [MeetingHistoryHighlight] {
+        var highlights: [MeetingHistoryHighlight] = []
+        var currentTitle: String?
+        var currentLines: [String] = []
+
+        func flushSection() {
+            guard let sectionTitle = currentTitle else { return }
+            defer {
+                currentTitle = nil
+                currentLines.removeAll(keepingCapacity: true)
+            }
+
+            guard let value = bestMeetingHistoryHighlightValue(from: currentLines) else { return }
+            highlights.append(MeetingHistoryHighlight(title: sectionTitle, value: value))
+        }
+
+        for rawLine in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if line.hasPrefix("## ") || line.hasPrefix("### ") {
+                let prefixLength = line.hasPrefix("### ") ? 4 : 3
+                let heading = String(line.dropFirst(prefixLength)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if heading.caseInsensitiveCompare("Transcript") == .orderedSame {
+                    flushSection()
+                    break
+                }
+
+                flushSection()
+                currentTitle = heading.isEmpty ? nil : heading
+                continue
+            }
+
+            guard currentTitle != nil else { continue }
+            let sanitized = sanitizedMeetingHistoryLine(line)
+            if !sanitized.isEmpty {
+                currentLines.append(sanitized)
+            }
+        }
+
+        flushSection()
+        return Array(highlights.prefix(limit))
+    }
+
     static func notesPreview(from markdown: String) -> String? {
         for rawLine in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty else { continue }
-            guard !line.hasPrefix("#") else { continue }
-            guard !line.hasPrefix("!") else { continue }
-            let sanitized = line
-                .replacingOccurrences(
-                    of: #"^([-*+]|[0-9]+\.)\s+"#,
-                    with: "",
-                    options: .regularExpression
-                )
-                .replacingOccurrences(of: "**", with: "")
-                .replacingOccurrences(of: "__", with: "")
-                .replacingOccurrences(of: "`", with: "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let sanitized = sanitizedMeetingHistoryLine(line)
             if !sanitized.isEmpty {
                 return sanitized
             }
         }
         return nil
+    }
+
+    private static func bestMeetingHistoryHighlightValue(from lines: [String]) -> String? {
+        let filtered = lines.filter { !$0.isEmpty }
+        guard !filtered.isEmpty else { return nil }
+
+        if let firstDetailedLine = filtered.first(where: { !isLikelyMeetingHistoryNameLine($0) }) {
+            return firstDetailedLine
+        }
+
+        return filtered.first
+    }
+
+    private static func sanitizedMeetingHistoryLine(_ line: String) -> String {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        guard !trimmed.hasPrefix("#") else { return "" }
+        guard !trimmed.hasPrefix("!") else { return "" }
+
+        return trimmed
+            .replacingOccurrences(
+                of: #"^[-*+]\s+\[[ xX]\]\s+"#,
+                with: "",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: #"^([-*+]|[0-9]+\.)\s+"#,
+                with: "",
+                options: .regularExpression
+            )
+            .replacingOccurrences(of: "**", with: "")
+            .replacingOccurrences(of: "__", with: "")
+            .replacingOccurrences(of: "`", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func isLikelyMeetingHistoryNameLine(_ line: String) -> Bool {
+        guard !line.isEmpty,
+              !line.contains(":"),
+              !line.contains("."),
+              !line.contains(","),
+              !line.contains("•"),
+              !line.contains("("),
+              !line.contains(")"),
+              !line.contains("["),
+              !line.contains("]") else {
+            return false
+        }
+
+        let words = line.split(whereSeparator: \.isWhitespace)
+        guard !words.isEmpty, words.count <= 3 else { return false }
+
+        for word in words {
+            let stripped = word.trimmingCharacters(in: CharacterSet(charactersIn: "-/'"))
+            guard let first = stripped.first, first.isLetter, first.isUppercase else {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// Maps engine observable state to our flat status enums.
