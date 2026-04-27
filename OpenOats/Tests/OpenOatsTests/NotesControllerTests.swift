@@ -714,6 +714,57 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.meetingHistoryEntries.first?.notesPreview, "Reviewed payout issues and next steps.")
     }
 
+    func testShowMeetingHistoryHydratesStructuredHighlights() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+
+        await seedSession(coordinator: coordinator, sessionID: "standup", title: "Payment Ops / Merchant stand up")
+
+        let template = coordinator.templateStore.snapshot(
+            of: coordinator.templateStore.template(for: TemplateStore.standUpID) ?? TemplateStore.builtInTemplates.first!
+        )
+        let notes = GeneratedNotes(
+            template: template,
+            generatedAt: Date(),
+            markdown: """
+            # Notes
+
+            ## Yesterday
+            - Sam
+              - Was working on PCI-related work and webhooks.
+
+            ## Today
+            - Dan
+              - Will share the existing design link with the team.
+            """
+        )
+        await coordinator.sessionRepository.saveNotes(sessionID: "standup", notes: notes)
+        await controller.loadHistory()
+
+        let event = CalendarEvent(
+            id: "evt_payment_ops_structured",
+            title: "Payment Ops / Merchant stand-up",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        controller.showMeetingHistory(for: event)
+        try? await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertEqual(controller.state.meetingHistoryEntries.first?.highlights.map(\.title), ["Yesterday", "Today"])
+        XCTAssertEqual(
+            controller.state.meetingHistoryEntries.first?.highlights.map(\.value),
+            [
+                "Was working on PCI-related work and webhooks.",
+                "Will share the existing design link with the team.",
+            ]
+        )
+    }
+
     func testShowMeetingHistorySuggestsRenamedMeetingSeriesWhenExactHistoryIsEmpty() async {
         let (root, notes) = makeTempDirs()
         let settings = makeSettings(notesDirectory: notes)
@@ -876,6 +927,47 @@ final class NotesControllerTests: XCTestCase {
     func testMeetingHistoryPreviewStripsBulletsAndMarkdownMarkers() {
         let preview = NotesController.notesPreview(from: "# Notes\n\n- **Booking invoices page** - New interface for PMs")
         XCTAssertEqual(preview, "Booking invoices page - New interface for PMs")
+    }
+
+    func testMeetingHistoryHighlightsLiftStructuredSections() {
+        let markdown = """
+        # Meeting Notes: Payment Ops / Merchant stand up
+
+        ## Yesterday
+        - Sam
+          - Was working on PCI-related work and webhooks.
+        - Dan
+          - Reviewed the current webhook designs.
+
+        ## Today
+        - Dan
+          - Will share the existing design link with the team.
+
+        ## Transcript
+        [00:00:01] You: Hello
+        """
+
+        let highlights = NotesController.meetingHistoryHighlights(from: markdown)
+
+        XCTAssertEqual(highlights.map(\.title), ["Yesterday", "Today"])
+        XCTAssertEqual(
+            highlights.map(\.value),
+            [
+                "Was working on PCI-related work and webhooks.",
+                "Will share the existing design link with the team.",
+            ]
+        )
+    }
+
+    func testMeetingHistoryHighlightsIgnoreTranscriptSection() {
+        let markdown = """
+        # Notes
+
+        ## Transcript
+        [00:00:01] You: Reviewed payout issues and next steps.
+        """
+
+        XCTAssertTrue(NotesController.meetingHistoryHighlights(from: markdown).isEmpty)
     }
 
     func testSelectSessionAlsoLoadsMeetingFamilyHistory() async {
