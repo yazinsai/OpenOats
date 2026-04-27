@@ -1466,6 +1466,37 @@ struct NotesView: View {
     }
 
     @ViewBuilder
+    private func sessionFolderMenuChip(controller: NotesController, session: SessionIndex) -> some View {
+        Menu {
+            folderAssignmentMenu(controller: controller, session: session)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: session.folderPath == nil ? "folder" : "folder.fill")
+                    .foregroundStyle(folderColor(for: session.folderPath))
+                Text(folderDisplayName(for: session.folderPath))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .font(.system(size: 12, weight: .medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(Color(nsColor: .textBackgroundColor).opacity(0.55))
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .help(session.folderPath.map { "Folder: \($0)" } ?? "Assign folder")
+    }
+
+    @ViewBuilder
     private func meetingFamilyKnowledgeBaseSignal(state: NotesState) -> some View {
         if state.isMeetingFamilyKnowledgeBaseLoading {
             HStack(spacing: 6) {
@@ -1543,6 +1574,13 @@ struct NotesView: View {
         controller: NotesController
     ) -> some View {
         let hasCalendarContext = state.loadedCalendarEvent != nil
+        let historyCount = state.meetingHistoryEntries.count
+        let preferredFolderPath = settings.meetingFamilyPreferences(forHistoryKey: selection.key)?.folderPath
+        let preferredFolder = folderDefinition(for: preferredFolderPath)
+        let folders = meetingFamilyFolderChoices(including: preferredFolderPath)
+        let selectedSession = state.selectedSessionID.flatMap { sessionID in
+            state.sessionHistory.first(where: { $0.id == sessionID })
+        }
 
         HStack(alignment: .center, spacing: 10) {
             Button {
@@ -1586,7 +1624,22 @@ struct NotesView: View {
 
             Spacer(minLength: 0)
 
-            meetingFamilyKnowledgeBaseSignal(state: state)
+            HStack(spacing: 8) {
+                if let selectedSession {
+                    sessionFolderMenuChip(controller: controller, session: selectedSession)
+                } else {
+                    meetingFamilyFolderMenu(
+                        controller: controller,
+                        selection: selection,
+                        historyCount: historyCount,
+                        preferredFolderPath: preferredFolderPath,
+                        preferredFolder: preferredFolder,
+                        folders: folders
+                    )
+                }
+
+                meetingFamilyKnowledgeBaseSignal(state: state)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
