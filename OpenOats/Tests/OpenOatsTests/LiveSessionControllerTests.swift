@@ -496,6 +496,134 @@ final class LiveSessionControllerTests: XCTestCase {
         let mergedDetail = await coordinator.sessionRepository.loadSession(id: "session_real")
         XCTAssertEqual(mergedDetail.calendarEvent?.id, event.id)
     }
+
+    func testAudioRetentionPlanKeepsRecoveryAudioForCloudLiveTranscription() {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        settings.transcriptionModel = .elevenLabsScribe
+        settings.saveAudioRecording = false
+        settings.enableBatchRetranscription = false
+
+        let startupPlan = LiveSessionController.audioRetentionPlan(settings: settings, utteranceCount: nil)
+        XCTAssertTrue(startupPlan.shouldStartRecorder)
+        XCTAssertFalse(startupPlan.shouldRetainBatchAudio)
+        XCTAssertFalse(startupPlan.shouldExportRecording)
+        XCTAssertFalse(startupPlan.shouldRunRecoveryBatch)
+
+        let recoveryPlan = LiveSessionController.audioRetentionPlan(settings: settings, utteranceCount: 0)
+        XCTAssertTrue(recoveryPlan.shouldStartRecorder)
+        XCTAssertTrue(recoveryPlan.shouldRetainBatchAudio)
+        XCTAssertFalse(recoveryPlan.shouldExportRecording)
+        XCTAssertTrue(recoveryPlan.shouldRunRecoveryBatch)
+    }
+
+    func testAudioRetentionPlanDoesNotForceRecoveryForCloudSessionWithUtterances() {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        settings.transcriptionModel = .assemblyAI
+        settings.saveAudioRecording = false
+        settings.enableBatchRetranscription = false
+
+        let plan = LiveSessionController.audioRetentionPlan(settings: settings, utteranceCount: 4)
+        XCTAssertTrue(plan.shouldStartRecorder)
+        XCTAssertFalse(plan.shouldRetainBatchAudio)
+        XCTAssertFalse(plan.shouldExportRecording)
+        XCTAssertFalse(plan.shouldRunRecoveryBatch)
+    }
+
+    func testAudioRetentionPlanLeavesLocalModelsUntouchedWhenRecordingOptionsAreOff() {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        settings.transcriptionModel = .parakeetV3
+        settings.saveAudioRecording = false
+        settings.enableBatchRetranscription = false
+
+        let plan = LiveSessionController.audioRetentionPlan(settings: settings, utteranceCount: 0)
+        XCTAssertFalse(plan.shouldStartRecorder)
+        XCTAssertFalse(plan.shouldRetainBatchAudio)
+        XCTAssertFalse(plan.shouldExportRecording)
+        XCTAssertFalse(plan.shouldRunRecoveryBatch)
+    }
+
+    func testRecordingHealthNoticeWarnsWhenNoAudioDetected() {
+        let input = LiveSessionController.RecordingHealthInput(
+            elapsed: 6,
+            transcriptionModel: .elevenLabsScribe,
+            utteranceCount: 0,
+            peakAudioLevel: 0,
+            micHasCapturedFrames: false,
+            systemHasCapturedFrames: false,
+            micCaptureError: nil,
+            isMicMuted: false,
+            hasBlockingError: false
+        )
+
+        let notice = LiveSessionController.recordingHealthNotice(for: input)
+        XCTAssertEqual(notice?.severity, .warning)
+        XCTAssertEqual(
+            notice?.message,
+            "No microphone or system audio detected. Check your input and output device settings."
+        )
+    }
+
+    func testRecordingHealthNoticeWarnsWhenCloudTranscriptStallsButAudioIsFlowing() {
+        let input = LiveSessionController.RecordingHealthInput(
+            elapsed: 21,
+            transcriptionModel: .elevenLabsScribe,
+            utteranceCount: 0,
+            peakAudioLevel: 0.08,
+            micHasCapturedFrames: true,
+            systemHasCapturedFrames: true,
+            micCaptureError: nil,
+            isMicMuted: false,
+            hasBlockingError: false
+        )
+
+        let notice = LiveSessionController.recordingHealthNotice(for: input)
+        XCTAssertEqual(notice?.severity, .warning)
+        XCTAssertEqual(
+            notice?.message,
+            "Capturing audio, but live transcription is not producing text. Recovery batch transcription will run after you stop."
+        )
+    }
+
+    func testRecordingHealthNoticeWarnsWhenLocalTranscriptStallsButAudioIsFlowing() {
+        let input = LiveSessionController.RecordingHealthInput(
+            elapsed: 21,
+            transcriptionModel: .parakeetV3,
+            utteranceCount: 0,
+            peakAudioLevel: 0.08,
+            micHasCapturedFrames: true,
+            systemHasCapturedFrames: true,
+            micCaptureError: nil,
+            isMicMuted: false,
+            hasBlockingError: false
+        )
+
+        let notice = LiveSessionController.recordingHealthNotice(for: input)
+        XCTAssertEqual(notice?.severity, .warning)
+        XCTAssertEqual(
+            notice?.message,
+            "Capturing audio, but live transcription is not producing text."
+        )
+    }
+
+    func testRecordingHealthNoticeSuppressesWarningWhenBlockingErrorExists() {
+        let input = LiveSessionController.RecordingHealthInput(
+            elapsed: 30,
+            transcriptionModel: .elevenLabsScribe,
+            utteranceCount: 0,
+            peakAudioLevel: 0.08,
+            micHasCapturedFrames: true,
+            systemHasCapturedFrames: true,
+            micCaptureError: nil,
+            isMicMuted: false,
+            hasBlockingError: true
+        )
+
+        XCTAssertNil(LiveSessionController.recordingHealthNotice(for: input))
+    }
+
     func testRunningStateChangeCallbackFires() async {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)

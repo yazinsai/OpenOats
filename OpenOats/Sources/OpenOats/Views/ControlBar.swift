@@ -11,6 +11,7 @@ struct ControlBar: View {
     let kbIndexingStatus: KnowledgeBaseIndexingStatus
     let statusMessage: String?
     let errorMessage: String?
+    let recordingHealthNotice: RecordingHealthNotice?
     let needsDownload: Bool
     let downloadProgress: Double?
     let downloadDetail: DownloadProgressDetail?
@@ -57,6 +58,10 @@ struct ControlBar: View {
 
                     if let status = statusMessage, status != "Ready" {
                         modelStatusSection(status: status)
+                    }
+
+                    if let notice = recordingHealthNotice {
+                        recordingHealthSection(notice: notice)
                     }
 
                     if kbIndexingStatus.isVisible {
@@ -152,6 +157,7 @@ struct ControlBar: View {
     private var shouldShowStatusArea: Bool {
         batchStatus.isFooterVisible
             || (statusMessage != nil && statusMessage != "Ready")
+            || recordingHealthNotice != nil
             || kbIndexingStatus.isVisible
     }
 
@@ -191,6 +197,31 @@ struct ControlBar: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func recordingHealthSection(notice: RecordingHealthNotice) -> some View {
+        let symbolName = switch notice.severity {
+        case .warning: "exclamationmark.triangle.fill"
+        case .error: "xmark.octagon.fill"
+        }
+        let color = switch notice.severity {
+        case .warning: Color.orange
+        case .error: Color.red
+        }
+
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: symbolName)
+                .font(.system(size: 11))
+                .foregroundStyle(color)
+                .padding(.top, 1)
+
+            Text(notice.message)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityIdentifier("app.controlBar.recordingHealth")
     }
 }
 
