@@ -498,6 +498,7 @@ private struct IsolatedControlBarWrapper: View {
             kbIndexingStatus: state.kbIndexingStatus,
             statusMessage: state.statusMessage,
             errorMessage: state.errorMessage,
+            recordingHealthNotice: state.recordingHealthNotice,
             needsDownload: state.needsDownload,
             downloadProgress: state.downloadProgress,
             downloadDetail: state.downloadDetail,

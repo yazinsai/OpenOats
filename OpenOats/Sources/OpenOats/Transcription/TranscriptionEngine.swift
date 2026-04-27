@@ -50,6 +50,12 @@ struct DiarizationFeedRelay: Sendable {
     }
 }
 
+struct CaptureHealthSnapshot: Sendable, Equatable {
+    let micHasCapturedFrames: Bool
+    let systemHasCapturedFrames: Bool
+    let micCaptureError: String?
+}
+
 /// Orchestrates dual StreamingTranscriber instances for mic (you) and system audio (them).
 @Observable
 @MainActor
@@ -137,6 +143,14 @@ final class TranscriptionEngine {
     nonisolated var isMicMuted: Bool {
         get { micCapture.isMuted }
         set { micCapture.isMuted = newValue }
+    }
+
+    nonisolated var captureHealthSnapshot: CaptureHealthSnapshot {
+        CaptureHealthSnapshot(
+            micHasCapturedFrames: micCapture.hasCapturedFrames,
+            systemHasCapturedFrames: systemCapture.hasCapturedFrames,
+            micCaptureError: micCapture.captureError
+        )
     }
 
     private var micTask: Task<Void, Never>?

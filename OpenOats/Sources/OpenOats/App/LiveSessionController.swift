@@ -3,6 +3,16 @@ import Observation
 import CoreAudio
 import AppKit
 
+struct RecordingHealthNotice: Equatable {
+    enum Severity: Equatable {
+        case warning
+        case error
+    }
+
+    let severity: Severity
+    let message: String
+}
+
 /// Published state for the live session, projected by ContentView.
 /// Declared as @Observable class so SwiftUI tracks each property individually,
 /// preventing a full view-tree re-render whenever any single field changes.
@@ -31,6 +41,7 @@ final class LiveSessionState {
     var modelDisplayName: String = ""
     var showLiveTranscript: Bool = true
     var isMicMuted: Bool = false
+    var recordingHealthNotice: RecordingHealthNotice? = nil
     /// The user's live scratchpad text for the active session.
     var scratchpadText: String = ""
 }
@@ -41,6 +52,25 @@ final class LiveSessionState {
 @Observable
 @MainActor
 final class LiveSessionController {
+    struct AudioRetentionPlan: Equatable {
+        let shouldStartRecorder: Bool
+        let shouldRetainBatchAudio: Bool
+        let shouldExportRecording: Bool
+        let shouldRunRecoveryBatch: Bool
+    }
+
+    struct RecordingHealthInput: Equatable {
+        let elapsed: TimeInterval
+        let transcriptionModel: TranscriptionModel
+        let utteranceCount: Int
+        let peakAudioLevel: Float
+        let micHasCapturedFrames: Bool
+        let systemHasCapturedFrames: Bool
+        let micCaptureError: String?
+        let isMicMuted: Bool
+        let hasBlockingError: Bool
+    }
+
     private(set) var state = LiveSessionState()
 
     private let coordinator: AppCoordinator
@@ -66,6 +96,7 @@ final class LiveSessionController {
     /// Tracks the session ID we last handled a batch completion for,
     /// preventing the auto-dismiss → re-poll cycle from re-triggering the notification.
     private var lastNotifiedBatchSessionID: String?
+    private var observedPeakAudioLevelSinceStart: Float = 0
 
     init(coordinator: AppCoordinator, container: AppContainer) {
         self.coordinator = coordinator
@@ -358,7 +389,8 @@ final class LiveSessionController {
         }
 
         if let settings {
-            if settings.saveAudioRecording || settings.enableBatchRetranscription {
+            let audioRetentionPlan = Self.audioRetentionPlan(settings: settings, utteranceCount: nil)
+            if audioRetentionPlan.shouldStartRecorder {
                 coordinator.audioRecorder?.startSession()
                 coordinator.transcriptionEngine?.audioRecorder = coordinator.audioRecorder
             } else {
@@ -474,9 +506,13 @@ final class LiveSessionController {
         }
 
         // 6. Handle audio recording
+        var retainedBatchAudio = false
+        var forcedRecoveryBatch = false
         if let settings, let recorder = coordinator.audioRecorder {
-            let wantsBatch = settings.enableBatchRetranscription
-            let wantsExport = settings.saveAudioRecording
+            let audioRetentionPlan = Self.audioRetentionPlan(settings: settings, utteranceCount: utteranceCount)
+            let wantsBatch = audioRetentionPlan.shouldRetainBatchAudio
+            let wantsExport = audioRetentionPlan.shouldExportRecording
+            forcedRecoveryBatch = audioRetentionPlan.shouldRunRecoveryBatch
 
             if wantsBatch && wantsExport {
                 let tempURLs = recorder.tempFileURLs()
@@ -503,6 +539,7 @@ final class LiveSessionController {
                     copiedSys = nil
                 }
 
+                retainedBatchAudio = copiedMic != nil || copiedSys != nil
                 await coordinator.sessionRepository.stashAudioForBatch(
                     sessionID: sessionID,
                     micURL: copiedMic,
@@ -519,6 +556,7 @@ final class LiveSessionController {
                 await recorder.finalizeRecording()
             } else if wantsBatch {
                 let sealed = recorder.sealForBatch()
+                retainedBatchAudio = sealed.mic != nil || sealed.sys != nil
                 await coordinator.sessionRepository.stashAudioForBatch(
                     sessionID: sessionID,
                     micURL: sealed.mic,
@@ -533,12 +571,28 @@ final class LiveSessionController {
                 )
             } else if wantsExport {
                 await recorder.finalizeRecording()
+            } else {
+                recorder.discardRecording()
             }
         }
 
         // 7. Collapse obviously empty duplicate sessions back into the real meeting session.
         var effectiveIndex = index
         var shouldRunBatchRetranscription = settings?.enableBatchRetranscription == true
+        if forcedRecoveryBatch {
+            if retainedBatchAudio {
+                shouldRunBatchRetranscription = true
+                DiagnosticsSupport.record(
+                    category: "meeting",
+                    message: "Escalating empty cloud session \(sessionID) to batch recovery"
+                )
+            } else {
+                DiagnosticsSupport.record(
+                    category: "meeting",
+                    message: "Cloud session \(sessionID) ended empty with no recovery audio"
+                )
+            }
+        }
         if utteranceCount == 0,
            let mergedSessionID = await coordinator.sessionRepository.reconcileGhostSession(sessionID: sessionID) {
             effectiveIndex = await coordinator.sessionRepository.loadSession(id: mergedSessionID).index
@@ -580,6 +634,63 @@ final class LiveSessionController {
                 )
             }
         }
+    }
+
+    static func audioRetentionPlan(settings: AppSettings, utteranceCount: Int?) -> AudioRetentionPlan {
+        let shouldRunRecoveryBatch = settings.transcriptionModel.isCloud && utteranceCount == 0
+        let shouldRetainBatchAudio = settings.enableBatchRetranscription || shouldRunRecoveryBatch
+        let shouldExportRecording = settings.saveAudioRecording
+        let shouldStartRecorder = shouldExportRecording || shouldRetainBatchAudio || settings.transcriptionModel.isCloud
+        return AudioRetentionPlan(
+            shouldStartRecorder: shouldStartRecorder,
+            shouldRetainBatchAudio: shouldRetainBatchAudio,
+            shouldExportRecording: shouldExportRecording,
+            shouldRunRecoveryBatch: shouldRunRecoveryBatch
+        )
+    }
+
+    static func recordingHealthNotice(for input: RecordingHealthInput) -> RecordingHealthNotice? {
+        guard !input.hasBlockingError else { return nil }
+
+        if let micCaptureError = input.micCaptureError, !micCaptureError.isEmpty {
+            return RecordingHealthNotice(severity: .error, message: micCaptureError)
+        }
+
+        if input.elapsed >= 5 {
+            if !input.systemHasCapturedFrames && (!input.isMicMuted && !input.micHasCapturedFrames) {
+                return RecordingHealthNotice(
+                    severity: .warning,
+                    message: "No microphone or system audio detected. Check your input and output device settings."
+                )
+            }
+            if !input.systemHasCapturedFrames {
+                return RecordingHealthNotice(
+                    severity: .warning,
+                    message: "No system audio detected. Check the selected speaker/output device."
+                )
+            }
+            if !input.isMicMuted && !input.micHasCapturedFrames {
+                return RecordingHealthNotice(
+                    severity: .warning,
+                    message: "No microphone audio detected. Check the selected microphone."
+                )
+            }
+        }
+
+        if input.elapsed >= 20,
+           input.utteranceCount == 0,
+           input.peakAudioLevel >= 0.04,
+           input.micHasCapturedFrames || input.systemHasCapturedFrames {
+            let message: String
+            if input.transcriptionModel.isCloud {
+                message = "Capturing audio, but live transcription is not producing text. Recovery batch transcription will run after you stop."
+            } else {
+                message = "Capturing audio, but live transcription is not producing text."
+            }
+            return RecordingHealthNotice(severity: .warning, message: message)
+        }
+
+        return nil
     }
 
     func discardSession() {
@@ -782,6 +893,30 @@ final class LiveSessionController {
             handleNewUtterances(startingAt: observedUtteranceCount, settings: settings)
         }
         observedUtteranceCount = utteranceCount
+
+        if currentState.isRunning {
+            observedPeakAudioLevelSinceStart = max(observedPeakAudioLevelSinceStart, currentState.audioLevel)
+            if case .recording(let metadata) = currentState.sessionPhase {
+                let captureHealth = coordinator.transcriptionEngine?.captureHealthSnapshot
+                let input = RecordingHealthInput(
+                    elapsed: max(0, Date().timeIntervalSince(metadata.startedAt)),
+                    transcriptionModel: settings.transcriptionModel,
+                    utteranceCount: utteranceCount,
+                    peakAudioLevel: observedPeakAudioLevelSinceStart,
+                    micHasCapturedFrames: captureHealth?.micHasCapturedFrames ?? false,
+                    systemHasCapturedFrames: captureHealth?.systemHasCapturedFrames ?? false,
+                    micCaptureError: captureHealth?.micCaptureError,
+                    isMicMuted: currentState.isMicMuted,
+                    hasBlockingError: currentState.errorMessage != nil
+                )
+                set(\.recordingHealthNotice, Self.recordingHealthNotice(for: input))
+            } else {
+                set(\.recordingHealthNotice, nil)
+            }
+        } else {
+            observedPeakAudioLevelSinceStart = 0
+            set(\.recordingHealthNotice, nil)
+        }
 
         if currentState.isRunning != observedIsRunning {
             observedIsRunning = currentState.isRunning
