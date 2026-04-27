@@ -74,6 +74,7 @@ struct SessionFolderGroup: Identifiable {
     let id: String
     let title: String
     let sessions: [SessionIndex]
+    let isRoot: Bool
 }
 
 struct MeetingFamilySelection: Equatable {
@@ -795,20 +796,18 @@ final class NotesController {
 
     var sessionSourceGroups: [SessionSourceGroup] {
         let grouped = Dictionary(grouping: filteredSessions, by: Self.sourceGroupKey(for:))
-        let orderedKeys = grouped.keys.sorted { lhs, rhs in
-            let lhsOrder = Self.sourceGroupSortOrder(for: lhs)
-            let rhsOrder = Self.sourceGroupSortOrder(for: rhs)
-            if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
-            return Self.sourceDisplayName(for: lhs).localizedCaseInsensitiveCompare(
-                Self.sourceDisplayName(for: rhs)
-            ) == .orderedAscending
-        }
-        return orderedKeys.map { key in
+        let groups = grouped.keys.map { key in
             SessionSourceGroup(
                 id: key,
                 title: Self.sourceDisplayName(for: key),
-                sessions: grouped[key] ?? []
+                sessions: (grouped[key] ?? []).sorted { $0.startedAt > $1.startedAt }
             )
+        }
+        return groups.sorted { lhs, rhs in
+            let lhsLatest = lhs.sessions.first?.startedAt ?? .distantPast
+            let rhsLatest = rhs.sessions.first?.startedAt ?? .distantPast
+            if lhsLatest != rhsLatest { return lhsLatest > rhsLatest }
+            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
     }
 
@@ -820,10 +819,15 @@ final class NotesController {
 
     var rootFolderSessions: [SessionIndex] {
         guard showsFolderSections else { return [] }
-        return filteredSessions.filter { Self.normalizedFolderPath(for: $0)?.isEmpty != false }
+        return filteredSessions
+            .filter { Self.normalizedFolderPath(for: $0)?.isEmpty != false }
+            .sorted { $0.startedAt > $1.startedAt }
     }
 
     var folderGroups: [SessionFolderGroup] {
+        guard showsFolderSections else { return [] }
+
+        let rootSessions = rootFolderSessions
         let grouped = Dictionary(
             grouping: filteredSessions.compactMap { session -> (String, SessionIndex)? in
                 guard let folderPath = Self.normalizedFolderPath(for: session), !folderPath.isEmpty else {
@@ -833,15 +837,30 @@ final class NotesController {
             },
             by: \.0
         )
-        let orderedKeys = grouped.keys.sorted {
-            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
-        }
-        return orderedKeys.map { key in
+        var groups: [SessionFolderGroup] = grouped.keys.map { key in
             SessionFolderGroup(
                 id: key,
                 title: Self.folderDisplayName(for: key),
-                sessions: (grouped[key] ?? []).map(\.1)
+                sessions: (grouped[key] ?? []).map(\.1).sorted { $0.startedAt > $1.startedAt },
+                isRoot: false
             )
+        }
+        if !rootSessions.isEmpty {
+            groups.append(
+                SessionFolderGroup(
+                    id: "__root__",
+                    title: "My notes",
+                    sessions: rootSessions,
+                    isRoot: true
+                )
+            )
+        }
+
+        return groups.sorted { lhs, rhs in
+            let lhsLatest = lhs.sessions.first?.startedAt ?? .distantPast
+            let rhsLatest = rhs.sessions.first?.startedAt ?? .distantPast
+            if lhsLatest != rhsLatest { return lhsLatest > rhsLatest }
+            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
     }
 
@@ -910,17 +929,6 @@ final class NotesController {
             "Granola"
         default:
             sourceKey.replacingOccurrences(of: "-", with: " ").capitalized
-        }
-    }
-
-    private static func sourceGroupSortOrder(for sourceKey: String) -> Int {
-        switch sourceKey {
-        case "openoats":
-            0
-        case "granola":
-            1
-        default:
-            2
         }
     }
 
