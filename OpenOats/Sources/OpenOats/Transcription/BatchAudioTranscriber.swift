@@ -297,6 +297,7 @@ actor BatchAudioTranscriber {
     private(set) var status: Status = .idle
     /// True when the current batch job is an audio file import (affects UI copy).
     private(set) var isImporting: Bool = false
+    private(set) var activeSessionID: String?
     private var currentTask: Task<Void, Never>?
 
     /// Process batch transcription for a completed session.
@@ -311,6 +312,8 @@ actor BatchAudioTranscriber {
     ) async {
         // Cancel any existing task
         currentTask?.cancel()
+        activeSessionID = sessionID
+        isImporting = false
 
         let task = Task { [weak self] in
             guard let self else { return }
@@ -326,10 +329,12 @@ actor BatchAudioTranscriber {
                 )
             } catch is CancellationError {
                 await self.setStatus(.cancelled)
+                await self.setActiveSessionID(nil)
                 DiagnosticsSupport.record(category: "batch", message: "Batch transcription cancelled for \(sessionID)")
                 Log.batchTranscription.info("Batch transcription cancelled for \(sessionID, privacy: .public)")
             } catch {
                 await self.setStatus(.failed(error.localizedDescription))
+                await self.setActiveSessionID(nil)
                 DiagnosticsSupport.record(category: "batch", message: "Batch transcription failed for \(sessionID): \(error.localizedDescription)")
                 Log.batchTranscription.error("Batch transcription failed: \(error, privacy: .public)")
             }
@@ -345,6 +350,7 @@ actor BatchAudioTranscriber {
         await task?.value
         status = .cancelled
         isImporting = false
+        activeSessionID = nil
     }
 
     // MARK: - Audio Import
@@ -359,6 +365,7 @@ actor BatchAudioTranscriber {
     ) async {
         currentTask?.cancel()
         isImporting = true
+        activeSessionID = sessionID
 
         let task = Task { [weak self] in
             guard let self else { return }
@@ -373,11 +380,13 @@ actor BatchAudioTranscriber {
             } catch is CancellationError {
                 await self.setStatus(.cancelled)
                 await self.setIsImporting(false)
+                await self.setActiveSessionID(nil)
                 DiagnosticsSupport.record(category: "batch", message: "Audio import cancelled for \(sessionID)")
                 Log.batchTranscription.info("Audio import cancelled for \(sessionID, privacy: .public)")
             } catch {
                 await self.setStatus(.failed(error.localizedDescription))
                 await self.setIsImporting(false)
+                await self.setActiveSessionID(nil)
                 DiagnosticsSupport.record(category: "batch", message: "Audio import failed for \(sessionID): \(error.localizedDescription)")
                 Log.batchTranscription.error("Audio import failed: \(error, privacy: .public)")
             }
@@ -472,10 +481,20 @@ actor BatchAudioTranscriber {
 
     private func setStatus(_ newStatus: Status) {
         status = newStatus
+        switch newStatus {
+        case .idle, .cancelled, .failed, .completed:
+            activeSessionID = nil
+        case .loading, .transcribing:
+            break
+        }
     }
 
     private func setIsImporting(_ value: Bool) {
         isImporting = value
+    }
+
+    private func setActiveSessionID(_ value: String?) {
+        activeSessionID = value
     }
 
     private func runTranscription(
@@ -616,7 +635,8 @@ actor BatchAudioTranscriber {
         await sessionRepository.saveFinalTranscript(
             sessionID: sessionID,
             records: allRecords,
-            backupCurrentTranscript: true
+            backupCurrentTranscript: true,
+            markAsRecoveredIfIssuePresent: true
         )
         // Retain batch stems/metadata for a bounded rerun/debug window.
         // SessionRepository purges expired retained assets on startup.

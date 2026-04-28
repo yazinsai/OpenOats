@@ -268,6 +268,32 @@ final class SessionRepositoryTests: XCTestCase {
         await repo.deleteSession(sessionID: sessionID)
     }
 
+    func testSaveFinalTranscriptMarksRecoveredAfterBatchWhenIssueWasPresent() async {
+        let sessionID = "session_recovered_after_batch"
+        await repo.seedSession(
+            id: sessionID,
+            records: [],
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            transcriptIssue: .transcriptionProducedNoText
+        )
+
+        await repo.saveFinalTranscript(
+            sessionID: sessionID,
+            records: [
+                SessionRecord(
+                    speaker: .you,
+                    text: "Recovered transcript",
+                    timestamp: Date(timeIntervalSince1970: 1_700_000_030)
+                )
+            ],
+            markAsRecoveredIfIssuePresent: true
+        )
+
+        let session = await repo.loadSession(id: sessionID)
+        XCTAssertNil(session.index.transcriptIssue)
+        XCTAssertEqual(session.index.transcriptRecovery, .recoveredAfterBatch)
+    }
+
     // MARK: - saveNotes writes both files
 
     func testSaveNotesWritesBothFiles() async {

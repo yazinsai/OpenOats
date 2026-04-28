@@ -29,6 +29,7 @@ final class LiveSessionState {
     var batchStatus: BatchAudioTranscriber.Status = .idle
     var batchIsImporting: Bool = false
     var lastEndedSession: SessionIndex? = nil
+    var lastEndedSessionCanRetranscribe: Bool = false
     var lastSessionHasNotes: Bool = false
     var kbIndexingStatus: KnowledgeBaseIndexingStatus = .idle
     var statusMessage: String? = nil
@@ -160,11 +161,18 @@ final class LiveSessionController {
             if let engine = coordinator.batchAudioTranscriber {
                 let status = await engine.status
                 let importing = await engine.isImporting
+                let activeBatchSessionID = await engine.activeSessionID
                 if status != .idle || coordinator.batchStatus != .idle {
                     coordinator.batchStatus = status
                     coordinator.batchIsImporting = importing
 
                     if let pendingRecoveryDiagnostics {
+                        if let activeBatchSessionID,
+                           activeBatchSessionID != pendingRecoveryDiagnostics.sessionID {
+                            self.pendingRecoveryDiagnostics = nil
+                            coordinator.pendingRecoverySessionID = nil
+                        }
+
                         switch status {
                         case .completed(let sid) where sid == pendingRecoveryDiagnostics.sessionID:
                             let recoveredIndex = await coordinator.sessionRepository.loadSession(id: sid).index
@@ -189,6 +197,7 @@ final class LiveSessionController {
                                 )
                             )
                             self.pendingRecoveryDiagnostics = nil
+                            coordinator.pendingRecoverySessionID = nil
                         case .failed(let message):
                             recordEmptySessionDiagnostics(
                                 EmptySessionDiagnosticsEvent(
@@ -211,6 +220,7 @@ final class LiveSessionController {
                                 )
                             )
                             self.pendingRecoveryDiagnostics = nil
+                            coordinator.pendingRecoverySessionID = nil
                         case .cancelled:
                             recordEmptySessionDiagnostics(
                                 EmptySessionDiagnosticsEvent(
@@ -233,6 +243,7 @@ final class LiveSessionController {
                                 )
                             )
                             self.pendingRecoveryDiagnostics = nil
+                            coordinator.pendingRecoverySessionID = nil
                         default:
                             break
                         }
@@ -246,6 +257,8 @@ final class LiveSessionController {
                         await coordinator.loadHistory()
                         if coordinator.lastEndedSession?.id == sid {
                             coordinator.lastEndedSession = await coordinator.sessionRepository.loadSession(id: sid).index
+                            let canRetranscribe = await coordinator.sessionRepository.hasRetainedBatchAudio(sessionID: sid)
+                            set(\.lastEndedSessionCanRetranscribe, canRetranscribe)
                         }
 
                         Task { @MainActor in
@@ -439,6 +452,7 @@ final class LiveSessionController {
         }
 
         coordinator.lastEndedSession = nil
+        coordinator.pendingRecoverySessionID = nil
         coordinator.lastStorageError = nil
         coordinator.transcriptStore.clear()
 
@@ -771,15 +785,19 @@ final class LiveSessionController {
                     transcriptionModel: recordingHealthInput.transcriptionModel.rawValue,
                     classification: classification
                 )
+                coordinator.pendingRecoverySessionID = sessionID
             } else {
                 pendingRecoveryDiagnostics = nil
+                coordinator.pendingRecoverySessionID = nil
             }
         } else {
             pendingRecoveryDiagnostics = nil
+            coordinator.pendingRecoverySessionID = nil
         }
 
         // 8. Update UI state + refresh history
         coordinator.lastEndedSession = effectiveIndex
+        set(\.lastEndedSessionCanRetranscribe, retainedBatchAudio)
         coordinator.sessionTemplateSnapshot = nil
         _currentSessionID = nil
         DiagnosticsSupport.record(
@@ -930,6 +948,7 @@ final class LiveSessionController {
         coordinator.transcriptionEngine?.stop()
         coordinator.audioRecorder?.discardRecording()
         coordinator.transcriptStore.clear()
+        coordinator.pendingRecoverySessionID = nil
         if let sessionID = _currentSessionID {
             DiagnosticsSupport.record(category: "meeting", message: "Discarded session \(sessionID)")
         }
@@ -946,6 +965,22 @@ final class LiveSessionController {
     @inline(__always)
     private func set<T: Equatable>(_ kp: ReferenceWritableKeyPath<LiveSessionState, T>, _ value: T) {
         if state[keyPath: kp] != value { state[keyPath: kp] = value }
+    }
+
+    private func refreshLastEndedSessionRetranscriptionAvailability(for sessionID: String?) {
+        guard let sessionID else {
+            set(\.lastEndedSessionCanRetranscribe, false)
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            let canRetranscribe = await coordinator.sessionRepository.hasRetainedBatchAudio(sessionID: sessionID)
+            await MainActor.run {
+                guard self.state.lastEndedSession?.id == sessionID else { return }
+                self.set(\.lastEndedSessionCanRetranscribe, canRetranscribe)
+            }
+        }
     }
 
     @MainActor
@@ -1000,7 +1035,15 @@ final class LiveSessionController {
         set(\.isGeneratingSuggestions, sidebarGenerating)
         set(\.batchStatus, coordinator.batchStatus)
         set(\.batchIsImporting, coordinator.batchIsImporting)
-        if state.lastEndedSession != lastEndedSession { state.lastEndedSession = lastEndedSession }
+        let previousLastEndedSessionID = state.lastEndedSession?.id
+        let currentLastEndedSessionID = lastEndedSession?.id
+        if previousLastEndedSessionID != currentLastEndedSessionID {
+            state.lastEndedSession = lastEndedSession
+            set(\.lastEndedSessionCanRetranscribe, false)
+            refreshLastEndedSessionRetranscriptionAvailability(for: currentLastEndedSessionID)
+        } else if state.lastEndedSession != lastEndedSession {
+            state.lastEndedSession = lastEndedSession
+        }
         set(\.lastSessionHasNotes, lastSessionHasNotes)
         set(\.kbIndexingStatus, coordinator.knowledgeBase?.indexingStatus ?? .idle)
         set(\.statusMessage, coordinator.transcriptionEngine?.assetStatus)

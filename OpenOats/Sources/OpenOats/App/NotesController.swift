@@ -194,6 +194,9 @@ final class NotesController {
             case .session(let sessionID):
                 selectSession(sessionID)
                 return true
+            case .retranscribeSession(let sessionID):
+                selectSession(sessionID)
+                return true
             case .meetingHistory(let event):
                 showMeetingFamily(for: event)
                 return true
@@ -224,6 +227,8 @@ final class NotesController {
         if let requested = coordinator.consumeRequestedSessionSelection() {
             switch requested {
             case .session(let sessionID):
+                selectSession(sessionID)
+            case .retranscribeSession(let sessionID):
                 selectSession(sessionID)
             case .meetingHistory(let event):
                 showMeetingFamily(for: event)

@@ -707,6 +707,36 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertNil(controller.state.lastEndedSession?.transcriptIssue)
     }
 
+    func testSyncProjectedStateRefreshesRetranscriptionAvailabilityForLastEndedSession() async throws {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+
+        let sessionID = "session_retranscribe_available"
+        await coordinator.sessionRepository.seedSession(
+            id: sessionID,
+            records: [],
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            transcriptIssue: .transcriptionProducedNoText
+        )
+
+        let audioDir = coordinator.sessionRepository.sessionsDirectoryURL
+            .appendingPathComponent(sessionID, isDirectory: true)
+            .appendingPathComponent("audio", isDirectory: true)
+        try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+        try Data("sys".utf8).write(to: audioDir.appendingPathComponent("sys.caf"))
+
+        coordinator.lastEndedSession = await coordinator.sessionRepository.loadSession(id: sessionID).index
+        controller.syncProjectedState(settings: settings)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertTrue(controller.state.lastEndedSessionCanRetranscribe)
+    }
+
     func testEmptySessionDiagnosticClassificationMarksMissingAudio() {
         let input = LiveSessionController.RecordingHealthInput(
             elapsed: 8,

@@ -19,6 +19,7 @@ final class AppCoordinator {
     struct NotesNavigationRequest: Equatable {
         enum Target: Equatable {
             case session(String)
+            case retranscribeSession(String)
             case meetingHistory(CalendarEvent)
             case manualTranscript(CalendarEvent)
             case clearSelection
@@ -53,6 +54,12 @@ final class AppCoordinator {
     var lastEndedSession: SessionIndex? {
         get { access(keyPath: \.lastEndedSession); return _lastEndedSession }
         set { withMutation(keyPath: \.lastEndedSession) { _lastEndedSession = newValue } }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _pendingRecoverySessionID: String?
+    var pendingRecoverySessionID: String? {
+        get { access(keyPath: \.pendingRecoverySessionID); return _pendingRecoverySessionID }
+        set { withMutation(keyPath: \.pendingRecoverySessionID) { _pendingRecoverySessionID = newValue } }
     }
 
     @ObservationIgnored nonisolated(unsafe) private var _pendingExternalCommand: ExternalCommandRequest?
@@ -239,6 +246,10 @@ final class AppCoordinator {
         } else {
             requestedNotesNavigation = NotesNavigationRequest(target: .clearSelection)
         }
+    }
+
+    func queueSessionRetranscription(_ sessionID: String) {
+        requestedNotesNavigation = NotesNavigationRequest(target: .retranscribeSession(sessionID))
     }
 
     func queueMeetingHistory(_ event: CalendarEvent) {

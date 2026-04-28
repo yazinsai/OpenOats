@@ -409,6 +409,12 @@ struct NotesView: View {
             .font(.system(size: 11))
             .foregroundStyle(.tertiary)
 
+            if let recovery = session.transcriptRecovery {
+                Text(recovery.listLabel)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.green)
+            }
+
             if !visibleTags.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(visibleTags, id: \.self) { tag in
@@ -1765,16 +1771,17 @@ struct NotesView: View {
                                 }
 
                                 HStack(spacing: 8) {
-                                    if entry.session.utteranceCount > 0 {
-                                        Text(transcriptStatusText(for: entry.session))
-                                    } else {
-                                        Text(transcriptStatusText(for: entry.session))
-                                    }
+                                    Text(transcriptStatusText(for: entry.session))
 
                                     if let source = entry.session.source?.trimmingCharacters(in: .whitespacesAndNewlines),
                                        !source.isEmpty {
                                         Text("•")
                                         Text(source.capitalized)
+                                    }
+
+                                    if let recovery = entry.session.transcriptRecovery {
+                                        Text("•")
+                                        Text(recovery.listLabel)
                                     }
                                 }
                                 .font(.system(size: 12))
@@ -2398,14 +2405,17 @@ struct NotesView: View {
             state.sessionHistory.first { $0.id == sessionID }
         }
         let sessionIssue = selectedSession?.transcriptIssue
+        let recoveryIsPending = state.selectedSessionID != nil && coordinator.pendingRecoverySessionID == state.selectedSessionID
         let title = sessionIssue?.emptyStateTitle ?? "No transcript"
         let message = emptyTranscriptMessage(
             for: sessionIssue,
-            canRetranscribe: state.canRetranscribeSelectedSession
+            canRetranscribe: state.canRetranscribeSelectedSession,
+            recoveryIsPending: recoveryIsPending
         )
         let editorBanner = manualNotesBannerText(
             for: sessionIssue,
-            canRetranscribe: state.canRetranscribeSelectedSession
+            canRetranscribe: state.canRetranscribeSelectedSession,
+            recoveryIsPending: recoveryIsPending
         )
 
         if state.isEditingManualNotes {
@@ -2469,7 +2479,11 @@ struct NotesView: View {
                         .foregroundStyle(.secondary)
 
                     HStack(spacing: 8) {
-                        if state.canRetranscribeSelectedSession {
+                        if recoveryIsPending {
+                            Label("Recovery queued", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        } else if state.canRetranscribeSelectedSession {
                             Button {
                                 container.ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
                                 controller.rerunBatchTranscription(
@@ -2506,7 +2520,11 @@ struct NotesView: View {
                         .foregroundStyle(.secondary)
 
                     HStack(spacing: 8) {
-                        if state.canRetranscribeSelectedSession {
+                        if recoveryIsPending {
+                            Label("Recovery queued", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        } else if state.canRetranscribeSelectedSession {
                             Button {
                                 container.ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
                                 controller.rerunBatchTranscription(
@@ -2779,20 +2797,24 @@ struct NotesView: View {
 
     @ViewBuilder
     private func transcriptView(controller: NotesController, state: NotesState) -> some View {
+        let selectedSession = state.selectedSessionID.flatMap { sessionID in
+            state.sessionHistory.first { $0.id == sessionID }
+        }
+        let recoveryIsPending = state.selectedSessionID != nil && coordinator.pendingRecoverySessionID == state.selectedSessionID
         if state.loadedTranscript.isEmpty {
-            let selectedSession = state.selectedSessionID.flatMap { sessionID in
-                state.sessionHistory.first { $0.id == sessionID }
-            }
             let sessionIssue = selectedSession?.transcriptIssue
             ContentUnavailableView {
                 Label(sessionIssue?.emptyStateTitle ?? "No Transcript", systemImage: "waveform")
             } description: {
                 Text(emptyTranscriptMessage(
                     for: sessionIssue,
-                    canRetranscribe: state.canRetranscribeSelectedSession
+                    canRetranscribe: state.canRetranscribeSelectedSession,
+                    recoveryIsPending: recoveryIsPending
                 ))
             } actions: {
-                if state.canRetranscribeSelectedSession {
+                if recoveryIsPending {
+                    Label("Recovery queued", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                } else if state.canRetranscribeSelectedSession {
                     Button {
                         container.ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
                         controller.rerunBatchTranscription(
@@ -2815,6 +2837,19 @@ struct NotesView: View {
             }
         } else {
             ScrollView {
+                if let recovery = selectedSession?.transcriptRecovery {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.green)
+                        Text(recovery.listLabel)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                }
                 if case .inProgress(let completed, let total) = state.cleanupStatus {
                     cleanupProgressBanner(controller: controller, completed: completed, total: total)
                 }
@@ -2849,21 +2884,29 @@ struct NotesView: View {
 
     private func emptyTranscriptMessage(
         for issue: SessionTranscriptIssue?,
-        canRetranscribe: Bool
+        canRetranscribe: Bool,
+        recoveryIsPending: Bool = false
     ) -> String {
-        var message = issue?.emptyStateMessage ?? "There are no recorded utterances to turn into notes for this session."
-        if canRetranscribe {
+        var message = issue?.emptyStateMessage ?? "OpenOats does not have a transcript for this session."
+        if recoveryIsPending {
+            message += " Recovery has already been queued for the retained audio."
+        } else if canRetranscribe {
             message += " You can re-transcribe the retained audio or add a transcript manually."
+        } else if issue == nil {
+            message += " You can add a transcript manually."
         }
         return message
     }
 
     private func manualNotesBannerText(
         for issue: SessionTranscriptIssue?,
-        canRetranscribe: Bool
+        canRetranscribe: Bool,
+        recoveryIsPending: Bool = false
     ) -> String {
-        var message = issue?.emptyStateMessage ?? "No transcript was recorded for this session."
-        if canRetranscribe {
+        var message = issue?.emptyStateMessage ?? "OpenOats does not have a transcript for this session."
+        if recoveryIsPending {
+            message += " Recovery has already been queued for the retained audio. You can still save manual notes."
+        } else if canRetranscribe {
             message += " You can re-transcribe the retained audio or save manual notes."
         } else {
             message += " You can still save manual notes."
@@ -3167,6 +3210,17 @@ struct NotesView: View {
             controller.selectSession(sessionID)
             let isImported = controller.state.sessionHistory.first(where: { $0.id == sessionID })?.source == "imported"
             detailViewMode = isImported ? .transcript : .notes
+        case .retranscribeSession(let sessionID):
+            controller.selectSession(sessionID)
+            detailViewMode = .transcript
+            try? await Task.sleep(for: .milliseconds(200))
+            if controller.state.canRetranscribeSelectedSession {
+                container.ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
+                controller.rerunBatchTranscription(
+                    model: settings.batchTranscriptionModel,
+                    settings: settings
+                )
+            }
         case .meetingHistory(let event):
             controller.showMeetingFamily(for: event)
             detailViewMode = .notes

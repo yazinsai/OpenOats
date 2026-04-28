@@ -408,6 +408,24 @@ enum SessionTranscriptIssue: String, Codable, Sendable, Equatable {
     }
 }
 
+enum SessionTranscriptRecoveryState: String, Codable, Sendable, Equatable {
+    case recoveredAfterBatch
+
+    var listLabel: String {
+        switch self {
+        case .recoveredAfterBatch:
+            return "Recovered after batch"
+        }
+    }
+
+    var sessionEndedBannerText: String {
+        switch self {
+        case .recoveredAfterBatch:
+            return "Session recovered after batch"
+        }
+    }
+}
+
 struct SessionIndex: Identifiable, Codable, Sendable, Equatable {
     let id: String
     let startedAt: Date
@@ -432,6 +450,8 @@ struct SessionIndex: Identifiable, Codable, Sendable, Equatable {
     var meetingFamilyKey: String? = nil
     /// Non-nil when the session ended without a transcript for a known recording/transcription reason.
     var transcriptIssue: SessionTranscriptIssue? = nil
+    /// Non-nil when a previously failed transcript was later recovered.
+    var transcriptRecovery: SessionTranscriptRecoveryState? = nil
 }
 
 struct SessionSidecar: Codable, Sendable {

@@ -72,7 +72,7 @@ struct ContentView: View {
             if let lastSession = controllerState.lastEndedSession {
                 if lastSession.utteranceCount > 0 {
                     HStack {
-                        Text("Session ended \u{00B7} \(lastSession.utteranceCount) utterances")
+                        Text(sessionEndedBannerText(for: lastSession))
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .accessibilityIdentifier("app.sessionEndedBanner")
@@ -105,6 +105,7 @@ struct ContentView: View {
 
                     Divider()
                 } else if let transcriptIssue = lastSession.transcriptIssue {
+                    let recoveryIsPending = coordinator.pendingRecoverySessionID == lastSession.id
                     HStack(spacing: 10) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 12))
@@ -115,10 +116,28 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                             .accessibilityIdentifier("app.sessionEndedBanner")
                         Spacer()
+                        if recoveryIsPending {
+                            Text("Recovery queued")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("app.recoveryQueuedLabel")
+                        } else if controllerState.lastEndedSessionCanRetranscribe {
+                            Button {
+                                coordinator.queueSessionRetranscription(lastSession.id)
+                                openWindow(id: "notes")
+                            } label: {
+                                Label("Re-transcribe", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                                    .font(.system(size: 12))
+                            }
+                            .buttonStyle(OpenOatsProminentButtonStyle())
+                            .controlSize(.small)
+                            .accessibilityIdentifier("app.retranscribeSessionButton")
+                        }
                         Button {
+                            coordinator.queueSessionSelection(lastSession.id)
                             openWindow(id: "notes")
                         } label: {
-                            Label("Review Session", systemImage: "arrow.right.circle")
+                            Label("Open Session", systemImage: "arrow.right.circle")
                                 .font(.system(size: 12))
                         }
                         .buttonStyle(.bordered)
@@ -459,6 +478,13 @@ struct ContentView: View {
         case .confirmDownload:
             liveSessionController?.downloadModelOnly(settings: settings)
         }
+    }
+
+    private func sessionEndedBannerText(for session: SessionIndex) -> String {
+        if let recovery = session.transcriptRecovery {
+            return "\(recovery.sessionEndedBannerText) \u{00B7} \(session.utteranceCount) utterances"
+        }
+        return "Session ended \u{00B7} \(session.utteranceCount) utterances"
     }
 }
 
