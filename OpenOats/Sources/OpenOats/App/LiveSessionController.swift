@@ -42,6 +42,7 @@ final class LiveSessionState {
     var modelDisplayName: String = ""
     var showLiveTranscript: Bool = true
     var isMicMuted: Bool = false
+    var isRecordingPaused: Bool = false
     var recordingHealthNotice: RecordingHealthNotice? = nil
     /// The user's live scratchpad text for the active session.
     var scratchpadText: String = ""
@@ -100,6 +101,7 @@ final class LiveSessionController {
         let systemHasCapturedFrames: Bool
         let micCaptureError: String?
         let isMicMuted: Bool
+        let isRecordingPaused: Bool
         let hasBlockingError: Bool
     }
 
@@ -328,6 +330,11 @@ final class LiveSessionController {
     func toggleMicMute() {
         guard let engine = coordinator.transcriptionEngine, engine.isRunning else { return }
         engine.isMicMuted.toggle()
+    }
+
+    func toggleRecordingPause() {
+        guard let engine = coordinator.transcriptionEngine, engine.isRunning else { return }
+        engine.isRecordingPaused.toggle()
     }
 
     /// Update the scratchpad text and schedule a debounced save.
@@ -587,6 +594,7 @@ final class LiveSessionController {
             systemHasCapturedFrames: captureHealthAtStop?.systemHasCapturedFrames ?? false,
             micCaptureError: captureHealthAtStop?.micCaptureError,
             isMicMuted: wasMicMutedAtStop,
+            isRecordingPaused: false,
             hasBlockingError: false
         )
         let transcriptIssue = Self.transcriptIssue(for: recordingHealthInput)
@@ -866,6 +874,7 @@ final class LiveSessionController {
 
     static func recordingHealthNotice(for input: RecordingHealthInput) -> RecordingHealthNotice? {
         guard !input.hasBlockingError else { return nil }
+        guard !input.isRecordingPaused else { return nil }
 
         if let micCaptureError = input.micCaptureError, !micCaptureError.isEmpty {
             return RecordingHealthNotice(severity: .error, message: micCaptureError)
@@ -1056,6 +1065,7 @@ final class LiveSessionController {
         set(\.modelDisplayName, activeModelRaw.split(separator: "/").last.map(String.init) ?? activeModelRaw)
         set(\.showLiveTranscript, settings.showLiveTranscript)
         set(\.isMicMuted, coordinator.transcriptionEngine?.isMicMuted ?? false)
+        set(\.isRecordingPaused, coordinator.transcriptionEngine?.isRecordingPaused ?? false)
         // scratchpadText is managed by updateScratchpad(), not refreshed from coordinator
         // downloadDetail is not Equatable; only update when nil-ness changes or download active
         let nextDetail = coordinator.transcriptionEngine?.downloadDetail
@@ -1184,6 +1194,7 @@ final class LiveSessionController {
                     systemHasCapturedFrames: captureHealth?.systemHasCapturedFrames ?? false,
                     micCaptureError: captureHealth?.micCaptureError,
                     isMicMuted: currentState.isMicMuted,
+                    isRecordingPaused: currentState.isRecordingPaused,
                     hasBlockingError: currentState.errorMessage != nil
                 )
                 set(\.recordingHealthNotice, Self.recordingHealthNotice(for: input))
