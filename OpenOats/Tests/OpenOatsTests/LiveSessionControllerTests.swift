@@ -555,6 +555,7 @@ final class LiveSessionControllerTests: XCTestCase {
             systemHasCapturedFrames: false,
             micCaptureError: nil,
             isMicMuted: false,
+            isRecordingPaused: false,
             hasBlockingError: false
         )
 
@@ -576,6 +577,7 @@ final class LiveSessionControllerTests: XCTestCase {
             systemHasCapturedFrames: true,
             micCaptureError: nil,
             isMicMuted: false,
+            isRecordingPaused: false,
             hasBlockingError: false
         )
 
@@ -597,6 +599,7 @@ final class LiveSessionControllerTests: XCTestCase {
             systemHasCapturedFrames: true,
             micCaptureError: nil,
             isMicMuted: false,
+            isRecordingPaused: false,
             hasBlockingError: false
         )
 
@@ -618,6 +621,7 @@ final class LiveSessionControllerTests: XCTestCase {
             systemHasCapturedFrames: true,
             micCaptureError: nil,
             isMicMuted: false,
+            isRecordingPaused: false,
             hasBlockingError: true
         )
 
@@ -634,6 +638,7 @@ final class LiveSessionControllerTests: XCTestCase {
             systemHasCapturedFrames: false,
             micCaptureError: nil,
             isMicMuted: false,
+            isRecordingPaused: false,
             hasBlockingError: false
         )
 
@@ -650,6 +655,7 @@ final class LiveSessionControllerTests: XCTestCase {
             systemHasCapturedFrames: true,
             micCaptureError: nil,
             isMicMuted: false,
+            isRecordingPaused: false,
             hasBlockingError: false
         )
 
@@ -669,6 +675,7 @@ final class LiveSessionControllerTests: XCTestCase {
             systemHasCapturedFrames: false,
             micCaptureError: nil,
             isMicMuted: false,
+            isRecordingPaused: false,
             hasBlockingError: false
         )
 
@@ -747,6 +754,7 @@ final class LiveSessionControllerTests: XCTestCase {
             systemHasCapturedFrames: false,
             micCaptureError: nil,
             isMicMuted: false,
+            isRecordingPaused: false,
             hasBlockingError: false
         )
 

@@ -151,6 +151,16 @@ final class TranscriptionEngine {
         set { micCapture.isMuted = newValue }
     }
 
+    /// Pause/resume all recording. When paused, neither mic nor system audio
+    /// is transcribed and audio levels read as 0.
+    nonisolated var isRecordingPaused: Bool {
+        get { micCapture.isPaused }
+        set {
+            micCapture.isPaused = newValue
+            systemCapture.isPaused = newValue
+        }
+    }
+
     nonisolated var captureHealthSnapshot: CaptureHealthSnapshot {
         CaptureHealthSnapshot(
             micHasCapturedFrames: micCapture.hasCapturedFrames,

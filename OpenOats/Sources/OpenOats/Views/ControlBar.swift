@@ -4,6 +4,7 @@ struct ControlBar: View {
     let isRunning: Bool
     let audioLevel: Float
     let isMicMuted: Bool
+    let isRecordingPaused: Bool
     let modelDisplayName: String
     let transcriptionPrompt: String
     let batchStatus: BatchAudioTranscriber.Status
@@ -17,6 +18,7 @@ struct ControlBar: View {
     let downloadDetail: DownloadProgressDetail?
     let onToggle: () -> Void
     let onMuteToggle: () -> Void
+    let onPauseToggle: () -> Void
     let onConfirmDownload: () -> Void
 
     var body: some View {
@@ -77,20 +79,19 @@ struct ControlBar: View {
             HStack(spacing: 10) {
                 if isRunning {
                     HStack(spacing: 6) {
-                        // Pulsing dot when live, static when muted
                         Circle()
-                            .fill(isMicMuted ? Color.red : Color.green)
+                            .fill(isRecordingPaused ? Color.orange : (isMicMuted ? Color.red : Color.green))
                             .frame(width: 8, height: 8)
-                            .scaleEffect(isMicMuted ? 1.0 : 1.0 + CGFloat(audioLevel) * 0.5)
+                            .scaleEffect(isRecordingPaused || isMicMuted ? 1.0 : 1.0 + CGFloat(audioLevel) * 0.5)
                             .animation(.easeOut(duration: 0.1), value: audioLevel)
 
-                        Text(isMicMuted ? "Muted" : "Live")
+                        Text(isRecordingPaused ? "Paused" : (isMicMuted ? "Muted" : "Live"))
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(isMicMuted ? .red : .primary)
+                            .foregroundStyle(isRecordingPaused ? .orange : (isMicMuted ? .red : .primary))
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
-                    .background(isMicMuted ? Color.red.opacity(0.1) : Color.green.opacity(0.1))
+                    .background(isRecordingPaused ? Color.orange.opacity(0.1) : (isMicMuted ? Color.red.opacity(0.1) : Color.green.opacity(0.1)))
                     .clipShape(Capsule())
                     .accessibilityIdentifier("app.controlBar.status")
 
@@ -121,8 +122,17 @@ struct ControlBar: View {
                     .accessibilityIdentifier("app.controlBar.toggle")
                 }
 
-                // Mute button + audio level bars when running
                 if isRunning {
+                    Button(action: onPauseToggle) {
+                        Image(systemName: isRecordingPaused ? "play.fill" : "pause.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(isRecordingPaused ? .orange : .secondary)
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                    .help(isRecordingPaused ? "Resume recording" : "Pause recording")
+                    .accessibilityIdentifier("app.controlBar.pauseToggle")
+
                     Button(action: onMuteToggle) {
                         Image(systemName: isMicMuted ? "mic.slash.fill" : "mic.fill")
                             .font(.system(size: 11))
@@ -132,10 +142,12 @@ struct ControlBar: View {
                     .buttonStyle(.plain)
                     .help(isMicMuted ? "Unmute microphone" : "Mute microphone")
                     .accessibilityIdentifier("app.controlBar.muteToggle")
+                    .opacity(isRecordingPaused ? 0.3 : 1.0)
+                    .disabled(isRecordingPaused)
 
                     AudioLevelView(level: audioLevel)
                         .frame(width: 40, height: 14)
-                        .opacity(isMicMuted ? 0.3 : 1.0)
+                        .opacity(isRecordingPaused || isMicMuted ? 0.3 : 1.0)
                 }
 
                 Spacer()

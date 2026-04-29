@@ -10,10 +10,17 @@ import os
 final class SystemAudioCapture: @unchecked Sendable {
     private let _audioLevel = AudioLevel()
     private let _hasCapturedFrames = SyncBool()
+    private let _paused = SyncBool()
 
     /// Thread-safe audio level (0…1) from the system audio stream.
-    var audioLevel: Float { _audioLevel.value }
+    var audioLevel: Float { _paused.value ? 0 : _audioLevel.value }
     var hasCapturedFrames: Bool { _hasCapturedFrames.value }
+
+    /// When paused, buffers are not forwarded to the stream and audio level reads as 0.
+    var isPaused: Bool {
+        get { _paused.value }
+        set { _paused.value = newValue }
+    }
 
     private let _aggregateDeviceID = OSAllocatedUnfairLock<AudioObjectID>(
         uncheckedState: AudioObjectID(kAudioObjectUnknown)
@@ -242,6 +249,7 @@ final class SystemAudioCapture: @unchecked Sendable {
         }
         _hasCapturedFrames.value = true
 
+        guard !_paused.value else { return }
         _ = _sysContinuation.withLock { $0?.yield(pcmBuffer) }
     }
 

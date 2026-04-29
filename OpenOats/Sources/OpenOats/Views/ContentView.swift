@@ -255,6 +255,9 @@ struct ContentView: View {
                 onMuteToggle: {
                     liveSessionController?.toggleMicMute()
                 },
+                onPauseToggle: {
+                    liveSessionController?.toggleRecordingPause()
+                },
                 onConfirmDownload: {
                     pendingControlBarAction = .confirmDownload
                 }
@@ -538,13 +541,15 @@ private struct IsolatedControlBarWrapper: View {
     let state: LiveSessionState
     let onToggle: () -> Void
     let onMuteToggle: () -> Void
+    let onPauseToggle: () -> Void
     let onConfirmDownload: () -> Void
-    
+
     var body: some View {
         ControlBar(
             isRunning: state.isRunning,
             audioLevel: state.audioLevel,
             isMicMuted: state.isMicMuted,
+            isRecordingPaused: state.isRecordingPaused,
             modelDisplayName: state.modelDisplayName,
             transcriptionPrompt: state.transcriptionPrompt,
             batchStatus: state.batchStatus,
@@ -558,6 +563,7 @@ private struct IsolatedControlBarWrapper: View {
             downloadDetail: state.downloadDetail,
             onToggle: onToggle,
             onMuteToggle: onMuteToggle,
+            onPauseToggle: onPauseToggle,
             onConfirmDownload: onConfirmDownload
         )
     }
