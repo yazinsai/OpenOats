@@ -242,6 +242,9 @@ final class AppContainer {
         if enabled {
             if calendarManager == nil {
                 calendarManager = CalendarManager()
+            } else {
+                // Re-read TCC in case the system state changed since the manager was created.
+                calendarManager?.refreshFromSystem()
             }
             if calendarManager?.accessState == .notDetermined {
                 Task {

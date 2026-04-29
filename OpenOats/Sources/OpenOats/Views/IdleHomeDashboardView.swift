@@ -38,6 +38,9 @@ struct IdleHomeDashboardView: View {
         .padding(.horizontal, 20)
         .padding(.top, 10)
         .padding(.bottom, 8)
+        .onAppear {
+            container.updateCalendarIntegration(enabled: settings.calendarIntegrationEnabled)
+        }
         .task(id: refreshTaskID(for: accessState)) {
             await refresh()
             try? await Task.sleep(for: refreshInterval(for: accessState))
@@ -199,6 +202,10 @@ struct IdleHomeDashboardView: View {
             earlierTodayEvents = []
             return
         }
+
+        // Re-read from TCC on every refresh so cached state never drifts from reality
+        // (e.g. after a dev rebuild that resets TCC, or on first appear post-meeting).
+        manager.refreshFromSystem()
 
         guard manager.accessState == .authorized else {
             events = []

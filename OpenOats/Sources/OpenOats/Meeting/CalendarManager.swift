@@ -25,6 +25,15 @@ final class CalendarManager {
 
     // MARK: - Authorization
 
+    /// Re-reads the current TCC authorization status and updates `accessState` if it has drifted.
+    /// Safe to call at any time — never shows a system dialog.
+    func refreshFromSystem() {
+        let current = Self.currentAccessState()
+        if current != accessState {
+            accessState = current
+        }
+    }
+
     /// Request calendar access. Returns true if authorized.
     func requestAccess() async -> Bool {
         do {
