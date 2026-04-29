@@ -86,6 +86,50 @@ final class TranscriptionEngineTests: XCTestCase {
         XCTAssertTrue(relay.hasFailed)
         XCTAssertEqual(failureCount, 1)
     }
+
+    // MARK: - Cloud Segment Diagnostics
+
+    func testCloudSegmentDiagnosticsMessageIsStructuredJSON() throws {
+        let event = StreamingTranscriber.CloudSegmentDiagnosticsEvent(
+            event: "live_cloud_segment_transcription",
+            sessionID: "session-123",
+            transcriptionModel: "elevenLabsScribe",
+            backend: "ElevenLabs Scribe",
+            speaker: "them",
+            sampleCount: 160_000,
+            durationSeconds: 10,
+            elapsedMilliseconds: 3_250,
+            result: "error",
+            textLength: nil,
+            errorKind: "timeout",
+            errorMessage: "Cloud ASR request timed out."
+        )
+
+        let message = StreamingTranscriber.cloudSegmentDiagnosticsMessage(for: event)
+        let data = try XCTUnwrap(message.data(using: .utf8))
+        let decoded = try JSONDecoder().decode(StreamingTranscriber.CloudSegmentDiagnosticsEvent.self, from: data)
+
+        XCTAssertEqual(decoded, event)
+    }
+
+    func testCloudDiagnosticsErrorKindClassifiesCommonCloudFailures() {
+        XCTAssertEqual(
+            StreamingTranscriber.cloudDiagnosticsErrorKind(for: CloudASRError.timeout),
+            "timeout"
+        )
+        XCTAssertEqual(
+            StreamingTranscriber.cloudDiagnosticsErrorKind(for: CloudASRError.httpError(statusCode: 429)),
+            "http_429"
+        )
+        XCTAssertEqual(
+            StreamingTranscriber.cloudDiagnosticsErrorKind(for: URLError(.timedOut)),
+            "transport_timeout"
+        )
+        XCTAssertEqual(
+            StreamingTranscriber.cloudDiagnosticsErrorKind(for: URLError(.networkConnectionLost)),
+            "transport_connection_lost"
+        )
+    }
 }
 
 // MARK: - Test Helpers

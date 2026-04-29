@@ -523,7 +523,8 @@ final class LiveSessionController {
             await coordinator.transcriptionEngine?.start(
                 locale: settings.locale,
                 inputDeviceID: settings.inputDeviceID,
-                transcriptionModel: settings.transcriptionModel
+                transcriptionModel: settings.transcriptionModel,
+                sessionID: handle.sessionID
             )
         }
     }

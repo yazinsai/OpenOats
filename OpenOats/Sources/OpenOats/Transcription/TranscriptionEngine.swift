@@ -17,7 +17,13 @@ struct DownloadProgressDetail: Sendable {
 
 /// Session-scoped transcription settings captured at start time.
 struct ActiveTranscriptionSession: Sendable, Equatable {
+    let sessionID: String?
     let transcriptionModel: TranscriptionModel
+
+    init(sessionID: String? = nil, transcriptionModel: TranscriptionModel) {
+        self.sessionID = sessionID
+        self.transcriptionModel = transcriptionModel
+    }
 
     var flushIntervalSamples: Int {
         transcriptionModel.flushIntervalSamples
@@ -245,7 +251,8 @@ final class TranscriptionEngine {
     func start(
         locale: Locale,
         inputDeviceID: AudioDeviceID = 0,
-        transcriptionModel: TranscriptionModel
+        transcriptionModel: TranscriptionModel,
+        sessionID: String? = nil
     ) async {
         Log.transcription.info("start() called, isRunning=\(self.isRunning, privacy: .public)")
         guard !isRunning, downloadProgress == nil else { return }
@@ -277,6 +284,7 @@ final class TranscriptionEngine {
         }
 
         activeTranscriptionSession = ActiveTranscriptionSession(
+            sessionID: sessionID,
             transcriptionModel: transcriptionModel
         )
 
@@ -910,6 +918,8 @@ final class TranscriptionEngine {
             locale: locale,
             vadManager: vadManager,
             speaker: speaker,
+            sessionID: activeTranscriptionSession?.sessionID,
+            transcriptionModel: model.rawValue,
             flushInterval: model.flushIntervalSamples,
             skipPartials: model.isCloud,
             onPartial: onPartial,

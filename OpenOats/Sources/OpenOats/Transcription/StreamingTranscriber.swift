@@ -5,10 +5,27 @@ import os
 /// Consumes an audio buffer stream, detects speech via Silero VAD,
 /// and transcribes completed speech segments via the TranscriptionBackend protocol.
 final class StreamingTranscriber: @unchecked Sendable {
+    struct CloudSegmentDiagnosticsEvent: Codable, Equatable {
+        let event: String
+        let sessionID: String?
+        let transcriptionModel: String
+        let backend: String
+        let speaker: String
+        let sampleCount: Int
+        let durationSeconds: Double
+        let elapsedMilliseconds: Int
+        let result: String
+        let textLength: Int?
+        let errorKind: String?
+        let errorMessage: String?
+    }
+
     private let backend: any TranscriptionBackend
     private let locale: Locale
     private let vadManager: VadManager
     private let speaker: Speaker
+    private let sessionID: String?
+    private let transcriptionModel: String
     private let onPartial: @Sendable (String) -> Void
     private let onFinal: @Sendable (String) -> Void
 
@@ -51,6 +68,8 @@ final class StreamingTranscriber: @unchecked Sendable {
         locale: Locale,
         vadManager: VadManager,
         speaker: Speaker,
+        sessionID: String?,
+        transcriptionModel: String,
         flushInterval: Int,
         skipPartials: Bool = false,
         onPartial: @escaping @Sendable (String) -> Void,
@@ -60,6 +79,8 @@ final class StreamingTranscriber: @unchecked Sendable {
         self.locale = locale
         self.vadManager = vadManager
         self.speaker = speaker
+        self.sessionID = sessionID
+        self.transcriptionModel = transcriptionModel
         self.flushInterval = flushInterval
         self.skipPartials = skipPartials
         self.onPartial = onPartial
@@ -74,6 +95,7 @@ final class StreamingTranscriber: @unchecked Sendable {
     // flushInterval is now an instance property, set per-model via TranscriptionModel.flushIntervalSamples
     /// Number of trailing words to carry across segment boundaries for decoder priming.
     private static let contextWordCount = 5
+    private static let cloudSegmentDiagnosticsEventName = "live_cloud_segment_transcription"
 
     /// Main loop: reads audio buffers, runs VAD, transcribes speech segments.
     func run(stream: AsyncStream<AVAudioPCMBuffer>) async {
@@ -215,18 +237,126 @@ final class StreamingTranscriber: @unchecked Sendable {
     private var previousContext: String?
 
     private func transcribeSegment(_ samples: [Float]) async {
+        let startedAt = Date()
         do {
             try Task.checkCancellation()
             let text = try await backend.transcribe(samples, locale: locale, previousContext: previousContext)
-            guard !text.isEmpty else { return }
+            if text.isEmpty {
+                recordCloudSegmentDiagnostics(
+                    samples: samples,
+                    startedAt: startedAt,
+                    result: "empty",
+                    textLength: 0,
+                    errorKind: nil,
+                    errorMessage: nil
+                )
+                Log.streaming.warning(
+                    "[\(self.speaker.storageKey, privacy: .public)] cloud segment returned empty text: backend=\(self.backend.displayName, privacy: .public) duration=\(String(format: "%.2f", Double(samples.count) / 16_000), privacy: .public)s"
+                )
+                return
+            }
             Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] transcribed: \(text.prefix(80), privacy: .private)")
+            recordCloudSegmentDiagnostics(
+                samples: samples,
+                startedAt: startedAt,
+                result: "success",
+                textLength: text.count,
+                errorKind: nil,
+                errorMessage: nil
+            )
             // Store trailing words for cross-segment context
             let words = text.split(separator: " ")
             previousContext = words.suffix(Self.contextWordCount).joined(separator: " ")
             onFinal(text)
         } catch {
+            recordCloudSegmentDiagnostics(
+                samples: samples,
+                startedAt: startedAt,
+                result: "error",
+                textLength: nil,
+                errorKind: Self.cloudDiagnosticsErrorKind(for: error),
+                errorMessage: Self.cloudDiagnosticsErrorMessage(for: error)
+            )
             Log.streaming.error("ASR error: \(error, privacy: .public)")
         }
+    }
+
+    private func recordCloudSegmentDiagnostics(
+        samples: [Float],
+        startedAt: Date,
+        result: String,
+        textLength: Int?,
+        errorKind: String?,
+        errorMessage: String?
+    ) {
+        guard skipPartials else { return }
+
+        let elapsedMilliseconds = max(0, Int(Date().timeIntervalSince(startedAt) * 1000))
+        let event = CloudSegmentDiagnosticsEvent(
+            event: Self.cloudSegmentDiagnosticsEventName,
+            sessionID: sessionID,
+            transcriptionModel: transcriptionModel,
+            backend: backend.displayName,
+            speaker: speaker.storageKey,
+            sampleCount: samples.count,
+            durationSeconds: Double(samples.count) / 16_000,
+            elapsedMilliseconds: elapsedMilliseconds,
+            result: result,
+            textLength: textLength,
+            errorKind: errorKind,
+            errorMessage: errorMessage
+        )
+        DiagnosticsSupport.record(
+            category: "transcription",
+            message: Self.cloudSegmentDiagnosticsMessage(for: event)
+        )
+    }
+
+    static func cloudSegmentDiagnosticsMessage(for event: CloudSegmentDiagnosticsEvent) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        if let data = try? encoder.encode(event),
+           let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+        return "{\"event\":\"\(Self.cloudSegmentDiagnosticsEventName)\",\"result\":\"encoding_failed\"}"
+    }
+
+    static func cloudDiagnosticsErrorKind(for error: Error) -> String {
+        if error is CancellationError {
+            return "cancelled"
+        }
+        if let cloudError = error as? CloudASRError {
+            switch cloudError {
+            case .invalidAPIKey:
+                return "invalid_api_key"
+            case .invalidUploadURL:
+                return "invalid_upload_url"
+            case .httpError(let statusCode):
+                return "http_\(statusCode)"
+            case .transcriptionFailed:
+                return "transcription_failed"
+            case .timeout:
+                return "timeout"
+            }
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut:
+                return "transport_timeout"
+            case .networkConnectionLost:
+                return "transport_connection_lost"
+            default:
+                return "url_\(urlError.code.rawValue)"
+            }
+        }
+        return "other"
+    }
+
+    static func cloudDiagnosticsErrorMessage(for error: Error) -> String {
+        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return String(describing: error) }
+        return String(message.prefix(200))
     }
 
     /// Track wall-clock time vs frames received to detect process-tap rate mismatch.
