@@ -152,6 +152,7 @@ struct SessionMetadata: Codable, Sendable {
     var calendarEvent: CalendarEvent?
     var transcriptIssue: SessionTranscriptIssue?
     var transcriptRecovery: SessionTranscriptRecoveryState? = nil
+    var customNotesGuidance: String?
 }
 
 // MARK: - SessionRepository
@@ -707,6 +708,18 @@ actor SessionRepository {
             generatedAt: meta.generatedAt,
             markdown: markdown
         )
+    }
+
+    // MARK: - Custom Notes Guidance
+
+    func loadCustomNotesGuidance(sessionID: String) -> String? {
+        loadSessionMetadataFile(sessionID: sessionID)?.customNotesGuidance
+    }
+
+    func saveCustomNotesGuidance(sessionID: String, guidance: String?) {
+        guard var meta = loadSessionMetadataFile(sessionID: sessionID) else { return }
+        meta.customNotesGuidance = guidance
+        writeSessionMetadata(meta, sessionID: sessionID)
     }
 
     // MARK: - Scratchpad

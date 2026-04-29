@@ -40,6 +40,8 @@ struct NotesState {
     var canRetranscribeSelectedSession: Bool = false
     /// Whether a pre-batch transcript backup exists for the selected session.
     var hasOriginalTranscriptBackup: Bool = false
+    /// Per-session custom guidance text for notes generation.
+    var customNotesGuidance: String = ""
     /// Sessions whose notes were freshly generated while the user was on a different session.
     /// Cleared when the user opens that session. Used to show the blue "unread" indicator.
     var freshlyGeneratedSessionIDs: Set<String> = []
@@ -164,6 +166,7 @@ final class NotesController {
     /// Used to prevent bleeding status/content onto a different session when the user switches mid-generation.
     @ObservationIgnored private var generatingSessionID: String?
     @ObservationIgnored private var cancelledGenerationSessionIDs: Set<String> = []
+    @ObservationIgnored private var pendingAutoNotes: (sessionID: String, settings: AppSettings)?
 
     /// Audio player for session recordings.
     @ObservationIgnored private var audioPlayer: AVPlayer?
@@ -267,6 +270,7 @@ final class NotesController {
             state.audioFileURL = nil
             state.canRetranscribeSelectedSession = false
             state.hasOriginalTranscriptBackup = false
+            state.customNotesGuidance = ""
             return
         }
 
@@ -280,6 +284,7 @@ final class NotesController {
         state.audioFileURL = nil
         state.canRetranscribeSelectedSession = false
         state.hasOriginalTranscriptBackup = false
+        state.customNotesGuidance = ""
         state.selectedSessionDirectory = coordinator.sessionRepository.sessionsDirectoryURL
             .appendingPathComponent(sessionID, isDirectory: true)
         state.showingOriginal = false
@@ -297,6 +302,7 @@ final class NotesController {
             async let sessionData = coordinator.sessionRepository.loadSessionData(sessionID: sessionID)
             async let canRetranscribe = coordinator.sessionRepository.hasRetainedBatchAudio(sessionID: sessionID)
             async let hasBackup = coordinator.sessionRepository.hasPreBatchTranscriptBackup(sessionID: sessionID)
+            async let customGuidance = coordinator.sessionRepository.loadCustomNotesGuidance(sessionID: sessionID)
             let data = await sessionData
             let unsavedDraft = unsavedManualNotesDraftsBySessionID[sessionID]
 
@@ -310,6 +316,7 @@ final class NotesController {
             state.audioFileURL = data.audioURL
             state.canRetranscribeSelectedSession = await canRetranscribe
             state.hasOriginalTranscriptBackup = await hasBackup
+            state.customNotesGuidance = await customGuidance ?? ""
 
             let session = state.sessionHistory.first { $0.id == sessionID }
             let familySelection = session.map { Self.meetingFamilySelection(for: $0, calendarEvent: data.calendarEvent) }
@@ -325,6 +332,14 @@ final class NotesController {
 
             let hasAny = data.transcript.contains { $0.cleanedText != nil }
             state.cleanupStatus = hasAny ? .completed : .idle
+
+            if let pending = pendingAutoNotes,
+               pending.sessionID == sessionID,
+               state.selectedSessionID == sessionID,
+               !state.loadedTranscript.isEmpty {
+                pendingAutoNotes = nil
+                generateNotes(sessionID: sessionID, settings: pending.settings)
+            }
         }
     }
 
@@ -350,6 +365,7 @@ final class NotesController {
         state.availableAudioSources = []
         state.audioFileURL = nil
         state.showingOriginal = false
+        state.customNotesGuidance = ""
         state.selectedTemplate = selectedTemplate(
             forSessionTemplateID: nil,
             meetingFamilySelection: selection
@@ -480,6 +496,7 @@ final class NotesController {
         // mid-load don't swap in the wrong session's records.
         let capturedTranscript = state.loadedTranscript
         let capturedCalendarEvent = state.loadedCalendarEvent
+        let capturedGuidance = state.customNotesGuidance
 
         generatingSessionID = sessionID
         cancelledGenerationSessionIDs.remove(sessionID)
@@ -494,7 +511,8 @@ final class NotesController {
                 template: template,
                 settings: settings,
                 calendarEvent: capturedCalendarEvent,
-                scratchpad: scratchpad.isEmpty ? nil : scratchpad
+                scratchpad: scratchpad.isEmpty ? nil : scratchpad,
+                customGuidance: capturedGuidance.isEmpty ? nil : capturedGuidance
             ) { [weak self] in
                 guard let self else { return }
                 Task {
@@ -743,6 +761,7 @@ final class NotesController {
                 enableDiarization: settings.enableDiarization,
                 diarizationVariant: settings.diarizationVariant
             )
+            pendingAutoNotes = (sessionID: sessionID, settings: settings)
             await reloadSessionAfterTranscriptMutation(sessionID: sessionID)
         }
     }
@@ -947,6 +966,17 @@ final class NotesController {
 
     func selectTemplate(_ template: MeetingTemplate) {
         state.selectedTemplate = template
+    }
+
+    func updateCustomNotesGuidance(_ text: String) {
+        state.customNotesGuidance = text
+        guard let sessionID = state.selectedSessionID else { return }
+        Task {
+            await coordinator.sessionRepository.saveCustomNotesGuidance(
+                sessionID: sessionID,
+                guidance: text.isEmpty ? nil : text
+            )
+        }
     }
 
     func setSelectedTemplateSavedForMeetingFamily(_ enabled: Bool) {
