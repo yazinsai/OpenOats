@@ -372,7 +372,7 @@ private struct SidecastPersonaEditor: View {
                     onSave(draft)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(OpenOatsProminentButtonStyle())
                 .keyboardShortcut(.defaultAction)
                 .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }

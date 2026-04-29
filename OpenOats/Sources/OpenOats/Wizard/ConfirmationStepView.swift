@@ -180,7 +180,7 @@ struct ConfirmationStepView: View {
                     Task { await viewModel.requestMicPermission() }
                 }
                 .font(.system(size: 12, weight: .medium))
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(OpenOatsProminentButtonStyle())
                 .controlSize(.small)
             }
 

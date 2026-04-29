@@ -144,7 +144,7 @@ private struct GeneralSettingsTab: View {
                                 showAutoDetectExplanation = false
                             }
                             .keyboardShortcut(.defaultAction)
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(OpenOatsProminentButtonStyle())
                         }
                     }
                     .padding(24)
@@ -864,7 +864,7 @@ private struct TemplatesSettingsTab: View {
                                     }
                                     resetNewTemplateForm()
                                 }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(OpenOatsProminentButtonStyle())
                                 .disabled(!canSaveNewTemplate)
                             }
                         }

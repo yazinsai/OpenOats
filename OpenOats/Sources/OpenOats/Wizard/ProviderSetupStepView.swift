@@ -231,7 +231,7 @@ struct ProviderSetupStepView: View {
                         Task { await viewModel.pullMissingModels() }
                     }
                     .font(.system(size: 12, weight: .medium))
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(OpenOatsProminentButtonStyle())
                     .controlSize(.small)
                 }
             }
