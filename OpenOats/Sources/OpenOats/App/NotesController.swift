@@ -197,6 +197,9 @@ final class NotesController {
             case .session(let sessionID):
                 selectSession(sessionID)
                 return true
+            case .transcriptSession(let sessionID):
+                selectSession(sessionID)
+                return true
             case .retranscribeSession(let sessionID):
                 selectSession(sessionID)
                 return true
@@ -230,6 +233,8 @@ final class NotesController {
         if let requested = coordinator.consumeRequestedSessionSelection() {
             switch requested {
             case .session(let sessionID):
+                selectSession(sessionID)
+            case .transcriptSession(let sessionID):
                 selectSession(sessionID)
             case .retranscribeSession(let sessionID):
                 selectSession(sessionID)

@@ -19,6 +19,7 @@ final class AppCoordinator {
     struct NotesNavigationRequest: Equatable {
         enum Target: Equatable {
             case session(String)
+            case transcriptSession(String)
             case retranscribeSession(String)
             case meetingHistory(CalendarEvent)
             case manualTranscript(CalendarEvent)
@@ -246,6 +247,10 @@ final class AppCoordinator {
         } else {
             requestedNotesNavigation = NotesNavigationRequest(target: .clearSelection)
         }
+    }
+
+    func queueTranscriptSessionSelection(_ sessionID: String) {
+        requestedNotesNavigation = NotesNavigationRequest(target: .transcriptSession(sessionID))
     }
 
     func queueSessionRetranscription(_ sessionID: String) {

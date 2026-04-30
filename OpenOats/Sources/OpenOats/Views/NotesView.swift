@@ -3252,6 +3252,9 @@ struct NotesView: View {
             controller.selectSession(sessionID)
             let isImported = controller.state.sessionHistory.first(where: { $0.id == sessionID })?.source == "imported"
             detailViewMode = isImported ? .transcript : .notes
+        case .transcriptSession(let sessionID):
+            controller.selectSession(sessionID)
+            detailViewMode = .transcript
         case .retranscribeSession(let sessionID):
             controller.selectSession(sessionID)
             detailViewMode = .transcript

@@ -623,6 +623,20 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertEqual(controller.state.selectedSessionID, sessionID)
     }
 
+    func testOnAppearCanOpenTranscriptSessionRequest() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_open_transcript"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID)
+        coordinator.queueTranscriptSessionSelection(sessionID)
+
+        let consumed = await controller.onAppear()
+
+        XCTAssertTrue(consumed)
+        XCTAssertEqual(controller.state.selectedSessionID, sessionID)
+    }
+
     func testOpenNotesCanExplicitlyClearSelection() async {
         let (root, _) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)

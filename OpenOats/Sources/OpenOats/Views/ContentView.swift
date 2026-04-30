@@ -70,86 +70,27 @@ struct ContentView: View {
 
             // Post-session banner
             if let lastSession = controllerState.lastEndedSession {
-                if lastSession.utteranceCount > 0 {
-                    HStack {
-                        Text(sessionEndedBannerText(for: lastSession))
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("app.sessionEndedBanner")
-                        Spacer()
-                        if controllerState.lastSessionHasNotes {
-                            Button {
-                                openWindow(id: "notes")
-                            } label: {
-                                Label("View Notes", systemImage: "doc.text")
-                                    .font(.system(size: 12))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .accessibilityIdentifier("app.viewNotesButton")
-                        } else {
-                            Button {
-                                openWindow(id: "notes")
-                            } label: {
-                                Label("Generate Notes", systemImage: "sparkles")
-                                    .font(.system(size: 12))
-                            }
-                            .buttonStyle(OpenOatsProminentButtonStyle())
-                            .controlSize(.small)
-                            .accessibilityIdentifier("app.generateNotesButton")
-                        }
+                PostSessionBanner(
+                    session: lastSession,
+                    lastSessionHasNotes: controllerState.lastSessionHasNotes,
+                    canRetranscribe: controllerState.lastEndedSessionCanRetranscribe,
+                    recoveryIsPending: coordinator.pendingRecoverySessionID == lastSession.id,
+                    onOpenTranscript: {
+                        coordinator.queueTranscriptSessionSelection(lastSession.id)
+                        openWindow(id: "notes")
+                    },
+                    onOpenNotes: {
+                        coordinator.queueSessionSelection(lastSession.id)
+                        openWindow(id: "notes")
+                    },
+                    onGenerateNotes: {
+                        openWindow(id: "notes")
+                    },
+                    onRetranscribe: {
+                        coordinator.queueSessionRetranscription(lastSession.id)
+                        openWindow(id: "notes")
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial)
-
-                    Divider()
-                } else if let transcriptIssue = lastSession.transcriptIssue {
-                    let recoveryIsPending = coordinator.pendingRecoverySessionID == lastSession.id
-                    HStack(spacing: 10) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.orange)
-
-                        Text(transcriptIssue.sessionEndedBannerText)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("app.sessionEndedBanner")
-                        Spacer()
-                        if recoveryIsPending {
-                            Text("Recovery queued")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .accessibilityIdentifier("app.recoveryQueuedLabel")
-                        } else if controllerState.lastEndedSessionCanRetranscribe {
-                            Button {
-                                coordinator.queueSessionRetranscription(lastSession.id)
-                                openWindow(id: "notes")
-                            } label: {
-                                Label("Re-transcribe", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
-                                    .font(.system(size: 12))
-                            }
-                            .buttonStyle(OpenOatsProminentButtonStyle())
-                            .controlSize(.small)
-                            .accessibilityIdentifier("app.retranscribeSessionButton")
-                        }
-                        Button {
-                            coordinator.queueSessionSelection(lastSession.id)
-                            openWindow(id: "notes")
-                        } label: {
-                            Label("Open Session", systemImage: "arrow.right.circle")
-                                .font(.system(size: 12))
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .accessibilityIdentifier("app.reviewSessionButton")
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial)
-
-                    Divider()
-                }
+                )
             }
 
             if controllerState.isRunning, let event = controllerState.matchedCalendarEvent {
@@ -499,15 +440,130 @@ struct ContentView: View {
         }
     }
 
-    private func sessionEndedBannerText(for session: SessionIndex) -> String {
+}
+
+// MARK: - Scratchpad Section
+
+private struct PostSessionBanner: View {
+    let session: SessionIndex
+    let lastSessionHasNotes: Bool
+    let canRetranscribe: Bool
+    let recoveryIsPending: Bool
+    let onOpenTranscript: () -> Void
+    let onOpenNotes: () -> Void
+    let onGenerateNotes: () -> Void
+    let onRetranscribe: () -> Void
+
+    @ViewBuilder
+    var body: some View {
+        if session.utteranceCount > 0 {
+            successfulSessionBanner
+        } else if let transcriptIssue = session.transcriptIssue {
+            failedSessionBanner(transcriptIssue: transcriptIssue)
+        }
+    }
+
+    private var successfulSessionBanner: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(sessionEndedBannerText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("app.sessionEndedBanner")
+                Spacer()
+                if session.transcriptRecovery != nil {
+                    Button(action: onOpenTranscript) {
+                        Label("Open Transcript", systemImage: "text.quote")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(OpenOatsProminentButtonStyle())
+                    .controlSize(.small)
+                    .accessibilityIdentifier("app.openTranscriptButton")
+
+                    if lastSessionHasNotes {
+                        Button(action: onOpenNotes) {
+                            Label("View Notes", systemImage: "doc.text")
+                                .font(.system(size: 12))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("app.viewNotesButton")
+                    }
+                } else if lastSessionHasNotes {
+                    Button(action: onOpenNotes) {
+                        Label("View Notes", systemImage: "doc.text")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("app.viewNotesButton")
+                } else {
+                    Button(action: onGenerateNotes) {
+                        Label("Generate Notes", systemImage: "sparkles")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(OpenOatsProminentButtonStyle())
+                    .controlSize(.small)
+                    .accessibilityIdentifier("app.generateNotesButton")
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial)
+
+            Divider()
+        }
+    }
+
+    private func failedSessionBanner(transcriptIssue: SessionTranscriptIssue) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.orange)
+
+                Text(transcriptIssue.sessionEndedBannerText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("app.sessionEndedBanner")
+                Spacer()
+                if recoveryIsPending {
+                    Text("Recovery queued")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("app.recoveryQueuedLabel")
+                } else if canRetranscribe {
+                    Button(action: onRetranscribe) {
+                        Label("Re-transcribe", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(OpenOatsProminentButtonStyle())
+                    .controlSize(.small)
+                    .accessibilityIdentifier("app.retranscribeSessionButton")
+                }
+                Button(action: onOpenTranscript) {
+                    Label("Open Transcript", systemImage: "text.quote")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("app.openTranscriptButton")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial)
+
+            Divider()
+        }
+    }
+
+    private var sessionEndedBannerText: String {
         if let recovery = session.transcriptRecovery {
             return "\(recovery.sessionEndedBannerText) \u{00B7} \(session.utteranceCount) utterances"
         }
         return "Session ended \u{00B7} \(session.utteranceCount) utterances"
     }
 }
-
-// MARK: - Scratchpad Section
 
 private struct ScratchpadSection: View {
     @Binding var text: String
