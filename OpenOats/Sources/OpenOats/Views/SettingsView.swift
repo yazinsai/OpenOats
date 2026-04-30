@@ -144,7 +144,7 @@ private struct GeneralSettingsTab: View {
                                 showAutoDetectExplanation = false
                             }
                             .keyboardShortcut(.defaultAction)
-                            .buttonStyle(OpenOatsProminentButtonStyle())
+                            .buttonStyle(.borderedProminent)
                         }
                     }
                     .padding(24)
@@ -444,7 +444,7 @@ private struct TranscriptionSettingsTab: View {
 
                     Toggle("Show live transcript", isOn: $settings.showLiveTranscript)
                         .font(.system(size: 12))
-                    Text("When disabled, the transcript panel is hidden during meetings. Transcription still runs in the background for suggestions and notes.")
+                    Text("When disabled, the transcript panel is hidden during meetings. Transcription still runs in the background for suggestions and notes. Cloud models only show finalized transcript segments after pauses; inline partial live text is unavailable.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 
@@ -864,7 +864,7 @@ private struct TemplatesSettingsTab: View {
                                     }
                                     resetNewTemplateForm()
                                 }
-                                .buttonStyle(OpenOatsProminentButtonStyle())
+                                .buttonStyle(.borderedProminent)
                                 .disabled(!canSaveNewTemplate)
                             }
                         }

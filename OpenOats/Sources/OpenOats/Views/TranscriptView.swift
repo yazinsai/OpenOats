@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TranscriptView: View {
     let utterances: [Utterance]
+    var emptyStateMessage: String? = nil
     let volatileYouText: String
     let volatileThemText: String
     var showSearch: Bool = false
@@ -77,6 +78,23 @@ struct TranscriptView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity, minHeight: 60)
+                } else if visible.isEmpty,
+                          !isSearching,
+                          volatileYouText.isEmpty,
+                          volatileThemText.isEmpty,
+                          let emptyStateMessage {
+                    VStack(spacing: 8) {
+                        Image(systemName: "clock.badge.exclamationmark")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.tertiary)
+                        Text(emptyStateMessage)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 320)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 110)
+                    .padding(16)
                 } else {
                     LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(0..<visible.count, id: \.self) { index in

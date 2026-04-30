@@ -98,6 +98,12 @@ final class TranscriptionEngine {
         set { withMutation(keyPath: \.lastError) { _lastError = newValue } }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _liveCloudTranscriptIssue: CloudTranscriptCopy.Presentation?
+    var liveCloudTranscriptIssue: CloudTranscriptCopy.Presentation? {
+        get { access(keyPath: \.liveCloudTranscriptIssue); return _liveCloudTranscriptIssue }
+        set { withMutation(keyPath: \.liveCloudTranscriptIssue) { _liveCloudTranscriptIssue = newValue } }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _needsModelDownload = false
     var needsModelDownload: Bool {
         get { access(keyPath: \.needsModelDownload); return _needsModelDownload }
@@ -235,6 +241,7 @@ final class TranscriptionEngine {
         guard needsModelDownload else { return }
 
         lastError = nil
+        liveCloudTranscriptIssue = nil
         assetStatus = "Downloading \(transcriptionModel.displayName)..."
         beginDownloadTracking(for: transcriptionModel)
 
@@ -267,6 +274,7 @@ final class TranscriptionEngine {
         Log.transcription.info("start() called, isRunning=\(self.isRunning, privacy: .public)")
         guard !isRunning, downloadProgress == nil else { return }
         lastError = nil
+        liveCloudTranscriptIssue = nil
         refreshModelAvailability()
 
         if case .scripted(let scriptedUtterances) = mode {
@@ -630,6 +638,7 @@ final class TranscriptionEngine {
         vadManager = nil
         transcriptStore.volatileYouText = ""
         transcriptStore.volatileThemText = ""
+        liveCloudTranscriptIssue = nil
         activeTranscriptionSession = nil
         isRunning = false
         assetStatus = "Ready"
@@ -666,6 +675,7 @@ final class TranscriptionEngine {
         vadManager = nil
         transcriptStore.volatileYouText = ""
         transcriptStore.volatileThemText = ""
+        liveCloudTranscriptIssue = nil
         activeTranscriptionSession = nil
         isRunning = false
         assetStatus = "Ready"
@@ -933,8 +943,33 @@ final class TranscriptionEngine {
             flushInterval: model.flushIntervalSamples,
             skipPartials: model.isCloud,
             onPartial: onPartial,
-            onFinal: onFinal
+            onFinal: onFinal,
+            onCloudSegmentStatus: makeCloudSegmentStatusHandler(for: model)
         )
+    }
+
+    private func makeCloudSegmentStatusHandler(
+        for model: TranscriptionModel
+    ) -> (@Sendable (StreamingTranscriber.CloudSegmentStatus) -> Void)? {
+        guard model.isCloud else { return nil }
+        return { [weak self] status in
+            Task { @MainActor [weak self] in
+                self?.handleCloudSegmentStatus(status)
+            }
+        }
+    }
+
+    private func handleCloudSegmentStatus(_ status: StreamingTranscriber.CloudSegmentStatus) {
+        switch status.kind {
+        case .success:
+            liveCloudTranscriptIssue = nil
+        case .empty:
+            if transcriptStore.utterances.isEmpty {
+                liveCloudTranscriptIssue = status.presentation
+            }
+        case .error:
+            liveCloudTranscriptIssue = status.presentation
+        }
     }
 
     func currentTranscriptionModel() -> TranscriptionModel {

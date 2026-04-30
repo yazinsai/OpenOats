@@ -682,6 +682,54 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertNil(LiveSessionController.transcriptIssue(for: input))
     }
 
+    func testLiveTranscriptNoticeExplainsCloudDelay() {
+        let notice = LiveSessionController.liveTranscriptNotice(for: .elevenLabsScribe)
+
+        XCTAssertNotNil(notice)
+        XCTAssertTrue(notice?.contains("Cloud transcript updates") == true)
+        XCTAssertTrue(notice?.contains("10s") == true)
+    }
+
+    func testLiveTranscriptNoticePrefersConcreteCloudIssue() {
+        let issue = CloudTranscriptCopy.Presentation(
+            title: "ElevenLabs API key rejected",
+            detail: "Check Settings > Transcription."
+        )
+
+        XCTAssertEqual(
+            LiveSessionController.liveTranscriptNotice(for: .elevenLabsScribe, issue: issue),
+            "ElevenLabs API key rejected"
+        )
+        XCTAssertEqual(
+            LiveSessionController.liveTranscriptEmptyStateMessage(for: .elevenLabsScribe, issue: issue),
+            "Check Settings > Transcription."
+        )
+    }
+
+    func testLiveTranscriptEmptyStateMessageOnlyAppliesToCloudModels() {
+        XCTAssertNil(LiveSessionController.liveTranscriptEmptyStateMessage(for: .parakeetV3))
+
+        let message = LiveSessionController.liveTranscriptEmptyStateMessage(for: .assemblyAI)
+        XCTAssertNotNil(message)
+        XCTAssertEqual(message, "Waiting for transcript chunk…")
+    }
+
+    func testRecordingElapsedSecondsUsesLifecycleStartTime() {
+        let startedAt = Date().addingTimeInterval(-9.4)
+        let metadata = MeetingMetadata(
+            detectionContext: nil,
+            calendarEvent: nil,
+            title: nil,
+            startedAt: startedAt,
+            endedAt: nil
+        )
+
+        let elapsed = LiveSessionController.recordingElapsedSeconds(for: .recording(metadata))
+
+        XCTAssertGreaterThanOrEqual(elapsed, 9)
+        XCTAssertLessThan(elapsed, 12)
+    }
+
     func testSyncProjectedStateRefreshesLastEndedSessionWhenSameSessionChanges() {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)

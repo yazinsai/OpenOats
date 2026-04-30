@@ -130,6 +130,15 @@ final class TranscriptionEngineTests: XCTestCase {
             "transport_connection_lost"
         )
     }
+
+    func testCloudSegmentStatusTurnsInvalidApiKeyIntoActionableCopy() {
+        let presentation = CloudTranscriptCopy.presentation(
+            for: CloudASRError.invalidAPIKey(backend: "ElevenLabs")
+        )
+
+        XCTAssertEqual(presentation.title, "ElevenLabs API key rejected")
+        XCTAssertEqual(presentation.detail, "Check Settings > Transcription.")
+    }
 }
 
 // MARK: - Test Helpers

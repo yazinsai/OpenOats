@@ -3,6 +3,7 @@ import SwiftUI
 struct ControlBar: View {
     let isRunning: Bool
     let audioLevel: Float
+    let recordingElapsedSeconds: Int
     let isMicMuted: Bool
     let isRecordingPaused: Bool
     let modelDisplayName: String
@@ -85,7 +86,7 @@ struct ControlBar: View {
                             .scaleEffect(isRecordingPaused || isMicMuted ? 1.0 : 1.0 + CGFloat(audioLevel) * 0.5)
                             .animation(.easeOut(duration: 0.1), value: audioLevel)
 
-                        Text(isRecordingPaused ? "Paused" : (isMicMuted ? "Muted" : "Live"))
+                        Text("\(isRecordingPaused ? "Paused" : (isMicMuted ? "Muted" : "Live")) \(ElapsedTimeFormatter.compactMinutesSeconds(recordingElapsedSeconds))")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(isRecordingPaused ? .orange : (isMicMuted ? .red : .primary))
                     }
@@ -221,6 +222,7 @@ struct ControlBar: View {
         case .warning: Color.orange
         case .error: Color.red
         }
+        let copy = recordingHealthCopy(for: notice.message)
 
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: symbolName)
@@ -228,13 +230,38 @@ struct ControlBar: View {
                 .foregroundStyle(color)
                 .padding(.top, 1)
 
-            Text(notice.message)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: copy.detail == nil ? 0 : 2) {
+                Text(copy.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                if let detail = copy.detail {
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
         .accessibilityIdentifier("app.controlBar.recordingHealth")
     }
+
+    private func recordingHealthCopy(for message: String) -> (title: String, detail: String?) {
+        switch message {
+        case "No microphone or system audio detected. Check your input and output device settings.":
+            ("No audio detected", "Check input and output devices")
+        case "No system audio detected. Check the selected speaker/output device.":
+            ("No system audio", "Check output device")
+        case "No microphone audio detected. Check the selected microphone.":
+            ("No microphone audio", "Check microphone")
+        case "Capturing audio, but live transcription is not producing text. Recovery batch transcription will run after you stop.":
+            ("No live transcript yet", "Recovery batch will run after stop")
+        case "Capturing audio, but live transcription is not producing text.":
+            ("No live transcript yet", nil)
+        default:
+            (message, nil)
+        }
+    }
+
 }
 
 private extension BatchAudioTranscriber.Status {

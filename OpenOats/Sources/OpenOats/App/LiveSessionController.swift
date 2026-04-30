@@ -21,7 +21,10 @@ final class LiveSessionState {
     var isRunning: Bool = false
     var sessionPhase: MeetingState = .idle
     var audioLevel: Float = 0
+    var recordingElapsedSeconds: Int = 0
     var liveTranscript: [Utterance] = []
+    var liveTranscriptNotice: String? = nil
+    var liveTranscriptEmptyStateMessage: String? = nil
     var volatileYouText: String = ""
     var volatileThemText: String = ""
     var suggestions: [Suggestion] = []
@@ -219,29 +222,6 @@ final class LiveSessionController {
                                     finalUtteranceCount: nil,
                                     mergedIntoSessionID: nil,
                                     failureMessage: message
-                                )
-                            )
-                            self.pendingRecoveryDiagnostics = nil
-                            coordinator.pendingRecoverySessionID = nil
-                        case .cancelled:
-                            recordEmptySessionDiagnostics(
-                                EmptySessionDiagnosticsEvent(
-                                    event: "live_empty_session_recovery",
-                                    sessionID: pendingRecoveryDiagnostics.sessionID,
-                                    transcriptionModel: pendingRecoveryDiagnostics.transcriptionModel,
-                                    elapsedSeconds: 0,
-                                    utteranceCount: 0,
-                                    peakAudioLevel: 0,
-                                    micCapturedFrames: false,
-                                    systemCapturedFrames: false,
-                                    micCaptureError: nil,
-                                    classification: pendingRecoveryDiagnostics.classification.rawValue,
-                                    retainedRecoveryAudio: true,
-                                    recoveryBatchAttempted: true,
-                                    recoveryResult: "cancelled",
-                                    finalUtteranceCount: nil,
-                                    mergedIntoSessionID: nil,
-                                    failureMessage: nil
                                 )
                             )
                             self.pendingRecoveryDiagnostics = nil
@@ -594,7 +574,7 @@ final class LiveSessionController {
             systemHasCapturedFrames: captureHealthAtStop?.systemHasCapturedFrames ?? false,
             micCaptureError: captureHealthAtStop?.micCaptureError,
             isMicMuted: wasMicMutedAtStop,
-            isRecordingPaused: false,
+            isRecordingPaused: coordinator.transcriptionEngine?.isRecordingPaused ?? false,
             hasBlockingError: false
         )
         let transcriptIssue = Self.transcriptIssue(for: recordingHealthInput)
@@ -948,6 +928,39 @@ final class LiveSessionController {
         return "event=\(event.event) session_id=\(event.sessionID) classification=\(event.classification)"
     }
 
+    static func liveTranscriptNotice(
+        for model: TranscriptionModel,
+        issue: CloudTranscriptCopy.Presentation? = nil
+    ) -> String? {
+        if let issue {
+            return issue.title
+        }
+        return CloudTranscriptCopy.steadyStateNotice(for: model)
+    }
+
+    static func liveTranscriptEmptyStateMessage(
+        for model: TranscriptionModel,
+        issue: CloudTranscriptCopy.Presentation? = nil
+    ) -> String? {
+        if let issue {
+            return issue.detail
+        }
+        return CloudTranscriptCopy.waitingMessage(for: model)
+    }
+
+    static func recordingElapsedSeconds(for state: MeetingState) -> Int {
+        let startedAt: Date?
+        switch state {
+        case .recording(let metadata), .ending(let metadata):
+            startedAt = metadata.startedAt
+        case .idle:
+            startedAt = nil
+        }
+
+        guard let startedAt else { return 0 }
+        return max(0, Int(Date().timeIntervalSince(startedAt)))
+    }
+
     private func recordEmptySessionDiagnostics(_ event: EmptySessionDiagnosticsEvent) {
         let message = Self.emptySessionDiagnosticsMessage(for: event)
         DiagnosticsSupport.record(category: "meeting", message: message)
@@ -1020,6 +1033,8 @@ final class LiveSessionController {
 
         let lifecycleState = coordinator.state
         let engineIsRunning = coordinator.transcriptionEngine?.isRunning ?? false
+        let activeTranscriptionModel = coordinator.transcriptionEngine?.currentTranscriptionModel() ?? settings.transcriptionModel
+        let liveCloudIssue = coordinator.transcriptionEngine?.liveCloudTranscriptIssue
         let isRunning: Bool
         let matchedCalendarEvent: CalendarEvent?
         switch lifecycleState {
@@ -1040,6 +1055,7 @@ final class LiveSessionController {
         set(\.isRunning, isRunning)
         set(\.sessionPhase, lifecycleState)
         set(\.audioLevel, engineIsRunning ? (coordinator.transcriptionEngine?.audioLevel ?? 0) : 0)
+        set(\.recordingElapsedSeconds, isRunning ? Self.recordingElapsedSeconds(for: lifecycleState) : 0)
         set(\.volatileYouText, coordinator.transcriptStore.volatileYouText)
         set(\.volatileThemText, coordinator.transcriptStore.volatileThemText)
         set(\.isGeneratingSuggestions, sidebarGenerating)
@@ -1064,6 +1080,8 @@ final class LiveSessionController {
         set(\.transcriptionPrompt, settings.transcriptionModel.downloadPrompt)
         set(\.modelDisplayName, activeModelRaw.split(separator: "/").last.map(String.init) ?? activeModelRaw)
         set(\.showLiveTranscript, settings.showLiveTranscript)
+        set(\.liveTranscriptNotice, isRunning ? Self.liveTranscriptNotice(for: activeTranscriptionModel, issue: liveCloudIssue) : nil)
+        set(\.liveTranscriptEmptyStateMessage, isRunning ? Self.liveTranscriptEmptyStateMessage(for: activeTranscriptionModel, issue: liveCloudIssue) : nil)
         set(\.isMicMuted, coordinator.transcriptionEngine?.isMicMuted ?? false)
         set(\.isRecordingPaused, coordinator.transcriptionEngine?.isRecordingPaused ?? false)
         // scratchpadText is managed by updateScratchpad(), not refreshed from coordinator

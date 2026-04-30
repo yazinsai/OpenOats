@@ -184,8 +184,6 @@ struct ContentView: View {
             }
 
             if controllerState.isRunning {
-                Spacer(minLength: 0)
-
                 // Collapsible transcript (hidden when live transcript is disabled)
                 if controllerState.showLiveTranscript {
                     DisclosureGroup(isExpanded: $isTranscriptExpanded) {
@@ -198,6 +196,24 @@ struct ContentView: View {
                             if !controllerState.liveTranscript.isEmpty {
                                 Text("(\(controllerState.liveTranscript.count))")
                                     .font(.system(size: 11))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            if let liveTranscriptNotice = controllerState.liveTranscriptNotice {
+                                Text("·")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.tertiary)
+                                Text(liveTranscriptNotice)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                            if controllerState.recordingElapsedSeconds > 0 {
+                                Text("·")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.tertiary)
+                                Text(ElapsedTimeFormatter.compactMinutesSeconds(controllerState.recordingElapsedSeconds))
+                                    .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(.tertiary)
                             }
                             Spacer()
@@ -531,6 +547,7 @@ private struct IsolatedTranscriptWrapper: View {
     var body: some View {
         TranscriptView(
             utterances: state.liveTranscript,
+            emptyStateMessage: state.liveTranscriptEmptyStateMessage,
             volatileYouText: state.volatileYouText,
             volatileThemText: state.volatileThemText
         )
@@ -548,6 +565,7 @@ private struct IsolatedControlBarWrapper: View {
         ControlBar(
             isRunning: state.isRunning,
             audioLevel: state.audioLevel,
+            recordingElapsedSeconds: state.recordingElapsedSeconds,
             isMicMuted: state.isMicMuted,
             isRecordingPaused: state.isRecordingPaused,
             modelDisplayName: state.modelDisplayName,

@@ -5,6 +5,17 @@ import os
 /// Consumes an audio buffer stream, detects speech via Silero VAD,
 /// and transcribes completed speech segments via the TranscriptionBackend protocol.
 final class StreamingTranscriber: @unchecked Sendable {
+    struct CloudSegmentStatus: Sendable, Equatable {
+        enum Kind: String, Sendable, Equatable {
+            case success
+            case empty
+            case error
+        }
+
+        let kind: Kind
+        let presentation: CloudTranscriptCopy.Presentation?
+    }
+
     struct CloudSegmentDiagnosticsEvent: Codable, Equatable {
         let event: String
         let sessionID: String?
@@ -28,6 +39,7 @@ final class StreamingTranscriber: @unchecked Sendable {
     private let transcriptionModel: String
     private let onPartial: @Sendable (String) -> Void
     private let onFinal: @Sendable (String) -> Void
+    private let onCloudSegmentStatus: (@Sendable (CloudSegmentStatus) -> Void)?
 
     /// Resampler from source format to 16kHz mono Float32.
     private var converter: AVAudioConverter?
@@ -73,7 +85,8 @@ final class StreamingTranscriber: @unchecked Sendable {
         flushInterval: Int,
         skipPartials: Bool = false,
         onPartial: @escaping @Sendable (String) -> Void,
-        onFinal: @escaping @Sendable (String) -> Void
+        onFinal: @escaping @Sendable (String) -> Void,
+        onCloudSegmentStatus: (@Sendable (CloudSegmentStatus) -> Void)? = nil
     ) {
         self.backend = backend
         self.locale = locale
@@ -85,6 +98,7 @@ final class StreamingTranscriber: @unchecked Sendable {
         self.skipPartials = skipPartials
         self.onPartial = onPartial
         self.onFinal = onFinal
+        self.onCloudSegmentStatus = onCloudSegmentStatus
     }
 
     /// Silero VAD expects chunks of 4096 samples (256ms at 16kHz).
@@ -242,6 +256,12 @@ final class StreamingTranscriber: @unchecked Sendable {
             try Task.checkCancellation()
             let text = try await backend.transcribe(samples, locale: locale, previousContext: previousContext)
             if text.isEmpty {
+                onCloudSegmentStatus?(
+                    CloudSegmentStatus(
+                        kind: .empty,
+                        presentation: CloudTranscriptCopy.emptyChunk
+                    )
+                )
                 recordCloudSegmentDiagnostics(
                     samples: samples,
                     startedAt: startedAt,
@@ -256,6 +276,7 @@ final class StreamingTranscriber: @unchecked Sendable {
                 return
             }
             Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] transcribed: \(text.prefix(80), privacy: .private)")
+            onCloudSegmentStatus?(CloudSegmentStatus(kind: .success, presentation: nil))
             recordCloudSegmentDiagnostics(
                 samples: samples,
                 startedAt: startedAt,
@@ -269,6 +290,7 @@ final class StreamingTranscriber: @unchecked Sendable {
             previousContext = words.suffix(Self.contextWordCount).joined(separator: " ")
             onFinal(text)
         } catch {
+            onCloudSegmentStatus?(CloudSegmentStatus(kind: .error, presentation: CloudTranscriptCopy.presentation(for: error)))
             recordCloudSegmentDiagnostics(
                 samples: samples,
                 startedAt: startedAt,
