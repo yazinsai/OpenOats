@@ -217,6 +217,12 @@ struct ContentView: View {
                 },
                 onConfirmDownload: {
                     pendingControlBarAction = .confirmDownload
+                },
+                onOpenSettings: {
+                    openSettingsWindow()
+                },
+                onOpenMicrophonePrivacySettings: {
+                    openMicrophonePrivacySettings()
                 }
             )
         }
@@ -381,6 +387,19 @@ struct ContentView: View {
 
     private func stopSession() {
         liveSessionController?.stopSession(settings: settings)
+    }
+
+    private func openSettingsWindow() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    }
+
+    private func openMicrophonePrivacySettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+        ) else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     private func showMiniBar(controller: LiveSessionController?, miniBarManager: MiniBarManager?) {
@@ -616,6 +635,8 @@ private struct IsolatedControlBarWrapper: View {
     let onMuteToggle: () -> Void
     let onPauseToggle: () -> Void
     let onConfirmDownload: () -> Void
+    let onOpenSettings: () -> Void
+    let onOpenMicrophonePrivacySettings: () -> Void
 
     var body: some View {
         ControlBar(
@@ -638,7 +659,9 @@ private struct IsolatedControlBarWrapper: View {
             onToggle: onToggle,
             onMuteToggle: onMuteToggle,
             onPauseToggle: onPauseToggle,
-            onConfirmDownload: onConfirmDownload
+            onConfirmDownload: onConfirmDownload,
+            onOpenSettings: onOpenSettings,
+            onOpenMicrophonePrivacySettings: onOpenMicrophonePrivacySettings
         )
     }
 }

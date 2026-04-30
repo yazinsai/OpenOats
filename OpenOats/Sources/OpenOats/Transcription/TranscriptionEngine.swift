@@ -66,6 +66,15 @@ struct CaptureHealthSnapshot: Sendable, Equatable {
 @Observable
 @MainActor
 final class TranscriptionEngine {
+    struct StartPreflightIssue: Equatable {
+        let message: String
+    }
+
+    private struct PreparedCloudStartBackend {
+        let model: TranscriptionModel
+        let backend: any TranscriptionBackend
+    }
+
     enum Mode {
         case live
         case scripted([Utterance])
@@ -196,6 +205,7 @@ final class TranscriptionEngine {
 
     /// Active transcription model captured for the current session/startup.
     @ObservationIgnored nonisolated(unsafe) var activeTranscriptionSession: ActiveTranscriptionSession?
+    @ObservationIgnored private var preparedCloudStartBackend: PreparedCloudStartBackend?
 
     /// Tracks the resolved mic device ID currently in use.
     private var currentMicDeviceID: AudioDeviceID = 0
@@ -230,6 +240,76 @@ final class TranscriptionEngine {
             needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel)
         case .scripted:
             needsModelDownload = false
+        }
+    }
+
+    func preflightStart(transcriptionModel: TranscriptionModel) async -> StartPreflightIssue? {
+        guard case .live = mode else { return nil }
+
+        lastError = nil
+        liveCloudTranscriptIssue = nil
+        preparedCloudStartBackend = nil
+
+        if let inputIssue = validateConfiguredInputDevice() {
+            lastError = inputIssue.message
+            assetStatus = "Ready"
+            return inputIssue
+        }
+
+        if let outputIssue = validateConfiguredOutputDevice() {
+            lastError = outputIssue.message
+            assetStatus = "Ready"
+            return outputIssue
+        }
+
+        guard transcriptionModel.isCloud else {
+            assetStatus = "Ready"
+            return nil
+        }
+
+        let apiKey = settings.cloudASRApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !apiKey.isEmpty else {
+            let issue = StartPreflightIssue(
+                message: "Missing \(transcriptionModel.displayName) API key. Check Settings > Transcription."
+            )
+            lastError = issue.message
+            assetStatus = "Ready"
+            return issue
+        }
+
+        assetStatus = "Validating \(transcriptionModel.displayName)..."
+
+        do {
+            let backend = transcriptionModel.makeBackend(
+                customVocabulary: settings.transcriptionCustomVocabulary,
+                apiKey: apiKey,
+                removeFillerWords: settings.removeFillerWords
+            )
+            try await prepareBackend(backend)
+            preparedCloudStartBackend = PreparedCloudStartBackend(model: transcriptionModel, backend: backend)
+            assetStatus = "Ready"
+            return nil
+        } catch let error as CloudASRError {
+            assetStatus = "Ready"
+            switch error {
+            case .invalidAPIKey:
+                let issue = StartPreflightIssue(message: error.localizedDescription)
+                lastError = issue.message
+                return issue
+            default:
+                Log.transcription.error(
+                    "Cloud start preflight validation fell back to runtime start after non-blocking error: \(error, privacy: .public)"
+                )
+                lastError = nil
+                return nil
+            }
+        } catch {
+            assetStatus = "Ready"
+            Log.transcription.error(
+                "Cloud start preflight validation fell back to runtime start after unexpected error: \(error, privacy: .public)"
+            )
+            lastError = nil
+            return nil
         }
     }
 
@@ -326,8 +406,20 @@ final class TranscriptionEngine {
             let vocab = settings.transcriptionCustomVocabulary
             let apiKey = settings.cloudASRApiKey
             let noFiller = settings.removeFillerWords
-            let mic = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey, removeFillerWords: noFiller)
-            try await prepareBackend(mic)
+            let mic: any TranscriptionBackend
+            if transcriptionModel.isCloud,
+               let preparedCloudStartBackend,
+               preparedCloudStartBackend.model == transcriptionModel {
+                mic = preparedCloudStartBackend.backend
+                self.preparedCloudStartBackend = nil
+            } else {
+                mic = transcriptionModel.makeBackend(
+                    customVocabulary: vocab,
+                    apiKey: apiKey,
+                    removeFillerWords: noFiller
+                )
+                try await prepareBackend(mic)
+            }
             self.micBackend = mic
 
             // Parakeet needs a separate backend for system audio (mutable decoder state).
@@ -639,6 +731,7 @@ final class TranscriptionEngine {
         transcriptStore.volatileYouText = ""
         transcriptStore.volatileThemText = ""
         liveCloudTranscriptIssue = nil
+        preparedCloudStartBackend = nil
         activeTranscriptionSession = nil
         isRunning = false
         assetStatus = "Ready"
@@ -676,6 +769,7 @@ final class TranscriptionEngine {
         transcriptStore.volatileYouText = ""
         transcriptStore.volatileThemText = ""
         liveCloudTranscriptIssue = nil
+        preparedCloudStartBackend = nil
         activeTranscriptionSession = nil
         isRunning = false
         assetStatus = "Ready"
@@ -969,6 +1063,10 @@ final class TranscriptionEngine {
             }
         case .error:
             liveCloudTranscriptIssue = status.presentation
+            if let presentation = status.presentation,
+               presentation.title.localizedCaseInsensitiveContains("API key rejected") {
+                lastError = "\(presentation.title). \(presentation.detail)"
+            }
         }
     }
 
@@ -1008,6 +1106,69 @@ final class TranscriptionEngine {
             return true
         }
         return false
+    }
+
+    private func validateConfiguredInputDevice() -> StartPreflightIssue? {
+        guard settings.inputDeviceID > 0 else {
+            guard MicCapture.defaultInputDeviceID() != nil else {
+                return StartPreflightIssue(
+                    message: "No default microphone is currently available."
+                )
+            }
+            return nil
+        }
+
+        if MicCapture.availableInputDevices().contains(where: { $0.id == settings.inputDeviceID }) {
+            return nil
+        }
+        if let uid = settings.inputDeviceUID,
+           let resolved = MicCapture.inputDeviceID(forUID: uid) {
+            settings.inputDeviceID = resolved
+            return nil
+        }
+
+        return StartPreflightIssue(
+            message: "The selected microphone is no longer available. Choose another microphone in Settings > Transcription."
+        )
+    }
+
+    private func validateConfiguredOutputDevice() -> StartPreflightIssue? {
+        var configuredOutputID: AudioDeviceID? = settings.outputDeviceID != 0 ? settings.outputDeviceID : nil
+
+        if let id = configuredOutputID {
+            if SystemAudioCapture.availableOutputDevices().contains(where: { $0.id == id }) {
+                return nil
+            }
+            if let uid = settings.outputDeviceUID,
+               let resolved = SystemAudioCapture.outputDeviceID(forUID: uid) {
+                settings.outputDeviceID = resolved
+                configuredOutputID = resolved
+            } else {
+                return StartPreflightIssue(
+                    message: "The selected output device is no longer available. Choose another output device in Settings > Transcription."
+                )
+            }
+        }
+
+        if configuredOutputID == nil {
+            do {
+                _ = try SystemAudioCapture.defaultOutputDeviceID()
+            } catch SystemAudioCapture.CaptureError.noOutputDevice {
+                return StartPreflightIssue(
+                    message: "No system audio output device is currently available."
+                )
+            } catch {
+                logOutputValidationFallback(error)
+            }
+        }
+
+        return nil
+    }
+
+    private func logOutputValidationFallback(_ error: Error) {
+        Log.transcription.error(
+            "Output-device preflight validation fell back to runtime start after unexpected error: \(error, privacy: .public)"
+        )
     }
 
     /// Wrap an audio stream to forward each buffer to a synchronous tap before yielding it downstream.
