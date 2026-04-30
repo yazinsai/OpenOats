@@ -28,8 +28,10 @@ struct NotesState {
     var streamingMarkdown: String = ""
     /// Active tag filter for sidebar (nil = show all).
     var tagFilter: String?
-    /// Directory for the currently selected session (used for image loading).
+    /// Directory for the currently selected session (used for note asset loading).
     var selectedSessionDirectory: URL?
+    /// Session-local files referenced from notes markdown.
+    var loadedAttachments: [NoteAttachment] = []
     /// All playable audio sources for the selected session.
     var availableAudioSources: [SessionAudioSource] = []
     /// URL of the currently selected playable audio source for the session (nil if no audio).
@@ -271,6 +273,7 @@ final class NotesController {
             state.loadedTranscript = []
             state.loadedCalendarEvent = nil
             state.selectedSessionDirectory = nil
+            state.loadedAttachments = []
             state.availableAudioSources = []
             state.audioFileURL = nil
             state.canRetranscribeSelectedSession = false
@@ -285,6 +288,7 @@ final class NotesController {
         state.isEditingManualNotes = false
         state.loadedTranscript = []
         state.loadedCalendarEvent = nil
+        state.loadedAttachments = []
         state.availableAudioSources = []
         state.audioFileURL = nil
         state.canRetranscribeSelectedSession = false
@@ -317,6 +321,7 @@ final class NotesController {
             state.isEditingManualNotes = unsavedDraft != nil
             state.loadedTranscript = data.transcript
             state.loadedCalendarEvent = data.calendarEvent
+            state.loadedAttachments = data.attachments
             state.availableAudioSources = data.audioSources
             state.audioFileURL = data.audioURL
             state.canRetranscribeSelectedSession = await canRetranscribe
@@ -367,6 +372,7 @@ final class NotesController {
         state.loadedTranscript = []
         state.loadedCalendarEvent = nil
         state.selectedSessionDirectory = nil
+        state.loadedAttachments = []
         state.availableAudioSources = []
         state.audioFileURL = nil
         state.showingOriginal = false
@@ -431,6 +437,7 @@ final class NotesController {
         state.isEditingManualNotes = false
         state.loadedTranscript = []
         state.loadedCalendarEvent = nil
+        state.loadedAttachments = []
         state.availableAudioSources = []
         state.audioFileURL = nil
         state.canRetranscribeSelectedSession = false
@@ -636,6 +643,62 @@ final class NotesController {
                 await loadHistory()
             }
         }
+    }
+
+    func importAttachment(from sourceURL: URL) {
+        guard let sessionID = state.selectedSessionID else { return }
+
+        Task {
+            guard let attachment = await coordinator.sessionRepository.importAttachment(
+                sessionID: sessionID,
+                sourceURL: sourceURL
+            ) else {
+                return
+            }
+            let markdownLink = Self.markdownLink(for: attachment)
+            let isManualNotesSession = state.loadedTranscript.isEmpty
+
+            if let existing = state.loadedNotes {
+                let baseMarkdown = isManualNotesSession ? state.manualNotesDraft : existing.markdown
+                let updated = GeneratedNotes(
+                    template: existing.template,
+                    generatedAt: existing.generatedAt,
+                    markdown: Self.appendingMarkdownBlock(markdownLink, to: baseMarkdown)
+                )
+                await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: updated)
+                state.loadedNotes = updated
+                state.manualNotesDraft = updated.markdown
+                state.savedManualNotesMarkdown = updated.markdown
+            } else {
+                let template = state.selectedTemplate
+                    ?? coordinator.templateStore.template(for: TemplateStore.genericID)
+                    ?? TemplateStore.builtInTemplates.first!
+                let baseMarkdown = isManualNotesSession ? state.manualNotesDraft : ""
+                let notes = GeneratedNotes(
+                    template: coordinator.templateStore.snapshot(of: template),
+                    generatedAt: Date(),
+                    markdown: Self.appendingMarkdownBlock(markdownLink, to: baseMarkdown)
+                )
+                await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: notes)
+                state.loadedNotes = notes
+                state.manualNotesDraft = notes.markdown
+                state.savedManualNotesMarkdown = notes.markdown
+                await loadHistory()
+            }
+
+            guard state.selectedSessionID == sessionID else { return }
+            state.loadedAttachments = await coordinator.sessionRepository.loadNoteAttachments(sessionID: sessionID)
+        }
+    }
+
+    func openAttachment(_ attachment: NoteAttachment) {
+        guard let url = selectedAttachmentURL(for: attachment) else { return }
+        _ = NSWorkspace.shared.open(url)
+    }
+
+    func revealAttachment(_ attachment: NoteAttachment) {
+        guard let url = selectedAttachmentURL(for: attachment) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     // MARK: - Manual Notes
@@ -1136,6 +1199,23 @@ final class NotesController {
         } else {
             unsavedManualNotesDraftsBySessionID[sessionID] = state.manualNotesDraft
         }
+    }
+
+    private func selectedAttachmentURL(for attachment: NoteAttachment) -> URL? {
+        state.selectedSessionDirectory?.appendingPathComponent(attachment.relativePath)
+    }
+
+    static func markdownLink(for attachment: NoteAttachment) -> String {
+        let label = attachment.displayName
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+        return "[\(label)](\(attachment.relativePath))"
+    }
+
+    static func appendingMarkdownBlock(_ block: String, to existing: String) -> String {
+        guard !existing.isEmpty else { return block }
+        return existing + "\n\n" + block
     }
 
     private func reloadSessionAfterTranscriptMutation(sessionID: String) async {
