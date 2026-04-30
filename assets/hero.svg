@@ -1,0 +1,232 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" width="1440" height="900" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif" role="img" aria-label="OpenOats UI overview with feature annotations">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="80%">
+      <stop offset="0%" stop-color="#141418"/>
+      <stop offset="60%" stop-color="#0b0b0e"/>
+      <stop offset="100%" stop-color="#060608"/>
+    </radialGradient>
+    <linearGradient id="window" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1f1f22"/>
+      <stop offset="100%" stop-color="#161618"/>
+    </linearGradient>
+    <linearGradient id="suggestionPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#252836"/>
+      <stop offset="100%" stop-color="#1f2230"/>
+    </linearGradient>
+    <linearGradient id="footerGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1a1d"/>
+      <stop offset="100%" stop-color="#131316"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-10%" width="140%" height="130%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="22"/>
+      <feOffset dx="0" dy="14"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.55"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+    <clipPath id="windowClip">
+      <rect x="510" y="80" width="420" height="740" rx="14"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1440" height="900" fill="url(#bg)"/>
+
+  <!-- Subtle accent glow behind window -->
+  <ellipse cx="720" cy="460" rx="360" ry="300" fill="#2a3050" opacity="0.18" filter="url(#softGlow)"/>
+
+  <!-- App window shadow base -->
+  <rect x="510" y="80" width="420" height="740" rx="14" fill="#000" opacity="0.5" filter="url(#shadow)"/>
+
+  <!-- App window -->
+  <g>
+    <rect x="510" y="80" width="420" height="740" rx="14" fill="url(#window)" stroke="#2a2a2e" stroke-width="1"/>
+
+    <!-- Title bar -->
+    <g transform="translate(510,80)">
+      <!-- Traffic lights -->
+      <circle cx="22" cy="22" r="6.5" fill="#ff5f57"/>
+      <circle cx="42" cy="22" r="6.5" fill="#febc2e"/>
+      <circle cx="62" cy="22" r="6.5" fill="#28c840"/>
+    </g>
+
+    <!-- App title row -->
+    <text x="532" y="135" fill="#f1f1f3" font-size="15" font-weight="600" letter-spacing="-0.2">OpenOats</text>
+
+    <!-- KB folder pill (right side of header) -->
+    <g transform="translate(820,120)">
+      <text x="0" y="14" fill="#7c7c84" font-size="11" font-weight="500">12 files</text>
+      <text x="46" y="14" fill="#5b9bf5" font-size="11" font-weight="500">KB Folder…</text>
+    </g>
+
+    <!-- SUGGESTIONS label -->
+    <text x="532" y="178" fill="#5e5e66" font-size="10" font-weight="600" letter-spacing="2">SUGGESTIONS</text>
+
+    <!-- Suggestions panel -->
+    <g>
+      <rect x="528" y="192" width="384" height="240" rx="10" fill="url(#suggestionPanel)" stroke="#2c2f3e" stroke-width="1"/>
+
+      <!-- Bullet 1 -->
+      <circle cx="546" cy="218" r="2.4" fill="#8aa3d8"/>
+      <text x="558" y="222" fill="#eef0f6" font-size="12.5" font-weight="600">Your Series A deck cites TAM of $4.8B by</text>
+      <text x="558" y="238" fill="#eef0f6" font-size="12.5" font-weight="600">2027</text>
+      <text x="558" y="258" fill="#9ea1ad" font-size="11.5">Bottom-up calc: 40M knowledge workers ×</text>
+      <text x="558" y="273" fill="#9ea1ad" font-size="11.5">$10/mo avg. contract value</text>
+
+      <!-- Bullet 2 -->
+      <circle cx="546" cy="298" r="2.4" fill="#8aa3d8"/>
+      <text x="558" y="302" fill="#eef0f6" font-size="12.5" font-weight="600">Key differentiator: fully local transcription</text>
+      <text x="558" y="322" fill="#9ea1ad" font-size="11.5">Otter and Fireflies both send audio to cloud;</text>
+      <text x="558" y="337" fill="#9ea1ad" font-size="11.5">OpenOats keeps everything on-device</text>
+
+      <!-- Bullet 3 -->
+      <circle cx="546" cy="362" r="2.4" fill="#8aa3d8"/>
+      <text x="558" y="366" fill="#eef0f6" font-size="12.5" font-weight="600">Mention the 3x engagement lift from beta</text>
+      <text x="558" y="386" fill="#9ea1ad" font-size="11.5">Beta users logged 3x more follow-up actions</text>
+      <text x="558" y="401" fill="#9ea1ad" font-size="11.5">vs. their previous meeting tool</text>
+
+      <!-- Source files row -->
+      <g transform="translate(540,415)">
+        <rect x="0" y="0" width="6" height="8" fill="#5b6378" rx="1"/>
+        <text x="11" y="7.5" fill="#7e8294" font-size="10">pitch-deck-v3.md</text>
+        <text x="98" y="7.5" fill="#3f4252" font-size="10">|</text>
+        <text x="106" y="7.5" fill="#7e8294" font-size="10">competitive-analysis.md</text>
+        <text x="234" y="7.5" fill="#3f4252" font-size="10">|</text>
+        <text x="242" y="7.5" fill="#7e8294" font-size="10">beta-results.md</text>
+      </g>
+    </g>
+
+    <!-- Transcript header -->
+    <text x="532" y="468" fill="#7c7c84" font-size="12" font-weight="500">▾ Transcript</text>
+    <text x="612" y="468" fill="#5e5e66" font-size="12">(6)</text>
+
+    <!-- Transcript bubbles -->
+    <g font-size="12.5">
+      <!-- Them 1 -->
+      <text x="528" y="495" fill="#e8a96a" font-weight="600">Them</text>
+      <text x="572" y="495" fill="#dcdce0">So walk me through the market. How big is</text>
+      <text x="572" y="511" fill="#dcdce0">this space?</text>
+      <!-- You 1 -->
+      <text x="528" y="538" fill="#5b9bf5" font-weight="600">You</text>
+      <text x="572" y="538" fill="#dcdce0">The meeting intelligence market hit about</text>
+      <text x="572" y="554" fill="#dcdce0">$3.2 billion last year. It's growing around</text>
+      <text x="572" y="570" fill="#dcdce0">20% annually.</text>
+      <!-- Them 2 -->
+      <text x="528" y="597" fill="#e8a96a" font-weight="600">Them</text>
+      <text x="572" y="597" fill="#dcdce0">And everyone already uses Otter or</text>
+      <text x="572" y="613" fill="#dcdce0">Fireflies. What's the angle here?</text>
+      <!-- You 2 -->
+      <text x="528" y="640" fill="#5b9bf5" font-weight="600">You</text>
+      <text x="572" y="640" fill="#dcdce0">Those tools record and summarize after</text>
+      <text x="572" y="656" fill="#dcdce0">the fact. We do something different — we</text>
+      <text x="572" y="672" fill="#dcdce0">surface relevant info from your own notes</text>
+      <text x="572" y="688" fill="#dcdce0">while you're still talking.</text>
+      <!-- Them 3 -->
+      <text x="528" y="715" fill="#e8a96a" font-weight="600">Them</text>
+      <text x="572" y="715" fill="#dcdce0">Interesting. What about privacy though?</text>
+      <text x="572" y="731" fill="#dcdce0">Our LPs are sensitive about data leaving</text>
+      <text x="572" y="747" fill="#dcdce0">the device.</text>
+      <!-- You 3 (active) -->
+      <text x="528" y="774" fill="#5b9bf5" font-weight="600">You</text>
+      <text x="572" y="774" fill="#7c7c84">That's actually one of our biggest</text>
+      <text x="572" y="780" fill="#7c7c84">differentiators</text>
+      <circle cx="660" cy="777" r="2.5" fill="#34c759"><animate attributeName="opacity" values="0.3;1;0.3" dur="1.4s" repeatCount="indefinite"/></circle>
+    </g>
+
+    <!-- Footer (mask the transcript at bottom edge) -->
+    <rect x="510" y="788" width="420" height="32" fill="url(#footerGrad)"/>
+    <line x1="510" y1="788" x2="930" y2="788" stroke="#2a2a2e" stroke-width="1"/>
+
+    <!-- Live indicator -->
+    <g transform="translate(528,798)">
+      <rect x="0" y="0" width="58" height="18" rx="9" fill="#1f2a22"/>
+      <circle cx="11" cy="9" r="3.2" fill="#34c759"/>
+      <text x="20" y="12.5" fill="#9ad8a8" font-size="11" font-weight="600">Live</text>
+    </g>
+
+    <!-- Audio meter -->
+    <g transform="translate(600,802)" fill="#5b9bf5">
+      <rect x="0" y="6" width="2.4" height="4" rx="1"/>
+      <rect x="5" y="3" width="2.4" height="10" rx="1"/>
+      <rect x="10" y="0" width="2.4" height="16" rx="1"/>
+      <rect x="15" y="4" width="2.4" height="8" rx="1"/>
+      <rect x="20" y="2" width="2.4" height="12" rx="1"/>
+      <rect x="25" y="5" width="2.4" height="6" rx="1"/>
+    </g>
+
+    <!-- Model badge -->
+    <g transform="translate(810,798)">
+      <rect x="0" y="0" width="106" height="18" rx="4" fill="#22232a"/>
+      <text x="53" y="12.5" text-anchor="middle" fill="#8a8c95" font-size="10.5" font-family="ui-monospace, 'SF Mono', Menlo, monospace">gemini-2.5-flash</text>
+    </g>
+  </g>
+
+  <!-- ============================ -->
+  <!--      ANNOTATION LAYER        -->
+  <!-- ============================ -->
+  <g stroke="#4d4d56" stroke-width="1" fill="none">
+    <!-- Left: Hidden from screen sharing → top-left window edge -->
+    <path d="M 280 130 L 470 130 L 506 124"/>
+    <!-- Left: Live transcript → transcript area -->
+    <path d="M 280 600 L 470 600 L 522 580"/>
+    <!-- Left: On-device, both speakers → Them speaker tag -->
+    <path d="M 280 495 L 470 495 L 522 495"/>
+
+    <!-- Right: Suggestions from notes → suggestions panel -->
+    <path d="M 1160 240 L 970 240 L 925 250"/>
+    <!-- Right: Sources cited inline → source pills -->
+    <path d="M 1160 422 L 970 422 L 920 422"/>
+    <!-- Right: Pick any LLM → model badge -->
+    <path d="M 1160 808 L 970 808 L 918 808"/>
+  </g>
+
+  <!-- Target dots -->
+  <g fill="#7a8aff">
+    <circle cx="506" cy="124" r="2.6"/>
+    <circle cx="522" cy="580" r="2.6"/>
+    <circle cx="522" cy="495" r="2.6"/>
+    <circle cx="925" cy="250" r="2.6"/>
+    <circle cx="920" cy="422" r="2.6"/>
+    <circle cx="918" cy="808" r="2.6"/>
+  </g>
+
+  <!-- Left labels -->
+  <g font-size="13" fill="#cfd0d6">
+    <!-- 1 -->
+    <text x="280" y="118" text-anchor="end" font-weight="600">Hidden from screen sharing</text>
+    <text x="280" y="135" text-anchor="end" font-size="11.5" fill="#8a8b94">No one on the call sees the window</text>
+
+    <!-- 2 -->
+    <text x="280" y="483" text-anchor="end" font-weight="600">On-device transcription</text>
+    <text x="280" y="500" text-anchor="end" font-size="11.5" fill="#8a8b94">Both sides, real-time. Audio never leaves your Mac.</text>
+
+    <!-- 3 -->
+    <text x="280" y="588" text-anchor="end" font-weight="600">Live transcript</text>
+    <text x="280" y="605" text-anchor="end" font-size="11.5" fill="#8a8b94">Copy the whole thing in one click</text>
+  </g>
+
+  <!-- Right labels -->
+  <g font-size="13" fill="#cfd0d6">
+    <!-- 1 -->
+    <text x="1170" y="228" font-weight="600">Talking points from your own notes</text>
+    <text x="1170" y="245" font-size="11.5" fill="#8a8b94">Surfaced the moment a question lands —</text>
+    <text x="1170" y="260" font-size="11.5" fill="#8a8b94">a decision, a claim, a number worth backing up</text>
+
+    <!-- 2 -->
+    <text x="1170" y="410" font-weight="600">Sources cited inline</text>
+    <text x="1170" y="427" font-size="11.5" fill="#8a8b94">Every suggestion ties back to a file in</text>
+    <text x="1170" y="442" font-size="11.5" fill="#8a8b94">your knowledge base</text>
+
+    <!-- 3 -->
+    <text x="1170" y="796" font-weight="600">Pick any LLM</text>
+    <text x="1170" y="813" font-size="11.5" fill="#8a8b94">OpenRouter for cloud, Ollama for fully local —</text>
+    <text x="1170" y="828" font-size="11.5" fill="#8a8b94">nothing on the network at all</text>
+  </g>
+
+  <!-- Bottom caption -->
+  <g text-anchor="middle">
+    <text x="720" y="858" fill="#9a9aa3" font-size="13" letter-spacing="0.2">A meeting note-taker that talks back — transcribes both sides, searches your notes, surfaces what's worth saying.</text>
+  </g>
+</svg>
