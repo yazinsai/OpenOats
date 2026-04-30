@@ -6,6 +6,7 @@ dist/
 *.spec
 .worktrees/
 .beads/
+.claude/
 OpenOats/.build/
 data/
 CLAUDE.md
