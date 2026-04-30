@@ -1885,6 +1885,8 @@ actor SessionRepository {
     // MARK: - Notes Folder Mirroring
 
     /// Schedule a background mirror of the session's notes and transcript to notesFolderPath.
+    /// When notes reference session-local assets, the mirror is written as a small package
+    /// directory so relative links remain valid.
     /// Captures all actor-isolated state before spawning so the work runs entirely off-actor.
     /// - Parameter notesMarkdown: Pass the markdown when already in memory (e.g. from saveNotes)
     ///   to avoid a redundant disk read; nil causes the background task to read it from disk.
@@ -1925,6 +1927,7 @@ actor SessionRepository {
 
         let resolvedMarkdown = notesMarkdown
             ?? readNotes(sessionID: sessionID, dir: dir, sessionsDirectory: sessionsDirectory)?.markdown
+        let referencedAssetPaths = resolvedMarkdown.map(Self.referencedMirrorAssetPaths(in:)) ?? []
 
         let index = SessionIndex(
             id: meta?.id ?? sessionID,
@@ -1945,12 +1948,115 @@ actor SessionRepository {
             transcriptRecovery: meta?.transcriptRecovery
         )
 
-        MarkdownMeetingWriter.write(
+        let outputTarget = MarkdownMeetingWriter.write(
             metadata: .init(from: index),
             records: records,
             notesMarkdown: resolvedMarkdown,
-            outputDirectory: outputDir
+            outputDirectory: outputDir,
+            preferPackage: !referencedAssetPaths.isEmpty
         )
+
+        guard let outputTarget else { return }
+
+        if let packageDirectoryURL = outputTarget.packageDirectoryURL {
+            synchronizeMirroredAssets(
+                referencedAssetPaths: referencedAssetPaths,
+                from: dir,
+                into: packageDirectoryURL
+            )
+        }
+    }
+
+    private nonisolated static func referencedMirrorAssetPaths(in markdown: String) -> Set<String> {
+        guard let regex = try? NSRegularExpression(pattern: #"!?\[[^\]]*\]\(([^)]+)\)"#) else {
+            return []
+        }
+
+        let nsMarkdown = markdown as NSString
+        let range = NSRange(location: 0, length: nsMarkdown.length)
+        var paths: Set<String> = []
+
+        for match in regex.matches(in: markdown, range: range) {
+            guard match.numberOfRanges > 1 else { continue }
+            let rawTarget = nsMarkdown.substring(with: match.range(at: 1))
+            if let normalizedPath = normalizedMirrorAssetPath(rawTarget) {
+                paths.insert(normalizedPath)
+            }
+        }
+
+        return paths
+    }
+
+    private nonisolated static func normalizedMirrorAssetPath(_ rawTarget: String) -> String? {
+        var target = rawTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        if target.hasPrefix("<"), target.hasSuffix(">"), target.count >= 2 {
+            target.removeFirst()
+            target.removeLast()
+        }
+
+        guard !target.isEmpty else { return nil }
+
+        if let fragmentIndex = target.firstIndex(of: "#") {
+            target = String(target[..<fragmentIndex])
+        }
+        if let queryIndex = target.firstIndex(of: "?") {
+            target = String(target[..<queryIndex])
+        }
+
+        guard !target.isEmpty,
+              !target.hasPrefix("/"),
+              !target.hasPrefix("~"),
+              URL(string: target)?.scheme == nil else {
+            return nil
+        }
+
+        let components = target
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+        guard let first = components.first,
+              first == "attachments" || first == "images",
+              !components.contains(".."),
+              !components.contains(".") else {
+            return nil
+        }
+
+        return components.joined(separator: "/")
+    }
+
+    private nonisolated static func synchronizeMirroredAssets(
+        referencedAssetPaths: Set<String>,
+        from sessionDirectory: URL,
+        into packageDirectory: URL
+    ) {
+        let fm = FileManager.default
+        let mirroredAssetDirectories = [
+            packageDirectory.appendingPathComponent("attachments", isDirectory: true),
+            packageDirectory.appendingPathComponent("images", isDirectory: true),
+        ]
+
+        for directory in mirroredAssetDirectories {
+            try? fm.removeItem(at: directory)
+        }
+
+        guard !referencedAssetPaths.isEmpty else { return }
+
+        for relativePath in referencedAssetPaths.sorted() {
+            let sourceURL = sessionDirectory.appendingPathComponent(relativePath)
+            guard fm.fileExists(atPath: sourceURL.path) else { continue }
+
+            let destinationURL = packageDirectory.appendingPathComponent(relativePath)
+            let parentDirectory = destinationURL.deletingLastPathComponent()
+            do {
+                try fm.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
+                if fm.fileExists(atPath: destinationURL.path) {
+                    try fm.removeItem(at: destinationURL)
+                }
+                try fm.copyItem(at: sourceURL, to: destinationURL)
+                try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destinationURL.path)
+            } catch {
+                Log.sessionRepository.error("Failed to mirror note asset \(relativePath, privacy: .public): \(error, privacy: .public)")
+            }
+        }
     }
 
     // MARK: - Spotlight
