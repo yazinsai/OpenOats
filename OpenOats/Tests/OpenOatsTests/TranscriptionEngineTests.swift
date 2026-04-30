@@ -139,6 +139,23 @@ final class TranscriptionEngineTests: XCTestCase {
         XCTAssertEqual(presentation.title, "ElevenLabs API key rejected")
         XCTAssertEqual(presentation.detail, "Check Settings > Transcription.")
     }
+
+    func testLiveTranscriptCopyShowsProcessingStateWhenCloudChunkIsInFlight() {
+        XCTAssertEqual(
+            LiveSessionController.liveTranscriptNotice(
+                for: .elevenLabsScribe,
+                isProcessing: true
+            ),
+            CloudTranscriptCopy.processingChunk.title
+        )
+        XCTAssertEqual(
+            LiveSessionController.liveTranscriptEmptyStateMessage(
+                for: .elevenLabsScribe,
+                isProcessing: true
+            ),
+            CloudTranscriptCopy.processingChunk.detail
+        )
+    }
 }
 
 // MARK: - Test Helpers
