@@ -3314,7 +3314,7 @@ struct NotesView: View {
 
     @ViewBuilder
     private func sectionBodyView(_ body: String, sessionDirectory: URL?) -> some View {
-        let blocks = parseBodyBlocks(body)
+        let blocks = NoteAssetMarkdownParser.parseBody(body)
         ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
             switch block {
             case .text(let text):
@@ -3329,56 +3329,140 @@ struct NotesView: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            case .image(let path):
-                if let dir = sessionDirectory,
-                   let nsImage = NSImage(contentsOf: dir.appendingPathComponent(path)) {
+            case .image(let altText, let relativePath):
+                localImagePreview(relativePath: relativePath, altText: altText, sessionDirectory: sessionDirectory)
+            case .fileLink(let label, let relativePath):
+                localAttachmentPreview(label: label, relativePath: relativePath, sessionDirectory: sessionDirectory)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func localImagePreview(
+        relativePath: String,
+        altText: String,
+        sessionDirectory: URL?
+    ) -> some View {
+        if let url = resolvedSessionAssetURL(relativePath: relativePath, sessionDirectory: sessionDirectory),
+           let nsImage = NSImage(contentsOf: url) {
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    NSWorkspace.shared.open(url)
+                } label: {
                     Image(nsImage: nsImage)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: 500, maxHeight: 400)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                } else {
-                    Label("Image not found", systemImage: "photo")
-                        .font(.system(size: 12))
+                        .frame(maxWidth: 420, maxHeight: 280)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+                .help("Open image")
+
+                HStack(spacing: 8) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                    Text(imagePreviewCaption(altText: altText, url: url))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    } label: {
+                        Image(systemName: "folder")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Reveal in Finder")
                 }
             }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(.quaternary, lineWidth: 1)
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            missingAssetLabel("Image not found", systemImage: "photo")
         }
     }
 
-    private enum BodyBlock {
-        case text(String)
-        case image(path: String)
+    @ViewBuilder
+    private func localAttachmentPreview(
+        label: String,
+        relativePath: String,
+        sessionDirectory: URL?
+    ) -> some View {
+        if let url = resolvedSessionAssetURL(relativePath: relativePath, sessionDirectory: sessionDirectory) {
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                        .resizable()
+                        .frame(width: 22, height: 22)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(label.isEmpty ? url.lastPathComponent : label)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Text(url.lastPathComponent)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: "arrow.up.forward.app")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(.quaternary, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Open attachment")
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            missingAssetLabel("Attachment not found", systemImage: "paperclip")
+        }
     }
 
-    private func parseBodyBlocks(_ body: String) -> [BodyBlock] {
-        var blocks: [BodyBlock] = []
-        var scanner = body[...]
-
-        while let imgStart = scanner.range(of: "![") {
-            let before = String(scanner[scanner.startIndex..<imgStart.lowerBound])
-            if !before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                blocks.append(.text(before))
-            }
-
-            let afterBracket = scanner[imgStart.upperBound...]
-            guard let closeBracket = afterBracket.range(of: "]("),
-                  let closeParen = afterBracket[closeBracket.upperBound...].range(of: ")") else {
-                blocks.append(.text(String(scanner)))
-                return blocks
-            }
-
-            let path = String(afterBracket[closeBracket.upperBound..<closeParen.lowerBound])
-            blocks.append(.image(path: path))
-            scanner = afterBracket[closeParen.upperBound...]
+    private func resolvedSessionAssetURL(relativePath: String, sessionDirectory: URL?) -> URL? {
+        guard let sessionDirectory else { return nil }
+        let baseURL = sessionDirectory.standardizedFileURL
+        let assetURL = baseURL.appendingPathComponent(relativePath).standardizedFileURL
+        guard assetURL.path.hasPrefix(baseURL.path + "/") || assetURL.path == baseURL.path else {
+            return nil
         }
+        return assetURL
+    }
 
-        let tail = String(scanner)
-        if !tail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            blocks.append(.text(tail))
-        }
+    private func imagePreviewCaption(altText: String, url: URL) -> String {
+        let trimmedAltText = altText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedAltText.isEmpty ? url.lastPathComponent : trimmedAltText
+    }
 
-        return blocks
+    private func missingAssetLabel(_ text: String, systemImage: String) -> some View {
+        Label(text, systemImage: systemImage)
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
     }
 
     private struct MarkdownSection {
