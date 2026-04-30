@@ -1,6 +1,22 @@
 import SwiftUI
 
 struct ControlBar: View {
+    private enum BannerActionKind {
+        case openSettings
+        case openMicrophonePrivacySettings
+    }
+
+    private struct BannerAction {
+        let title: String
+        let kind: BannerActionKind
+    }
+
+    private struct BannerCopy {
+        let title: String
+        let detail: String?
+        let action: BannerAction?
+    }
+
     let isRunning: Bool
     let audioLevel: Float
     let recordingElapsedSeconds: Int
@@ -21,17 +37,18 @@ struct ControlBar: View {
     let onMuteToggle: () -> Void
     let onPauseToggle: () -> Void
     let onConfirmDownload: () -> Void
+    let onOpenSettings: () -> Void
+    let onOpenMicrophonePrivacySettings: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             // Error banner
             if let error = errorMessage {
-                Text(error)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 4)
+                statusBanner(
+                    symbolName: "xmark.octagon.fill",
+                    color: .red,
+                    copy: errorBannerCopy(for: error)
+                )
             }
 
             // Download prompt
@@ -222,9 +239,21 @@ struct ControlBar: View {
         case .warning: Color.orange
         case .error: Color.red
         }
-        let copy = recordingHealthCopy(for: notice.message)
+        statusBanner(
+            symbolName: symbolName,
+            color: color,
+            copy: recordingHealthBannerCopy(for: notice.message)
+        )
+        .accessibilityIdentifier("app.controlBar.recordingHealth")
+    }
 
-        HStack(alignment: .top, spacing: 6) {
+    @ViewBuilder
+    private func statusBanner(
+        symbolName: String,
+        color: Color,
+        copy: BannerCopy
+    ) -> some View {
+        HStack(alignment: .top, spacing: 8) {
             Image(systemName: symbolName)
                 .font(.system(size: 11))
                 .foregroundStyle(color)
@@ -241,24 +270,105 @@ struct ControlBar: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+
+            Spacer(minLength: 8)
+
+            if let action = copy.action {
+                Button(action.title) {
+                    performBannerAction(action.kind)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            }
         }
-        .accessibilityIdentifier("app.controlBar.recordingHealth")
     }
 
-    private func recordingHealthCopy(for message: String) -> (title: String, detail: String?) {
+    private func performBannerAction(_ action: BannerActionKind) {
+        switch action {
+        case .openSettings:
+            onOpenSettings()
+        case .openMicrophonePrivacySettings:
+            onOpenMicrophonePrivacySettings()
+        }
+    }
+
+    private func errorBannerCopy(for message: String) -> BannerCopy {
+        switch message {
+        case "The selected microphone is no longer available. Choose another microphone in Settings > Transcription.":
+            BannerCopy(
+                title: "Microphone unavailable",
+                detail: "Choose another microphone in Settings",
+                action: BannerAction(title: "Open Settings", kind: .openSettings)
+            )
+        case "No default microphone is currently available.":
+            BannerCopy(
+                title: "No microphone",
+                detail: "Connect or choose a microphone in Settings",
+                action: BannerAction(title: "Open Settings", kind: .openSettings)
+            )
+        case "The selected output device is no longer available. Choose another output device in Settings > Transcription.":
+            BannerCopy(
+                title: "Output device unavailable",
+                detail: "Choose another output device in Settings",
+                action: BannerAction(title: "Open Settings", kind: .openSettings)
+            )
+        case "No system audio output device is currently available.":
+            BannerCopy(
+                title: "No output device",
+                detail: "Connect or choose an output device in Settings",
+                action: BannerAction(title: "Open Settings", kind: .openSettings)
+            )
+        case "Failed to start system audio: No audio output device is currently available.":
+            BannerCopy(
+                title: "No output device",
+                detail: "Connect or choose an output device in Settings",
+                action: BannerAction(title: "Open Settings", kind: .openSettings)
+            )
+        case let message where message.contains("API key") && message.contains("Settings > Transcription"):
+            BannerCopy(
+                title: message.replacingOccurrences(of: ". Check Settings > Transcription.", with: ""),
+                detail: "Update the cloud transcription key in Settings",
+                action: BannerAction(title: "Open Settings", kind: .openSettings)
+            )
+        case let message where message.contains("Microphone access denied"),
+             let message where message.contains("Microphone access is disabled"),
+             let message where message.contains("Unable to verify microphone permission"):
+            BannerCopy(
+                title: "Microphone access disabled",
+                detail: "Enable microphone access in System Settings",
+                action: BannerAction(title: "Open System Settings", kind: .openMicrophonePrivacySettings)
+            )
+        default:
+            BannerCopy(title: message, detail: nil, action: nil)
+        }
+    }
+
+    private func recordingHealthBannerCopy(for message: String) -> BannerCopy {
         switch message {
         case "No microphone or system audio detected. Check your input and output device settings.":
-            ("No audio detected", "Check input and output devices")
+            BannerCopy(
+                title: "No audio detected",
+                detail: "Check input and output devices",
+                action: BannerAction(title: "Open Settings", kind: .openSettings)
+            )
         case "No system audio detected. Check the selected speaker/output device.":
-            ("No system audio", "Check output device")
+            BannerCopy(
+                title: "No system audio",
+                detail: "Check output device",
+                action: BannerAction(title: "Open Settings", kind: .openSettings)
+            )
         case "No microphone audio detected. Check the selected microphone.":
-            ("No microphone audio", "Check microphone")
+            BannerCopy(
+                title: "No microphone audio",
+                detail: "Check microphone",
+                action: BannerAction(title: "Open Settings", kind: .openSettings)
+            )
         case "Capturing audio, but live transcription is not producing text. Recovery batch transcription will run after you stop.":
-            ("No live transcript yet", "Recovery batch will run after stop")
+            BannerCopy(title: "No live transcript yet", detail: "Recovery batch will run after stop", action: nil)
         case "Capturing audio, but live transcription is not producing text.":
-            ("No live transcript yet", nil)
+            BannerCopy(title: "No live transcript yet", detail: nil, action: nil)
         default:
-            (message, nil)
+            BannerCopy(title: message, detail: nil, action: nil)
         }
     }
 

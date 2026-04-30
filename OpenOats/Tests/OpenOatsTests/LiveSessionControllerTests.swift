@@ -67,6 +67,34 @@ final class LiveSessionControllerTests: XCTestCase {
         return (controller, coordinator)
     }
 
+    private func makeLiveController(
+        root: URL,
+        notesDirectory: URL,
+        settings: AppSettings
+    ) -> (LiveSessionController, AppCoordinator) {
+        let transcriptStore = TranscriptStore()
+        let coordinator = AppCoordinator(
+            sessionRepository: SessionRepository(rootDirectory: root),
+            templateStore: TemplateStore(rootDirectory: root),
+            notesEngine: NotesEngine(mode: .scripted(markdown: "Test")),
+            transcriptStore: transcriptStore
+        )
+        coordinator.transcriptionEngine = TranscriptionEngine(
+            transcriptStore: transcriptStore,
+            settings: settings
+        )
+
+        let container = AppContainer(
+            mode: .live,
+            defaults: .standard,
+            appSupportDirectory: root,
+            notesDirectory: notesDirectory
+        )
+        let controller = LiveSessionController(coordinator: coordinator, container: container)
+        coordinator.liveSessionController = controller
+        return (controller, coordinator)
+    }
+
     private func makeUninitializedController(
         root: URL,
         notesDirectory: URL,
@@ -112,6 +140,79 @@ final class LiveSessionControllerTests: XCTestCase {
         } else {
             XCTFail("Expected .recording state immediately after startSession, got \(coordinator.state)")
         }
+    }
+
+    func testCloudStartPreflightBlocksMissingAPIKey() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        settings.transcriptionModel = .elevenLabsScribe
+        let (controller, coordinator) = makeLiveController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+
+        controller.startSession(settings: settings)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(coordinator.state, .idle)
+        XCTAssertFalse(controller.state.isRunning)
+        XCTAssertEqual(
+            controller.state.errorMessage,
+            "Missing ElevenLabs Scribe API key. Check Settings > Transcription."
+        )
+    }
+
+    func testCloudStartPreflightBlocksUnavailableOutputDevice() async {
+        let dirs = makeTempDirs()
+        let secretStore = AppSecretStore(
+            loadValue: { _ in "test-key" },
+            saveValue: { _, _ in }
+        )
+        let settings = makeSettings(notesDirectory: dirs.notes, secretStore: secretStore)
+        settings.transcriptionModel = .assemblyAI
+        settings.outputDeviceID = 999_999_999
+        let (controller, coordinator) = makeLiveController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+
+        controller.startSession(settings: settings)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(coordinator.state, .idle)
+        XCTAssertFalse(controller.state.isRunning)
+        XCTAssertEqual(
+            controller.state.errorMessage,
+            "The selected output device is no longer available. Choose another output device in Settings > Transcription."
+        )
+    }
+
+    func testCloudStartPreflightBlocksUnavailableMicrophone() async {
+        let dirs = makeTempDirs()
+        let secretStore = AppSecretStore(
+            loadValue: { _ in "test-key" },
+            saveValue: { _, _ in }
+        )
+        let settings = makeSettings(notesDirectory: dirs.notes, secretStore: secretStore)
+        settings.transcriptionModel = .assemblyAI
+        settings.inputDeviceID = 999_999_999
+        let (controller, coordinator) = makeLiveController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings
+        )
+
+        controller.startSession(settings: settings)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(coordinator.state, .idle)
+        XCTAssertFalse(controller.state.isRunning)
+        XCTAssertEqual(
+            controller.state.errorMessage,
+            "The selected microphone is no longer available. Choose another microphone in Settings > Transcription."
+        )
     }
 
     func testStartSessionWhileRunningIsNoOp() async {

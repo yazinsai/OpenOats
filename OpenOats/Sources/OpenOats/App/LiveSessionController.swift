@@ -114,6 +114,7 @@ final class LiveSessionController {
     private let container: AppContainer
 
     private var downloadTask: Task<Void, Never>?
+    private var startPreflightTask: Task<Void, Never>?
     private var scratchpadSaveTask: Task<Void, Never>?
     private var pendingInitialScratchpad: String?
 
@@ -269,7 +270,7 @@ final class LiveSessionController {
         calendarEventOverride: CalendarEvent? = nil,
         initialScratchpad: String? = nil
     ) {
-        guard !state.isRunning else { return }
+        guard !state.isRunning, startPreflightTask == nil else { return }
         container.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
         coordinator.suggestionEngine?.clear()
         coordinator.sidecastEngine?.clear()
@@ -282,6 +283,23 @@ final class LiveSessionController {
         )
         pendingInitialScratchpad = initialScratchpad?.trimmingCharacters(in: .newlines)
         let metadata = MeetingMetadata.manual(calendarEvent: calEvent)
+
+        if settings.transcriptionModel.isCloud {
+            state.errorMessage = nil
+            state.statusMessage = "Validating \(settings.transcriptionModel.displayName)..."
+            startPreflightTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.startPreflightTask = nil }
+                let issue = await self.coordinator.transcriptionEngine?.preflightStart(
+                    transcriptionModel: settings.transcriptionModel
+                )
+                self.syncProjectedState(settings: settings)
+                guard issue == nil else { return }
+                self.coordinator.handle(.userStarted(metadata), settings: settings)
+            }
+            return
+        }
+
         coordinator.handle(.userStarted(metadata), settings: settings)
     }
 
