@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import OpenOatsKit
 
@@ -29,6 +30,17 @@ final class NotesControllerTests: XCTestCase {
             runMigrations: false
         )
         return AppSettings(storage: storage)
+    }
+
+    private func makePNGData() -> Data {
+        let image = NSImage(size: NSSize(width: 2, height: 2))
+        image.lockFocus()
+        NSColor.systemBlue.setFill()
+        NSBezierPath(rect: NSRect(x: 0, y: 0, width: 2, height: 2)).fill()
+        image.unlockFocus()
+
+        let bitmap = NSBitmapImageRep(data: image.tiffRepresentation!)!
+        return bitmap.representation(using: .png, properties: [:])!
     }
 
     private func seedSession(
@@ -464,7 +476,7 @@ final class NotesControllerTests: XCTestCase {
 
         controller.startManualNotesEditing()
         controller.updateManualNotesDraft("Prep observations")
-        controller.insertImage(imageData: Data([0x89, 0x50, 0x4E, 0x47]))
+        controller.insertImage(imageData: makePNGData())
         try? await Task.sleep(for: .milliseconds(250))
 
         let savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
@@ -494,6 +506,80 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertNotNil(savedNotes)
         XCTAssertTrue(savedNotes?.markdown.contains("Prep observations") ?? false)
         XCTAssertTrue(savedNotes?.markdown.contains("[Agenda v2.pdf](attachments/") ?? false)
+        XCTAssertEqual(controller.state.loadedAttachments.map(\.displayName), ["Agenda v2.pdf"])
+    }
+
+    func testImportDroppedItemsPreservesOrderAndDraft() async throws {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_manual_notes_drop"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID, utterances: [])
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        let attachmentURL = root.appendingPathComponent("Agenda v2.pdf")
+        try Data("attachment".utf8).write(to: attachmentURL)
+        let imageURL = root.appendingPathComponent("diagram.png")
+        try makePNGData().write(to: imageURL)
+
+        controller.startManualNotesEditing()
+        controller.updateManualNotesDraft("Prep observations")
+        controller.importDroppedItems([.file(attachmentURL), .file(imageURL)])
+        try? await Task.sleep(for: .milliseconds(350))
+
+        let savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
+        XCTAssertNotNil(savedNotes)
+        XCTAssertTrue(savedNotes?.markdown.hasPrefix("Prep observations") ?? false)
+        XCTAssertTrue(savedNotes?.markdown.contains("[Agenda v2.pdf](attachments/") ?? false)
+        XCTAssertTrue(savedNotes?.markdown.contains("![](images/") ?? false)
+        let attachmentRange = savedNotes?.markdown.range(of: "[Agenda v2.pdf](attachments/")
+        let imageRange = savedNotes?.markdown.range(of: "![](images/")
+        XCTAssertNotNil(attachmentRange)
+        XCTAssertNotNil(imageRange)
+        if let attachmentRange, let imageRange {
+            XCTAssertLessThan(
+                savedNotes!.markdown.distance(from: savedNotes!.markdown.startIndex, to: attachmentRange.lowerBound),
+                savedNotes!.markdown.distance(from: savedNotes!.markdown.startIndex, to: imageRange.lowerBound)
+            )
+        }
+        XCTAssertEqual(controller.state.loadedAttachments.map(\.displayName), ["Agenda v2.pdf"])
+    }
+
+    func testImportDroppedItemsPreservesMixedDropOrder() async throws {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_manual_notes_mixed_drop"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID, utterances: [])
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        let attachmentURL = root.appendingPathComponent("Agenda v2.pdf")
+        try Data("attachment".utf8).write(to: attachmentURL)
+
+        controller.startManualNotesEditing()
+        controller.updateManualNotesDraft("Prep observations")
+        controller.importDroppedItems([
+            .imageData(makePNGData()),
+            .file(attachmentURL),
+            .imageData(makePNGData()),
+        ])
+        try? await Task.sleep(for: .milliseconds(350))
+
+        let savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
+        XCTAssertNotNil(savedNotes)
+        let firstImageRange = savedNotes?.markdown.range(of: "![](images/")
+        let attachmentRange = savedNotes?.markdown.range(of: "[Agenda v2.pdf](attachments/")
+        XCTAssertNotNil(firstImageRange)
+        XCTAssertNotNil(attachmentRange)
+        if let firstImageRange, let attachmentRange {
+            XCTAssertLessThan(
+                savedNotes!.markdown.distance(from: savedNotes!.markdown.startIndex, to: firstImageRange.lowerBound),
+                savedNotes!.markdown.distance(from: savedNotes!.markdown.startIndex, to: attachmentRange.lowerBound)
+            )
+        }
+        XCTAssertEqual(savedNotes?.markdown.components(separatedBy: "![](images/").count, 3)
         XCTAssertEqual(controller.state.loadedAttachments.map(\.displayName), ["Agenda v2.pdf"])
     }
 

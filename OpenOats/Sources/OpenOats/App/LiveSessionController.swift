@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import CoreAudio
 import AppKit
+import UniformTypeIdentifiers
 
 struct RecordingHealthNotice: Equatable {
     enum Severity: Equatable {
@@ -57,6 +58,12 @@ final class LiveSessionState {
 @Observable
 @MainActor
 final class LiveSessionController {
+    enum ScratchpadAssetInsertion: Sendable {
+        case attachmentFile(URL)
+        case imageFile(URL)
+        case imageData(Data)
+    }
+
     enum EmptySessionDiagnosticClassification: String, Equatable {
         case noAudioDetected = "no_audio_detected"
         case transcriptionProducedNoText = "transcription_produced_no_text"
@@ -346,6 +353,70 @@ final class LiveSessionController {
         }
     }
 
+    func insertScratchpadImage(_ imageData: Data) {
+        insertScratchpadAssets([.imageData(imageData)])
+    }
+
+    func insertScratchpadAssets(_ insertions: [ScratchpadAssetInsertion]) {
+        guard let sessionID = _currentSessionID, !insertions.isEmpty else { return }
+
+        Task {
+            var updatedText = state.scratchpadText
+            var insertedAnyAssets = false
+
+            for insertion in insertions {
+                switch insertion {
+                case .attachmentFile(let sourceURL):
+                    guard let attachment = await coordinator.sessionRepository.importAttachment(
+                        sessionID: sessionID,
+                        sourceURL: sourceURL
+                    ) else {
+                        continue
+                    }
+                    updatedText = Self.appendingMarkdownBlock(
+                        Self.markdownLink(for: attachment),
+                        to: updatedText
+                    )
+                    insertedAnyAssets = true
+
+                case .imageFile(let fileURL):
+                    guard let normalizedImageData = Self.normalizedPNGImageData(fromFileURL: fileURL) else {
+                        continue
+                    }
+                    let filename = await coordinator.sessionRepository.saveImage(
+                        sessionID: sessionID,
+                        imageData: normalizedImageData
+                    )
+                    updatedText = Self.appendingMarkdownBlock(
+                        "![](images/\(filename))",
+                        to: updatedText
+                    )
+                    insertedAnyAssets = true
+
+                case .imageData(let imageData):
+                    guard let normalizedImageData = Self.normalizedPNGImageData(from: imageData) else {
+                        continue
+                    }
+                    let filename = await coordinator.sessionRepository.saveImage(
+                        sessionID: sessionID,
+                        imageData: normalizedImageData
+                    )
+                    updatedText = Self.appendingMarkdownBlock(
+                        "![](images/\(filename))",
+                        to: updatedText
+                    )
+                    insertedAnyAssets = true
+                }
+            }
+
+            guard insertedAnyAssets else { return }
+
+            state.scratchpadText = updatedText
+            scratchpadSaveTask?.cancel()
+            await coordinator.sessionRepository.saveScratchpad(sessionID: sessionID, text: updatedText)
+        }
+    }
+
     // MARK: - KB Indexing
 
     func indexKBIfNeeded(settings: AppSettings) {
@@ -439,6 +510,52 @@ final class LiveSessionController {
         _currentSessionID
     }
     private var _currentSessionID: String?
+
+    private static func appendingMarkdownBlock(_ block: String, to existing: String) -> String {
+        guard !existing.isEmpty else { return block }
+        return existing + "\n\n" + block
+    }
+
+    private static func markdownLink(for attachment: NoteAttachment) -> String {
+        let label = attachment.displayName
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "[", with: "\\[")
+            .replacingOccurrences(of: "]", with: "\\]")
+        return "[\(label)](\(attachment.relativePath))"
+    }
+
+    static func isImageFile(url: URL) -> Bool {
+        if let resourceValues = try? url.resourceValues(forKeys: [.contentTypeKey]),
+           let contentType = resourceValues.contentType {
+            return contentType.conforms(to: .image)
+        }
+        if let inferredType = UTType(filenameExtension: url.pathExtension) {
+            return inferredType.conforms(to: .image)
+        }
+        return false
+    }
+
+    private static func normalizedPNGImageData(fromFileURL fileURL: URL) -> Data? {
+        guard let image = NSImage(contentsOf: fileURL) else { return nil }
+        return normalizedPNGImageData(from: image)
+    }
+
+    private static func normalizedPNGImageData(from imageData: Data) -> Data? {
+        guard let image = NSImage(data: imageData),
+              let tiffRepresentation = image.tiffRepresentation,
+              let bitmapRepresentation = NSBitmapImageRep(data: tiffRepresentation) else {
+            return nil
+        }
+        return bitmapRepresentation.representation(using: .png, properties: [:])
+    }
+
+    private static func normalizedPNGImageData(from image: NSImage) -> Data? {
+        guard let tiffRepresentation = image.tiffRepresentation,
+              let bitmapRepresentation = NSBitmapImageRep(data: tiffRepresentation) else {
+            return nil
+        }
+        return bitmapRepresentation.representation(using: .png, properties: [:])
+    }
 
     private func handleNewUtterances(startingAt startIndex: Int, settings: AppSettings) {
         let utterances = coordinator.transcriptStore.utterances

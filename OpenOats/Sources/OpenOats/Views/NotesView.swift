@@ -30,6 +30,7 @@ struct NotesView: View {
     @State private var showingAddTranscriptSheet = false
     @State private var manualTranscriptDraft = ""
     @State private var collapsedSidebarGroupIDs = Self.loadCollapsedSidebarGroupIDs()
+    @State private var isNotesAssetDropTarget = false
 
     enum DetailViewMode: String, CaseIterable {
         case transcript = "Transcript"
@@ -2345,6 +2346,131 @@ struct NotesView: View {
         controller.importAttachment(from: url)
     }
 
+    private var notesAssetDropTypeIdentifiers: [String] {
+        [
+            UTType.fileURL.identifier,
+            UTType.png.identifier,
+            UTType.jpeg.identifier,
+            UTType.tiff.identifier,
+            UTType.image.identifier,
+        ]
+    }
+
+    private var notesPasteAssetContentTypes: [UTType] {
+        [.png, .jpeg, .tiff, .image, .fileURL]
+    }
+
+    private func handleNotesAssetDrop(
+        providers: [NSItemProvider],
+        controller: NotesController,
+        state: NotesState
+    ) -> Bool {
+        guard state.notesGenerationStatus != .generating,
+              state.selectedSessionID != nil else {
+            return false
+        }
+
+        let supportedProviders = providers.filter { provider in
+            provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+                || provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+                || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
+                || provider.hasItemConformingToTypeIdentifier(UTType.jpeg.identifier)
+                || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier)
+        }
+        guard !supportedProviders.isEmpty else { return false }
+
+        Task {
+            let assets = await loadDroppedNoteAssets(from: supportedProviders)
+            guard !assets.isEmpty else { return }
+            await MainActor.run {
+                controller.importDroppedItems(assets)
+            }
+        }
+
+        return true
+    }
+
+    private func handleNotesAssetPaste(
+        providers: [NSItemProvider],
+        controller: NotesController,
+        state: NotesState
+    ) {
+        guard state.notesGenerationStatus != .generating,
+              state.selectedSessionID != nil else {
+            return
+        }
+
+        Task {
+            let assets = await loadDroppedNoteAssets(from: providers)
+            guard !assets.isEmpty else { return }
+            await MainActor.run {
+                controller.importDroppedItems(assets)
+            }
+        }
+    }
+
+    private func loadDroppedNoteAssets(
+        from providers: [NSItemProvider]
+    ) async -> [NotesController.DroppedNoteAsset] {
+        var assets: [NotesController.DroppedNoteAsset] = []
+
+        for provider in providers {
+            if let fileURL = await loadDroppedFileURL(from: provider) {
+                assets.append(.file(fileURL))
+                continue
+            }
+            if let imageData = await loadDroppedImageData(from: provider) {
+                assets.append(.imageData(imageData))
+            }
+        }
+
+        return assets
+    }
+
+    private func loadDroppedFileURL(from provider: NSItemProvider) async -> URL? {
+        guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) else {
+            return nil
+        }
+
+        return await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                let resolvedURL: URL?
+                switch item {
+                case let url as URL:
+                    resolvedURL = url
+                case let data as Data:
+                    resolvedURL = NSURL(absoluteURLWithDataRepresentation: data, relativeTo: nil) as URL?
+                case let string as String:
+                    resolvedURL = URL(string: string)
+                default:
+                    resolvedURL = nil
+                }
+                continuation.resume(returning: resolvedURL)
+            }
+        }
+    }
+
+    private func loadDroppedImageData(from provider: NSItemProvider) async -> Data? {
+        for identifier in [UTType.png.identifier, UTType.jpeg.identifier, UTType.tiff.identifier, UTType.image.identifier] {
+            guard provider.hasItemConformingToTypeIdentifier(identifier) else { continue }
+            if let data = await loadDataRepresentation(from: provider, typeIdentifier: identifier) {
+                return data
+            }
+        }
+        return nil
+    }
+
+    private func loadDataRepresentation(
+        from provider: NSItemProvider,
+        typeIdentifier: String
+    ) async -> Data? {
+        await withCheckedContinuation { continuation in
+            provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
+                continuation.resume(returning: data)
+            }
+        }
+    }
+
     private func clipboardHasImage() -> Bool {
         let pb = NSPasteboard.general
         return pb.canReadItem(withDataConformingToTypes: [UTType.png.identifier, UTType.tiff.identifier, UTType.jpeg.identifier])
@@ -2406,13 +2532,24 @@ struct NotesView: View {
 
     @ViewBuilder
     private func notesTab(controller: NotesController, state: NotesState, sessionID: String) -> some View {
-        switch state.notesGenerationStatus {
-        case .generating:
-            generatingView(controller: controller, state: state)
-        case .idle, .completed, .error:
-            if state.loadedTranscript.isEmpty {
-                if state.isEditingManualNotes {
-                    notesNoTranscriptState(controller: controller, state: state)
+        notesAssetDropSurface(controller: controller, state: state) {
+            switch state.notesGenerationStatus {
+            case .generating:
+                generatingView(controller: controller, state: state)
+            case .idle, .completed, .error:
+                if state.loadedTranscript.isEmpty {
+                    if state.isEditingManualNotes {
+                        notesNoTranscriptState(controller: controller, state: state)
+                    } else if let notes = state.loadedNotes {
+                        notesContentView(
+                            controller: controller,
+                            notes: notes,
+                            sessionDirectory: state.selectedSessionDirectory,
+                            attachments: state.loadedAttachments
+                        )
+                    } else {
+                        notesNoTranscriptState(controller: controller, state: state)
+                    }
                 } else if let notes = state.loadedNotes {
                     notesContentView(
                         controller: controller,
@@ -2421,17 +2558,61 @@ struct NotesView: View {
                         attachments: state.loadedAttachments
                     )
                 } else {
-                    notesNoTranscriptState(controller: controller, state: state)
+                    notesEmptyState(controller: controller, state: state, sessionID: sessionID)
                 }
-            } else if let notes = state.loadedNotes {
-                notesContentView(
-                    controller: controller,
-                    notes: notes,
-                    sessionDirectory: state.selectedSessionDirectory,
-                    attachments: state.loadedAttachments
-                )
+            }
+        }
+    }
+
+    private func notesAssetDropSurface<Content: View>(
+        controller: NotesController,
+        state: NotesState,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let canAcceptDrop = state.notesGenerationStatus != .generating && state.selectedSessionID != nil
+
+        return Group {
+            if canAcceptDrop {
+                content()
+                    .contentShape(Rectangle())
+                    .onDrop(
+                        of: notesAssetDropTypeIdentifiers,
+                        isTargeted: $isNotesAssetDropTarget
+                    ) { providers in
+                        handleNotesAssetDrop(providers: providers, controller: controller, state: state)
+                    }
+                    .onPasteCommand(of: notesPasteAssetContentTypes) { providers in
+                        handleNotesAssetPaste(providers: providers, controller: controller, state: state)
+                    }
+                    .overlay {
+                        if isNotesAssetDropTarget {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.accentColor.opacity(0.08))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .strokeBorder(Color.accentColor.opacity(0.45), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+                                )
+                                .padding(12)
+                                .overlay {
+                                    VStack(spacing: 8) {
+                                        Image(systemName: "paperclip.circle.fill")
+                                            .font(.system(size: 22))
+                                            .foregroundStyle(Color.accentColor)
+                                        Text("Drop files or images into notes")
+                                            .font(.system(size: 13, weight: .medium))
+                                            .foregroundStyle(.primary)
+                                    }
+                                    .padding(16)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(Color(nsColor: .windowBackgroundColor).opacity(0.95))
+                                    )
+                                }
+                                .allowsHitTesting(false)
+                        }
+                    }
             } else {
-                notesEmptyState(controller: controller, state: state, sessionID: sessionID)
+                content()
             }
         }
     }

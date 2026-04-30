@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     private enum ControlBarAction {
@@ -194,7 +195,10 @@ struct ContentView: View {
                     text: Binding(
                         get: { controllerState.scratchpadText },
                         set: { liveSessionController?.updateScratchpad($0) }
-                    )
+                    ),
+                    onPasteAssetProviders: { providers in
+                        handleScratchpadAssetPaste(providers)
+                    }
                 )
             } else {
                 IdleHomeDashboardView(settings: settings)
@@ -445,6 +449,78 @@ struct ContentView: View {
         NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
     }
 
+    private func handleScratchpadAssetPaste(_ providers: [NSItemProvider]) {
+        guard liveSessionController?.state.isRunning == true else { return }
+
+        Task {
+            let assets = await loadPastedScratchpadAssets(from: providers)
+            guard !assets.isEmpty else { return }
+            await MainActor.run {
+                liveSessionController?.insertScratchpadAssets(assets)
+            }
+        }
+    }
+
+    private func loadPastedScratchpadAssets(
+        from providers: [NSItemProvider]
+    ) async -> [LiveSessionController.ScratchpadAssetInsertion] {
+        var assets: [LiveSessionController.ScratchpadAssetInsertion] = []
+
+        for provider in providers {
+            if let fileURL = await loadPastedFileURL(from: provider) {
+                if LiveSessionController.isImageFile(url: fileURL) {
+                    assets.append(.imageFile(fileURL))
+                } else {
+                    assets.append(.attachmentFile(fileURL))
+                }
+                continue
+            }
+            if let imageData = await loadPastedImageData(from: provider) {
+                assets.append(.imageData(imageData))
+            }
+        }
+
+        return assets
+    }
+
+    private func loadPastedFileURL(from provider: NSItemProvider) async -> URL? {
+        guard provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) else {
+            return nil
+        }
+
+        return await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                let resolvedURL: URL?
+                switch item {
+                case let url as URL:
+                    resolvedURL = url
+                case let data as Data:
+                    resolvedURL = NSURL(absoluteURLWithDataRepresentation: data, relativeTo: nil) as URL?
+                case let string as String:
+                    resolvedURL = URL(string: string)
+                default:
+                    resolvedURL = nil
+                }
+                continuation.resume(returning: resolvedURL)
+            }
+        }
+    }
+
+    private func loadPastedImageData(from provider: NSItemProvider) async -> Data? {
+        for identifier in [UTType.png.identifier, UTType.jpeg.identifier, UTType.tiff.identifier, UTType.image.identifier] {
+            guard provider.hasItemConformingToTypeIdentifier(identifier) else { continue }
+            let data = await withCheckedContinuation { continuation in
+                provider.loadDataRepresentation(forTypeIdentifier: identifier) { data, _ in
+                    continuation.resume(returning: data)
+                }
+            }
+            if data != nil {
+                return data
+            }
+        }
+        return nil
+    }
+
     @MainActor
     private func handleControlBarAction(_ action: ControlBarAction) {
         switch action {
@@ -586,7 +662,10 @@ private struct PostSessionBanner: View {
 
 private struct ScratchpadSection: View {
     @Binding var text: String
+    let onPasteAssetProviders: ([NSItemProvider]) -> Void
     @AppStorage("isScratchpadExpanded") private var isExpanded = true
+
+    private let pasteAssetTypes: [UTType] = [.png, .jpeg, .tiff, .image, .fileURL]
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -597,6 +676,9 @@ private struct ScratchpadSection: View {
                 .padding(4)
                 .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
+                .onPasteCommand(of: pasteAssetTypes) { providers in
+                    onPasteAssetProviders(providers)
+                }
         } label: {
             HStack(spacing: 6) {
                 Text("My Notes")

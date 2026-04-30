@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import OpenOatsKit
 
@@ -35,6 +36,17 @@ final class LiveSessionControllerTests: XCTestCase {
             runMigrations: false
         )
         return AppSettings(storage: storage)
+    }
+
+    private func makePNGData() -> Data {
+        let image = NSImage(size: NSSize(width: 2, height: 2))
+        image.lockFocus()
+        NSColor.systemBlue.setFill()
+        NSBezierPath(rect: NSRect(x: 0, y: 0, width: 2, height: 2)).fill()
+        image.unlockFocus()
+
+        let bitmap = NSBitmapImageRep(data: image.tiffRepresentation!)!
+        return bitmap.representation(using: .png, properties: [:])!
     }
 
     private func makeController(
@@ -316,6 +328,93 @@ final class LiveSessionControllerTests: XCTestCase {
         } else {
             XCTFail("Expected recording state after on-demand initialization")
         }
+    }
+
+    func testInsertScratchpadImagePersistsMarkdownAndImage() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: [Utterance(text: "Hello", speaker: .you)]
+        )
+
+        controller.startSession(settings: settings)
+
+        var sessionID: String?
+        for _ in 0..<20 {
+            sessionID = await coordinator.sessionRepository.getCurrentSessionID()
+            if sessionID != nil { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        guard let sessionID else {
+            return XCTFail("Expected session ID after starting session")
+        }
+
+        controller.updateScratchpad("Prep observations")
+        controller.insertScratchpadImage(makePNGData())
+        try? await Task.sleep(for: .milliseconds(250))
+
+        let savedScratchpad = await coordinator.sessionRepository.loadScratchpad(sessionID: sessionID)
+        XCTAssertTrue(savedScratchpad.hasPrefix("Prep observations"))
+        XCTAssertTrue(savedScratchpad.contains("![](images/"))
+        XCTAssertEqual(controller.state.scratchpadText, savedScratchpad)
+
+        let imagesDirectory = coordinator.sessionRepository.sessionsDirectoryURL
+            .appendingPathComponent(sessionID, isDirectory: true)
+            .appendingPathComponent("images", isDirectory: true)
+        let imageURLs = (try? FileManager.default.contentsOfDirectory(
+            at: imagesDirectory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        XCTAssertEqual(imageURLs.count, 1)
+    }
+
+    func testInsertScratchpadImageFilePersistsMarkdownAndImage() async throws {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: [Utterance(text: "Hello", speaker: .you)]
+        )
+
+        controller.startSession(settings: settings)
+
+        var sessionID: String?
+        for _ in 0..<20 {
+            sessionID = await coordinator.sessionRepository.getCurrentSessionID()
+            if sessionID != nil { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        guard let sessionID else {
+            return XCTFail("Expected session ID after starting session")
+        }
+
+        let imageURL = dirs.root.appendingPathComponent("clipboard-screenshot.png")
+        try makePNGData().write(to: imageURL)
+
+        controller.updateScratchpad("Prep observations")
+        controller.insertScratchpadAssets([.imageFile(imageURL)])
+        try? await Task.sleep(for: .milliseconds(250))
+
+        let savedScratchpad = await coordinator.sessionRepository.loadScratchpad(sessionID: sessionID)
+        XCTAssertTrue(savedScratchpad.hasPrefix("Prep observations"))
+        XCTAssertTrue(savedScratchpad.contains("![](images/"))
+        XCTAssertEqual(controller.state.scratchpadText, savedScratchpad)
+
+        let imagesDirectory = coordinator.sessionRepository.sessionsDirectoryURL
+            .appendingPathComponent(sessionID, isDirectory: true)
+            .appendingPathComponent("images", isDirectory: true)
+        let imageURLs = (try? FileManager.default.contentsOfDirectory(
+            at: imagesDirectory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        XCTAssertEqual(imageURLs.count, 1)
     }
 
     func testCoordinatorStartProjectsRunningStateBeforeEngineStarts() {

@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import Foundation
 import Observation
+import UniformTypeIdentifiers
 
 // MARK: - State
 
@@ -153,6 +154,17 @@ struct MeetingFamilyKnowledgeBaseCoverage: Equatable {
 @Observable
 @MainActor
 final class NotesController {
+    enum DroppedNoteAsset: Sendable {
+        case file(URL)
+        case imageData(Data)
+    }
+
+    private enum NoteAssetInsertion: Sendable {
+        case attachmentFile(URL)
+        case imageFile(URL)
+        case imageData(Data)
+    }
+
     private(set) var state = NotesState()
 
     private let coordinator: AppCoordinator
@@ -606,89 +618,23 @@ final class NotesController {
     // MARK: - Image Insertion
 
     func insertImage(imageData: Data) {
-        guard let sessionID = state.selectedSessionID else { return }
-
-        Task {
-            let filename = await coordinator.sessionRepository.saveImage(
-                sessionID: sessionID, imageData: imageData
-            )
-            let imageRef = "\n\n![](images/\(filename))\n"
-            let isManualNotesSession = state.loadedTranscript.isEmpty
-
-            if let existing = state.loadedNotes {
-                let baseMarkdown = isManualNotesSession ? state.manualNotesDraft : existing.markdown
-                let updated = GeneratedNotes(
-                    template: existing.template,
-                    generatedAt: existing.generatedAt,
-                    markdown: baseMarkdown + imageRef
-                )
-                await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: updated)
-                state.loadedNotes = updated
-                state.manualNotesDraft = updated.markdown
-                state.savedManualNotesMarkdown = updated.markdown
-            } else {
-                let template = state.selectedTemplate
-                    ?? coordinator.templateStore.template(for: TemplateStore.genericID)
-                    ?? TemplateStore.builtInTemplates.first!
-                let baseMarkdown = isManualNotesSession ? state.manualNotesDraft : ""
-                let notes = GeneratedNotes(
-                    template: coordinator.templateStore.snapshot(of: template),
-                    generatedAt: Date(),
-                    markdown: baseMarkdown + (baseMarkdown.isEmpty ? "" : "\n\n") + "![](images/\(filename))"
-                )
-                await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: notes)
-                state.loadedNotes = notes
-                state.manualNotesDraft = notes.markdown
-                state.savedManualNotesMarkdown = notes.markdown
-                await loadHistory()
-            }
-        }
+        insertAssets([.imageData(imageData)])
     }
 
     func importAttachment(from sourceURL: URL) {
-        guard let sessionID = state.selectedSessionID else { return }
+        insertAssets([.attachmentFile(sourceURL)])
+    }
 
-        Task {
-            guard let attachment = await coordinator.sessionRepository.importAttachment(
-                sessionID: sessionID,
-                sourceURL: sourceURL
-            ) else {
-                return
+    func importDroppedItems(_ items: [DroppedNoteAsset]) {
+        let insertions: [NoteAssetInsertion] = items.map { item in
+            switch item {
+            case .file(let fileURL):
+                Self.isImageFile(url: fileURL) ? NoteAssetInsertion.imageFile(fileURL) : .attachmentFile(fileURL)
+            case .imageData(let imageData):
+                NoteAssetInsertion.imageData(imageData)
             }
-            let markdownLink = Self.markdownLink(for: attachment)
-            let isManualNotesSession = state.loadedTranscript.isEmpty
-
-            if let existing = state.loadedNotes {
-                let baseMarkdown = isManualNotesSession ? state.manualNotesDraft : existing.markdown
-                let updated = GeneratedNotes(
-                    template: existing.template,
-                    generatedAt: existing.generatedAt,
-                    markdown: Self.appendingMarkdownBlock(markdownLink, to: baseMarkdown)
-                )
-                await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: updated)
-                state.loadedNotes = updated
-                state.manualNotesDraft = updated.markdown
-                state.savedManualNotesMarkdown = updated.markdown
-            } else {
-                let template = state.selectedTemplate
-                    ?? coordinator.templateStore.template(for: TemplateStore.genericID)
-                    ?? TemplateStore.builtInTemplates.first!
-                let baseMarkdown = isManualNotesSession ? state.manualNotesDraft : ""
-                let notes = GeneratedNotes(
-                    template: coordinator.templateStore.snapshot(of: template),
-                    generatedAt: Date(),
-                    markdown: Self.appendingMarkdownBlock(markdownLink, to: baseMarkdown)
-                )
-                await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: notes)
-                state.loadedNotes = notes
-                state.manualNotesDraft = notes.markdown
-                state.savedManualNotesMarkdown = notes.markdown
-                await loadHistory()
-            }
-
-            guard state.selectedSessionID == sessionID else { return }
-            state.loadedAttachments = await coordinator.sessionRepository.loadNoteAttachments(sessionID: sessionID)
         }
+        insertAssets(insertions)
     }
 
     func openAttachment(_ attachment: NoteAttachment) {
@@ -699,6 +645,86 @@ final class NotesController {
     func revealAttachment(_ attachment: NoteAttachment) {
         guard let url = selectedAttachmentURL(for: attachment) else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    private func insertAssets(_ insertions: [NoteAssetInsertion]) {
+        guard let sessionID = state.selectedSessionID, !insertions.isEmpty else { return }
+
+        Task {
+            let isManualNotesSession = state.loadedTranscript.isEmpty
+            let existingNotes = state.loadedNotes
+            var updatedMarkdown = isManualNotesSession
+                ? state.manualNotesDraft
+                : (existingNotes?.markdown ?? "")
+            var insertedAnyAssets = false
+
+            for insertion in insertions {
+                switch insertion {
+                case .attachmentFile(let sourceURL):
+                    guard let attachment = await coordinator.sessionRepository.importAttachment(
+                        sessionID: sessionID,
+                        sourceURL: sourceURL
+                    ) else {
+                        continue
+                    }
+                    updatedMarkdown = Self.appendingMarkdownBlock(
+                        Self.markdownLink(for: attachment),
+                        to: updatedMarkdown
+                    )
+                    insertedAnyAssets = true
+
+                case .imageFile(let fileURL):
+                    guard let imageData = Self.normalizedPNGImageData(fromFileURL: fileURL) else {
+                        continue
+                    }
+                    let filename = await coordinator.sessionRepository.saveImage(
+                        sessionID: sessionID,
+                        imageData: imageData
+                    )
+                    updatedMarkdown = Self.appendingMarkdownBlock(
+                        "![](images/\(filename))",
+                        to: updatedMarkdown
+                    )
+                    insertedAnyAssets = true
+
+                case .imageData(let imageData):
+                    guard let normalizedImageData = Self.normalizedPNGImageData(from: imageData) else {
+                        continue
+                    }
+                    let filename = await coordinator.sessionRepository.saveImage(
+                        sessionID: sessionID,
+                        imageData: normalizedImageData
+                    )
+                    updatedMarkdown = Self.appendingMarkdownBlock(
+                        "![](images/\(filename))",
+                        to: updatedMarkdown
+                    )
+                    insertedAnyAssets = true
+                }
+            }
+
+            guard insertedAnyAssets else { return }
+
+            let template = existingNotes.flatMap { existing in
+                coordinator.templateStore.template(for: existing.template.id)
+            } ?? state.selectedTemplate
+                ?? coordinator.templateStore.template(for: TemplateStore.genericID)
+                ?? TemplateStore.builtInTemplates.first!
+            let notes = GeneratedNotes(
+                template: coordinator.templateStore.snapshot(of: template),
+                generatedAt: existingNotes?.generatedAt ?? Date(),
+                markdown: updatedMarkdown
+            )
+
+            await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: notes)
+            await loadHistory()
+
+            guard state.selectedSessionID == sessionID else { return }
+            state.loadedNotes = notes
+            state.manualNotesDraft = notes.markdown
+            state.savedManualNotesMarkdown = notes.markdown
+            state.loadedAttachments = await coordinator.sessionRepository.loadNoteAttachments(sessionID: sessionID)
+        }
     }
 
     // MARK: - Manual Notes
@@ -1216,6 +1242,35 @@ final class NotesController {
     static func appendingMarkdownBlock(_ block: String, to existing: String) -> String {
         guard !existing.isEmpty else { return block }
         return existing + "\n\n" + block
+    }
+
+    private static func isImageFile(url: URL) -> Bool {
+        if let resourceValues = try? url.resourceValues(forKeys: [.contentTypeKey]),
+           let contentType = resourceValues.contentType {
+            return contentType.conforms(to: .image)
+        }
+        if let inferredType = UTType(filenameExtension: url.pathExtension) {
+            return inferredType.conforms(to: .image)
+        }
+        return false
+    }
+
+    private static func normalizedPNGImageData(fromFileURL fileURL: URL) -> Data? {
+        guard let image = NSImage(contentsOf: fileURL) else { return nil }
+        return normalizedPNGImageData(from: image)
+    }
+
+    private static func normalizedPNGImageData(from imageData: Data) -> Data? {
+        guard let image = NSImage(data: imageData) else { return nil }
+        return normalizedPNGImageData(from: image)
+    }
+
+    private static func normalizedPNGImageData(from image: NSImage) -> Data? {
+        guard let tiffRepresentation = image.tiffRepresentation,
+              let bitmapRepresentation = NSBitmapImageRep(data: tiffRepresentation) else {
+            return nil
+        }
+        return bitmapRepresentation.representation(using: .png, properties: [:])
     }
 
     private func reloadSessionAfterTranscriptMutation(sessionID: String) async {
