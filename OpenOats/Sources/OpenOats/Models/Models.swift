@@ -342,6 +342,16 @@ struct GeneratedNotes: Codable, Sendable {
     let markdown: String
 }
 
+struct NoteAttachment: Codable, Sendable, Equatable, Identifiable {
+    let displayName: String
+    let relativePath: String
+    let contentType: String?
+    let byteSize: Int64
+    let createdAt: Date
+
+    var id: String { relativePath }
+}
+
 enum SessionAudioSourceKind: String, Sendable, Hashable {
     case recording
     case system

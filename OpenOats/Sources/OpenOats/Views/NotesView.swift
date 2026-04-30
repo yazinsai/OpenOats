@@ -2194,6 +2194,7 @@ struct NotesView: View {
     private func notesToolbarActions(controller: NotesController, state: NotesState) -> some View {
         if controller.isManualNotesSession {
             if state.isEditingManualNotes {
+                attachmentInsertButton(controller: controller, state: state)
                 imageInsertMenu(controller: controller, state: state)
             } else if state.loadedNotes != nil {
                 Button {
@@ -2203,6 +2204,7 @@ struct NotesView: View {
                         .font(.system(size: 12))
                 }
                 .buttonStyle(.bordered)
+                attachmentInsertButton(controller: controller, state: state)
                 imageInsertMenu(controller: controller, state: state)
                 if settings.appleNotesEnabled {
                     appleNotesSyncButton(controller: controller, state: state)
@@ -2231,11 +2233,13 @@ struct NotesView: View {
             .help(controller.isAnyGenerationInProgress
                 ? "Generating notes for \"\(controller.generatingSessionName)\"..."
                 : "Click to regenerate, or pick a different template")
+            attachmentInsertButton(controller: controller, state: state)
             imageInsertMenu(controller: controller, state: state)
             if settings.appleNotesEnabled {
                 appleNotesSyncButton(controller: controller, state: state)
             }
         } else {
+            attachmentInsertButton(controller: controller, state: state)
             imageInsertMenu(controller: controller, state: state)
             if settings.appleNotesEnabled, !state.loadedTranscript.isEmpty {
                 appleNotesSyncButton(controller: controller, state: state)
@@ -2288,6 +2292,20 @@ struct NotesView: View {
     }
 
     @ViewBuilder
+    private func attachmentInsertButton(controller: NotesController, state: NotesState) -> some View {
+        Button {
+            insertAttachmentFromFile(controller: controller)
+        } label: {
+            Label("Add Attachment", systemImage: "paperclip.badge.plus")
+                .font(.system(size: 12))
+        }
+        .buttonStyle(.bordered)
+        .fixedSize()
+        .disabled(state.notesGenerationStatus == .generating || state.selectedSessionID == nil)
+        .help("Attach a file and insert a relative link into notes")
+    }
+
+    @ViewBuilder
     private func imageInsertMenu(controller: NotesController, state: NotesState) -> some View {
         Menu {
             Button {
@@ -2315,6 +2333,16 @@ struct NotesView: View {
         .fixedSize()
         .disabled(state.notesGenerationStatus == .generating || state.selectedSessionID == nil)
         .help("Insert an image into notes")
+    }
+
+    private func insertAttachmentFromFile(controller: NotesController) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canCreateDirectories = false
+        panel.message = "Choose a file to attach to notes"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        controller.importAttachment(from: url)
     }
 
     private func clipboardHasImage() -> Bool {
@@ -2386,12 +2414,22 @@ struct NotesView: View {
                 if state.isEditingManualNotes {
                     notesNoTranscriptState(controller: controller, state: state)
                 } else if let notes = state.loadedNotes {
-                    notesContentView(notes, sessionDirectory: state.selectedSessionDirectory)
+                    notesContentView(
+                        controller: controller,
+                        notes: notes,
+                        sessionDirectory: state.selectedSessionDirectory,
+                        attachments: state.loadedAttachments
+                    )
                 } else {
                     notesNoTranscriptState(controller: controller, state: state)
                 }
             } else if let notes = state.loadedNotes {
-                notesContentView(notes, sessionDirectory: state.selectedSessionDirectory)
+                notesContentView(
+                    controller: controller,
+                    notes: notes,
+                    sessionDirectory: state.selectedSessionDirectory,
+                    attachments: state.loadedAttachments
+                )
             } else {
                 notesEmptyState(controller: controller, state: state, sessionID: sessionID)
             }
@@ -2448,6 +2486,10 @@ struct NotesView: View {
                         .disabled(!controller.hasUnsavedManualNotesChanges)
                     }
                     .controlSize(.small)
+
+                    if !state.loadedAttachments.isEmpty {
+                        attachmentsSection(controller: controller, attachments: state.loadedAttachments)
+                    }
 
                     TextEditor(text: Binding(
                         get: { state.manualNotesDraft },
@@ -2651,11 +2693,75 @@ struct NotesView: View {
         }
     }
 
-    private func notesContentView(_ notes: GeneratedNotes, sessionDirectory: URL?) -> some View {
+    private func notesContentView(
+        controller: NotesController,
+        notes: GeneratedNotes,
+        sessionDirectory: URL?,
+        attachments: [NoteAttachment]
+    ) -> some View {
         ScrollView {
-            markdownContent(notes.markdown, sessionDirectory: sessionDirectory)
-                .padding(16)
-                .accessibilityIdentifier("notes.renderedMarkdown")
+            VStack(alignment: .leading, spacing: 12) {
+                if !attachments.isEmpty {
+                    attachmentsSection(controller: controller, attachments: attachments)
+                }
+
+                markdownContent(notes.markdown, sessionDirectory: sessionDirectory)
+                    .accessibilityIdentifier("notes.renderedMarkdown")
+            }
+            .padding(16)
+            .environment(\.openURL, markdownOpenURLAction(sessionDirectory: sessionDirectory))
+        }
+    }
+
+    @ViewBuilder
+    private func attachmentsSection(controller: NotesController, attachments: [NoteAttachment]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Attachments")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(attachments) { attachment in
+                        Menu {
+                            Button {
+                                controller.openAttachment(attachment)
+                            } label: {
+                                Label("Open", systemImage: "arrow.up.right.square")
+                            }
+
+                            Button {
+                                controller.revealAttachment(attachment)
+                            } label: {
+                                Label("Reveal in Finder", systemImage: "folder")
+                            }
+                        } label: {
+                            Label(attachment.displayName, systemImage: "paperclip")
+                                .font(.system(size: 12))
+                                .lineLimit(1)
+                        } primaryAction: {
+                            controller.openAttachment(attachment)
+                        }
+                        .menuStyle(.button)
+                        .buttonStyle(.bordered)
+                        .fixedSize()
+                        .help("Open \(attachment.displayName)")
+                    }
+                }
+            }
+        }
+    }
+
+    private func markdownOpenURLAction(sessionDirectory: URL?) -> OpenURLAction {
+        OpenURLAction { url in
+            if url.isFileURL {
+                return NSWorkspace.shared.open(url) ? .handled : .discarded
+            }
+            if url.scheme == nil, let sessionDirectory {
+                let resolvedURL = sessionDirectory.appendingPathComponent(url.relativeString)
+                return NSWorkspace.shared.open(resolvedURL) ? .handled : .discarded
+            }
+            return NSWorkspace.shared.open(url) ? .handled : .discarded
         }
     }
 

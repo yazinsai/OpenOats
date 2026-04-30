@@ -379,6 +379,66 @@ final class SessionRepositoryTests: XCTestCase {
         await repo.deleteSession(sessionID: sessionID)
     }
 
+    func testImportAttachmentPersistsMetadataAndFile() async throws {
+        let sessionID = "test_attachment_session"
+        await repo.seedSession(
+            id: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Hello", timestamp: Date())],
+            startedAt: Date()
+        )
+
+        let sourceURL = rootDir.appendingPathComponent("Quarterly Plan.pdf")
+        try Data("attachment".utf8).write(to: sourceURL)
+
+        let attachment = await repo.importAttachment(sessionID: sessionID, sourceURL: sourceURL)
+        XCTAssertNotNil(attachment)
+        XCTAssertEqual(attachment?.displayName, "Quarterly Plan.pdf")
+        XCTAssertTrue(attachment?.relativePath.hasPrefix("attachments/") ?? false)
+
+        let storedAttachments = await repo.loadNoteAttachments(sessionID: sessionID)
+        XCTAssertEqual(storedAttachments.count, 1)
+        XCTAssertEqual(storedAttachments.first?.displayName, "Quarterly Plan.pdf")
+
+        let sessionDir = rootDir
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(sessionID, isDirectory: true)
+        if let relativePath = attachment?.relativePath {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: sessionDir.appendingPathComponent(relativePath).path))
+        }
+
+        let detail = await repo.loadSession(id: sessionID)
+        XCTAssertEqual(detail.attachments.count, 1)
+        XCTAssertEqual(detail.attachments.first?.displayName, "Quarterly Plan.pdf")
+    }
+
+    func testSaveNotesPreservesExistingAttachments() async throws {
+        let sessionID = "test_attachment_preserve_session"
+        await repo.seedSession(
+            id: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Hello", timestamp: Date())],
+            startedAt: Date()
+        )
+
+        let sourceURL = rootDir.appendingPathComponent("Customer Feedback.txt")
+        try Data("attachment".utf8).write(to: sourceURL)
+        let attachment = await repo.importAttachment(sessionID: sessionID, sourceURL: sourceURL)
+        XCTAssertNotNil(attachment)
+
+        let template = TemplateSnapshot(
+            id: UUID(), name: "Test", icon: "star", systemPrompt: "Be helpful"
+        )
+        let notes = GeneratedNotes(
+            template: template,
+            generatedAt: Date(),
+            markdown: "# Notes\n\n[Customer Feedback](attachments/file.txt)"
+        )
+        await repo.saveNotes(sessionID: sessionID, notes: notes)
+
+        let storedAttachments = await repo.loadNoteAttachments(sessionID: sessionID)
+        XCTAssertEqual(storedAttachments.count, 1)
+        XCTAssertEqual(storedAttachments.first?.displayName, "Customer Feedback.txt")
+    }
+
     // MARK: - listSessions returns all sessions
 
     func testListSessionsReturnsAllSessions() async {

@@ -106,6 +106,7 @@ struct SessionDetail: Sendable {
     let liveTranscript: [SessionRecord]
     let notes: GeneratedNotes?
     let notesMeta: NotesMeta?
+    let attachments: [NoteAttachment]
     let calendarEvent: CalendarEvent?
 
     init(
@@ -114,6 +115,7 @@ struct SessionDetail: Sendable {
         liveTranscript: [SessionRecord],
         notes: GeneratedNotes?,
         notesMeta: NotesMeta?,
+        attachments: [NoteAttachment] = [],
         calendarEvent: CalendarEvent? = nil
     ) {
         self.index = index
@@ -121,6 +123,7 @@ struct SessionDetail: Sendable {
         self.liveTranscript = liveTranscript
         self.notes = notes
         self.notesMeta = notesMeta
+        self.attachments = attachments
         self.calendarEvent = calendarEvent
     }
 }
@@ -129,6 +132,7 @@ struct SessionDetail: Sendable {
 struct NotesMeta: Codable, Sendable {
     let templateSnapshot: TemplateSnapshot
     let generatedAt: Date
+    let attachments: [NoteAttachment]?
 }
 
 // MARK: - Canonical session.json
@@ -166,6 +170,7 @@ struct SessionMetadata: Codable, Sendable {
 /// sessions/<id>/transcript.final.jsonl
 /// sessions/<id>/notes.md
 /// sessions/<id>/notes.meta.json
+/// sessions/<id>/attachments/
 /// sessions/<id>/audio/
 /// ```
 actor SessionRepository {
@@ -672,14 +677,13 @@ actor SessionRepository {
         try? notes.markdown.write(to: mdURL, atomically: true, encoding: .utf8)
 
         // Write notes.meta.json
+        let existingAttachments = loadNotesMeta(sessionID: sessionID)?.attachments
         let meta = NotesMeta(
             templateSnapshot: notes.template,
-            generatedAt: notes.generatedAt
+            generatedAt: notes.generatedAt,
+            attachments: existingAttachments
         )
-        if let data = try? encoder.encode(meta) {
-            let metaURL = dir.appendingPathComponent("notes.meta.json")
-            try? data.write(to: metaURL, options: .atomic)
-        }
+        saveNotesMeta(meta, sessionID: sessionID)
 
         // Update session.json hasNotes flag
         if var sessionMeta = loadSessionMetadataFile(sessionID: sessionID) {
@@ -694,11 +698,8 @@ actor SessionRepository {
     func loadNotes(sessionID: String) -> GeneratedNotes? {
         let dir = sessionDirectory(for: sessionID)
         let mdURL = dir.appendingPathComponent("notes.md")
-        let metaURL = dir.appendingPathComponent("notes.meta.json")
-
         guard let markdown = try? String(contentsOf: mdURL, encoding: .utf8),
-              let metaData = try? Data(contentsOf: metaURL),
-              let meta = try? decoder.decode(NotesMeta.self, from: metaData) else {
+              let meta = loadNotesMeta(sessionID: sessionID) else {
             // Fall back to legacy
             return LegacySessionReader.loadNotes(sessionID: sessionID, sessionsDirectory: sessionsDirectory)
         }
@@ -708,6 +709,67 @@ actor SessionRepository {
             generatedAt: meta.generatedAt,
             markdown: markdown
         )
+    }
+
+    func importAttachment(sessionID: String, sourceURL: URL) -> NoteAttachment? {
+        let dir = attachmentsDirectory(for: sessionID)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let sanitizedBaseName = Self.sanitizedAttachmentFilename(sourceURL.deletingPathExtension().lastPathComponent)
+        let pathExtension = sourceURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        let storedFilename: String
+        if pathExtension.isEmpty {
+            storedFilename = "\(UUID().uuidString)-\(sanitizedBaseName)"
+        } else {
+            storedFilename = "\(UUID().uuidString)-\(sanitizedBaseName).\(pathExtension)"
+        }
+
+        let destinationURL = dir.appendingPathComponent(storedFilename)
+        do {
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        } catch {
+            Log.sessionRepository.error("Failed to import attachment: \(error, privacy: .public)")
+            return nil
+        }
+
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destinationURL.path)
+
+        let resourceValues = try? destinationURL.resourceValues(forKeys: [.contentTypeKey, .fileSizeKey])
+        let contentType = resourceValues?.contentType?.identifier
+            ?? UTType(filenameExtension: destinationURL.pathExtension)?.identifier
+        let byteSize = Int64(resourceValues?.fileSize ?? 0)
+        let attachment = NoteAttachment(
+            displayName: sourceURL.lastPathComponent,
+            relativePath: "attachments/\(storedFilename)",
+            contentType: contentType,
+            byteSize: byteSize,
+            createdAt: Date()
+        )
+
+        let existingMeta = loadNotesMeta(sessionID: sessionID)
+        let attachments = (existingMeta?.attachments ?? []) + [attachment]
+        let fallbackTemplate = existingMeta?.templateSnapshot
+            ?? TemplateSnapshot(
+                id: UUID(),
+                name: "Generic",
+                icon: "doc.text",
+                systemPrompt: ""
+            )
+        let fallbackGeneratedAt = existingMeta?.generatedAt ?? Date()
+        let updatedMeta = NotesMeta(
+            templateSnapshot: fallbackTemplate,
+            generatedAt: fallbackGeneratedAt,
+            attachments: attachments
+        )
+        saveNotesMeta(updatedMeta, sessionID: sessionID)
+        return attachment
+    }
+
+    func loadNoteAttachments(sessionID: String) -> [NoteAttachment] {
+        (loadNotesMeta(sessionID: sessionID)?.attachments ?? []).sorted { lhs, rhs in
+            if lhs.createdAt != rhs.createdAt { return lhs.createdAt < rhs.createdAt }
+            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }
     }
 
     // MARK: - Custom Notes Guidance
@@ -835,13 +897,15 @@ actor SessionRepository {
             let transcript = loadTranscript(sessionID: id)
             let liveTranscript = loadLiveTranscript(sessionID: id)
             let notes = loadNotes(sessionID: id)
+            let notesMeta = loadNotesMeta(sessionID: id)
 
             return SessionDetail(
                 index: index,
                 transcript: transcript,
                 liveTranscript: liveTranscript,
                 notes: notes,
-                notesMeta: nil,
+                notesMeta: notesMeta,
+                attachments: notesMeta?.attachments ?? [],
                 calendarEvent: meta.calendarEvent
             )
         }
@@ -1507,7 +1571,8 @@ actor SessionRepository {
         transcript: [SessionRecord],
         audioURL: URL?,
         audioSources: [SessionAudioSource],
-        calendarEvent: CalendarEvent?
+        calendarEvent: CalendarEvent?,
+        attachments: [NoteAttachment]
     ) {
         let sessDir = sessionsDirectoryURL
         let dir = sessDir.appendingPathComponent(sessionID, isDirectory: true)
@@ -1524,24 +1589,45 @@ actor SessionRepository {
         async let calendarEvent = Task.detached(priority: .userInitiated) {
             SessionRepository.readCalendarEvent(dir: dir)
         }.value
+        async let attachments = Task.detached(priority: .userInitiated) {
+            SessionRepository.readNoteAttachments(dir: dir)
+        }.value
 
         let resolvedAudioSources = await audioSources
-        return await (notes, transcript, resolvedAudioSources.first?.url, resolvedAudioSources, calendarEvent)
+        return await (
+            notes,
+            transcript,
+            resolvedAudioSources.first?.url,
+            resolvedAudioSources,
+            calendarEvent,
+            attachments
+        )
     }
 
     private nonisolated static func readNotes(sessionID: String, dir: URL, sessionsDirectory: URL) -> GeneratedNotes? {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
         let mdURL = dir.appendingPathComponent("notes.md")
-        let metaURL = dir.appendingPathComponent("notes.meta.json")
 
         if let markdown = try? String(contentsOf: mdURL, encoding: .utf8),
-           let metaData = try? Data(contentsOf: metaURL),
-           let meta = try? decoder.decode(NotesMeta.self, from: metaData) {
+           let meta = readNotesMeta(dir: dir) {
             return GeneratedNotes(template: meta.templateSnapshot, generatedAt: meta.generatedAt, markdown: markdown)
         }
 
         return LegacySessionReader.loadNotes(sessionID: sessionID, sessionsDirectory: sessionsDirectory)
+    }
+
+    private nonisolated static func readNoteAttachments(dir: URL) -> [NoteAttachment] {
+        (readNotesMeta(dir: dir)?.attachments ?? []).sorted { lhs, rhs in
+            if lhs.createdAt != rhs.createdAt { return lhs.createdAt < rhs.createdAt }
+            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }
+    }
+
+    private nonisolated static func readNotesMeta(dir: URL) -> NotesMeta? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let metaURL = dir.appendingPathComponent("notes.meta.json")
+        guard let metaData = try? Data(contentsOf: metaURL) else { return nil }
+        return try? decoder.decode(NotesMeta.self, from: metaData)
     }
 
     private nonisolated static func readCalendarEvent(dir: URL) -> CalendarEvent? {
@@ -1651,6 +1737,10 @@ actor SessionRepository {
         sessionsDirectory.appendingPathComponent(sessionID, isDirectory: true)
     }
 
+    private func attachmentsDirectory(for sessionID: String) -> URL {
+        sessionDirectory(for: sessionID).appendingPathComponent("attachments", isDirectory: true)
+    }
+
     private func writeSessionMetadata(_ metadata: SessionMetadata, sessionID: String) {
         let dir = sessionDirectory(for: sessionID)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -1672,6 +1762,29 @@ actor SessionRepository {
         let url = sessionDirectory(for: sessionID).appendingPathComponent("session.json")
         guard let data = try? Data(contentsOf: url) else { return nil }
         return try? decoder.decode(SessionMetadata.self, from: data)
+    }
+
+    private func loadNotesMeta(sessionID: String) -> NotesMeta? {
+        Self.readNotesMeta(dir: sessionDirectory(for: sessionID))
+    }
+
+    private func saveNotesMeta(_ meta: NotesMeta, sessionID: String) {
+        let metaURL = sessionDirectory(for: sessionID).appendingPathComponent("notes.meta.json")
+        if let data = try? encoder.encode(meta) {
+            try? data.write(to: metaURL, options: .atomic)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: metaURL.path)
+        }
+    }
+
+    private nonisolated static func sanitizedAttachmentFilename(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(.init(charactersIn: "-_"))
+        let scalars = value.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let raw = String(scalars)
+            .replacingOccurrences(of: "--+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return raw.isEmpty ? "attachment" : raw
     }
 
     private func parseJSONL(_ content: String) -> [SessionRecord] {

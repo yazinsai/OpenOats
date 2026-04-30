@@ -473,6 +473,30 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertTrue(savedNotes?.markdown.contains("![](images/") ?? false)
     }
 
+    func testImportAttachmentPreservesUnsavedManualNotesDraft() async throws {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_manual_notes_attachment"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID, utterances: [])
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+
+        let sourceURL = root.appendingPathComponent("Agenda v2.pdf")
+        try Data("attachment".utf8).write(to: sourceURL)
+
+        controller.startManualNotesEditing()
+        controller.updateManualNotesDraft("Prep observations")
+        controller.importAttachment(from: sourceURL)
+        try? await Task.sleep(for: .milliseconds(300))
+
+        let savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
+        XCTAssertNotNil(savedNotes)
+        XCTAssertTrue(savedNotes?.markdown.contains("Prep observations") ?? false)
+        XCTAssertTrue(savedNotes?.markdown.contains("[Agenda v2.pdf](attachments/") ?? false)
+        XCTAssertEqual(controller.state.loadedAttachments.map(\.displayName), ["Agenda v2.pdf"])
+    }
+
     func testUnsavedManualNotesDraftSurvivesSessionSwitch() async {
         let (root, _) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)
