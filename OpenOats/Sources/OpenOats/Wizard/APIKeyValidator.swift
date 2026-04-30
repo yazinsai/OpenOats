@@ -12,6 +12,33 @@ enum APIKeyValidator {
         case networkError(message: String)
     }
 
+    /// Validate an ElevenLabs API key by hitting the voices endpoint.
+    static func validateElevenLabsKey(_ key: String) async -> ValidationResult {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return .invalid(message: "API key is empty")
+        }
+
+        guard let url = URL(string: "https://api.elevenlabs.io/v1/voices") else {
+            return .networkError(message: "Invalid URL")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(trimmed, forHTTPHeaderField: "xi-api-key")
+        request.timeoutInterval = 5
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return validationResult(
+                for: response,
+                authFailureMessage: "This key didn't work - double-check it on elevenlabs.io"
+            )
+        } catch {
+            return .networkError(message: "Could not verify - will test when you go online")
+        }
+    }
+
     /// Validate an OpenRouter API key by hitting the models list endpoint.
     static func validateOpenRouterKey(_ key: String) async -> ValidationResult {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -30,17 +57,10 @@ enum APIKeyValidator {
 
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                return .networkError(message: "Unexpected response type")
-            }
-
-            if (200...299).contains(http.statusCode) {
-                return .valid
-            }
-            if http.statusCode == 401 || http.statusCode == 403 {
-                return .invalid(message: "This key didn't work - double-check it on openrouter.ai")
-            }
-            return .networkError(message: "Unexpected status: \(http.statusCode)")
+            return validationResult(
+                for: response,
+                authFailureMessage: "This key didn't work - double-check it on openrouter.ai"
+            )
         } catch {
             return .networkError(message: "Could not verify - will test when you go online")
         }
@@ -71,19 +91,29 @@ enum APIKeyValidator {
 
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                return .networkError(message: "Unexpected response type")
-            }
-
-            if (200...299).contains(http.statusCode) {
-                return .valid
-            }
-            if http.statusCode == 401 || http.statusCode == 403 {
-                return .invalid(message: "This key didn't work - double-check it on dash.voyageai.com")
-            }
-            return .networkError(message: "Unexpected status: \(http.statusCode)")
+            return validationResult(
+                for: response,
+                authFailureMessage: "This key didn't work - double-check it on dash.voyageai.com"
+            )
         } catch {
             return .networkError(message: "Could not verify - will test when you go online")
         }
+    }
+
+    static func validationResult(
+        for response: URLResponse,
+        authFailureMessage: String
+    ) -> ValidationResult {
+        guard let http = response as? HTTPURLResponse else {
+            return .networkError(message: "Unexpected response type")
+        }
+
+        if (200...299).contains(http.statusCode) {
+            return .valid
+        }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            return .invalid(message: authFailureMessage)
+        }
+        return .networkError(message: "Unexpected status: \(http.statusCode)")
     }
 }

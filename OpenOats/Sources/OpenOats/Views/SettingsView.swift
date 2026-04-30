@@ -338,6 +338,9 @@ private struct TranscriptionSettingsTab: View {
     @Bindable var settings: AppSettings
     @State private var inputDevices: [(id: AudioDeviceID, name: String)] = []
     @State private var outputDevices: [(id: AudioDeviceID, name: String)] = []
+    @State private var isValidatingElevenLabsKey = false
+    @State private var elevenLabsValidation: APIKeyValidator.ValidationResult?
+    @State private var elevenLabsValidationTask: Task<Void, Never>?
 
     var body: some View {
         ScrollView {
@@ -415,8 +418,25 @@ private struct TranscriptionSettingsTab: View {
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         case .elevenLabsScribe:
-                            SecureField("ElevenLabs API Key", text: $settings.elevenLabsApiKey)
-                                .font(.system(size: 12, design: .monospaced))
+                            HStack(spacing: 8) {
+                                SecureField("ElevenLabs API Key", text: $settings.elevenLabsApiKey)
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .accessibilityIdentifier("settings.elevenLabsApiKeyField")
+
+                                apiKeyValidationIndicator(
+                                    isValidating: isValidatingElevenLabsKey,
+                                    result: elevenLabsValidation
+                                )
+                            }
+                            .onAppear {
+                                scheduleElevenLabsValidation(for: settings.elevenLabsApiKey)
+                            }
+                            .onChange(of: settings.elevenLabsApiKey) { _, newValue in
+                                scheduleElevenLabsValidation(for: newValue)
+                            }
+
+                            apiKeyValidationMessage(result: elevenLabsValidation)
+
                             Text("Audio segments are sent to ElevenLabs for transcription. Review their privacy policy at elevenlabs.io/privacy.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
@@ -542,6 +562,90 @@ private struct TranscriptionSettingsTab: View {
                 settings.outputDeviceID = resolved
             }
         }
+        .onDisappear {
+            cancelElevenLabsValidation()
+        }
+    }
+
+    @ViewBuilder
+    private func apiKeyValidationIndicator(
+        isValidating: Bool,
+        result: APIKeyValidator.ValidationResult?
+    ) -> some View {
+        Group {
+            if isValidating {
+                ProgressView()
+                    .controlSize(.mini)
+            } else if let result {
+                switch result {
+                case .valid:
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                case .invalid:
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.red)
+                case .networkError:
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+            } else {
+                Color.clear
+            }
+        }
+        .font(.system(size: 14))
+        .frame(width: 18, height: 18)
+    }
+
+    @ViewBuilder
+    private func apiKeyValidationMessage(result: APIKeyValidator.ValidationResult?) -> some View {
+        if let result {
+            switch result {
+            case .valid:
+                Text("Connected to ElevenLabs")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.green)
+            case .invalid(let message):
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+            case .networkError(let message):
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private func scheduleElevenLabsValidation(for key: String) {
+        elevenLabsValidationTask?.cancel()
+
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            elevenLabsValidation = nil
+            isValidatingElevenLabsKey = false
+            return
+        }
+
+        isValidatingElevenLabsKey = true
+        elevenLabsValidation = nil
+        elevenLabsValidationTask = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+
+            let result = await APIKeyValidator.validateElevenLabsKey(trimmed)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                elevenLabsValidation = result
+                isValidatingElevenLabsKey = false
+            }
+        }
+    }
+
+    private func cancelElevenLabsValidation() {
+        elevenLabsValidationTask?.cancel()
+        elevenLabsValidationTask = nil
+        isValidatingElevenLabsKey = false
     }
 }
 
