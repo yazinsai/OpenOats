@@ -425,22 +425,64 @@ final class MarkdownMeetingWriterTests: XCTestCase {
 
         let records = [SessionRecord(speaker: .you, text: "Test", timestamp: start)]
 
-        let fileURL = MarkdownMeetingWriter.write(
+        let target = MarkdownMeetingWriter.write(
             metadata: metadata,
             records: records,
             outputDirectory: tmpDir
         )
 
-        XCTAssertNotNil(fileURL)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL!.path))
-        XCTAssertTrue(fileURL!.lastPathComponent.hasSuffix(".md"))
+        XCTAssertNotNil(target)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: target!.markdownFileURL.path))
+        XCTAssertTrue(target!.markdownFileURL.lastPathComponent.hasSuffix(".md"))
+        XCTAssertNil(target?.packageDirectoryURL)
 
         // Verify content
-        let content = try! String(contentsOf: fileURL!, encoding: .utf8)
+        let content = try! String(contentsOf: target!.markdownFileURL, encoding: .utf8)
         XCTAssertTrue(content.contains("schema: openoats/v1"))
     }
 
     func testWriteHandlesFilenameCollision() {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OpenOatsTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let start = Date()
+        let firstMetadata = MarkdownMeetingWriter.Metadata(
+            from: SessionIndex(
+                id: "test_session_a",
+                startedAt: start,
+                endedAt: start.addingTimeInterval(60),
+                utteranceCount: 1,
+                hasNotes: false
+            )
+        )
+        let secondMetadata = MarkdownMeetingWriter.Metadata(
+            from: SessionIndex(
+                id: "test_session_b",
+                startedAt: start,
+                endedAt: start.addingTimeInterval(60),
+                utteranceCount: 1,
+                hasNotes: false
+            )
+        )
+
+        let records = [SessionRecord(speaker: .you, text: "Test", timestamp: start)]
+
+        // Write first file
+        let first = MarkdownMeetingWriter.write(
+            metadata: firstMetadata, records: records, outputDirectory: tmpDir
+        )!
+
+        // Write second file with same metadata (collision)
+        let second = MarkdownMeetingWriter.write(
+            metadata: secondMetadata, records: records, outputDirectory: tmpDir
+        )!
+
+        XCTAssertNotEqual(first.markdownFileURL.lastPathComponent, second.markdownFileURL.lastPathComponent)
+        XCTAssertTrue(second.markdownFileURL.lastPathComponent.contains("-2"))
+    }
+
+    func testWriteReusesExistingFileForSameSession() {
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("OpenOatsTest-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tmpDir) }
@@ -456,20 +498,98 @@ final class MarkdownMeetingWriterTests: XCTestCase {
             )
         )
 
+        let firstRecords = [SessionRecord(speaker: .you, text: "First", timestamp: start)]
+        let secondRecords = [SessionRecord(speaker: .you, text: "Second", timestamp: start)]
+
+        let first = MarkdownMeetingWriter.write(
+            metadata: metadata,
+            records: firstRecords,
+            outputDirectory: tmpDir
+        )!
+        let second = MarkdownMeetingWriter.write(
+            metadata: metadata,
+            records: secondRecords,
+            outputDirectory: tmpDir
+        )!
+
+        XCTAssertEqual(
+            first.markdownFileURL.resolvingSymlinksInPath(),
+            second.markdownFileURL.resolvingSymlinksInPath()
+        )
+        let contents = try! String(contentsOf: second.markdownFileURL, encoding: .utf8)
+        XCTAssertTrue(contents.contains("**You:** Second"))
+        XCTAssertFalse(contents.contains("**You:** First"))
+    }
+
+    func testWriteCreatesPackageDirectoryWhenPreferred() {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OpenOatsTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let start = Date()
+        let metadata = MarkdownMeetingWriter.Metadata(
+            from: SessionIndex(
+                id: "test_session",
+                startedAt: start,
+                endedAt: start.addingTimeInterval(60),
+                utteranceCount: 1,
+                hasNotes: true
+            )
+        )
+
         let records = [SessionRecord(speaker: .you, text: "Test", timestamp: start)]
 
-        // Write first file
-        let first = MarkdownMeetingWriter.write(
-            metadata: metadata, records: records, outputDirectory: tmpDir
+        let target = MarkdownMeetingWriter.write(
+            metadata: metadata,
+            records: records,
+            notesMarkdown: "[Doc](attachments/doc.pdf)",
+            outputDirectory: tmpDir,
+            preferPackage: true
+        )
+
+        XCTAssertNotNil(target)
+        XCTAssertNotNil(target?.packageDirectoryURL)
+        XCTAssertEqual(target?.markdownFileURL.lastPathComponent, "notes.md")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: target!.markdownFileURL.path))
+    }
+
+    func testWriteMigratesExistingFileToPackageForSameSession() {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OpenOatsTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let start = Date()
+        let metadata = MarkdownMeetingWriter.Metadata(
+            from: SessionIndex(
+                id: "test_session",
+                startedAt: start,
+                endedAt: start.addingTimeInterval(60),
+                utteranceCount: 1,
+                hasNotes: true
+            )
+        )
+
+        let records = [SessionRecord(speaker: .you, text: "Test", timestamp: start)]
+
+        let initialTarget = MarkdownMeetingWriter.write(
+            metadata: metadata,
+            records: records,
+            outputDirectory: tmpDir
+        )!
+        XCTAssertNil(initialTarget.packageDirectoryURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: initialTarget.markdownFileURL.path))
+
+        let migratedTarget = MarkdownMeetingWriter.write(
+            metadata: metadata,
+            records: records,
+            notesMarkdown: "[Doc](attachments/doc.pdf)",
+            outputDirectory: tmpDir,
+            preferPackage: true
         )!
 
-        // Write second file with same metadata (collision)
-        let second = MarkdownMeetingWriter.write(
-            metadata: metadata, records: records, outputDirectory: tmpDir
-        )!
-
-        XCTAssertNotEqual(first.lastPathComponent, second.lastPathComponent)
-        XCTAssertTrue(second.lastPathComponent.contains("-2"))
+        XCTAssertNotNil(migratedTarget.packageDirectoryURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: initialTarget.markdownFileURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: migratedTarget.markdownFileURL.path))
     }
 
     func testWriteReturnsNilForEmptyRecords() {

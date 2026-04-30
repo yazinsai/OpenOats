@@ -375,7 +375,77 @@ final class SessionRepositoryTests: XCTestCase {
         }
         
         XCTAssertTrue(didMirror, "Background mirror task did not complete in time")
-        
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
+    func testSaveNotesMirrorsReferencedAssetsIntoPackageDirectory() async throws {
+        let exportDir = rootDir.appendingPathComponent("exported_notes_with_assets", isDirectory: true)
+        try? FileManager.default.createDirectory(at: exportDir, withIntermediateDirectories: true)
+
+        await repo.setNotesFolderPath(exportDir)
+
+        let sessionID = "test_mirror_assets_session"
+        await repo.seedSession(
+            id: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Hello", timestamp: Date())],
+            startedAt: Date(),
+            title: "Mirror Assets Meeting"
+        )
+
+        let sourceURL = rootDir.appendingPathComponent("Quarterly Plan.pdf")
+        try Data("attachment".utf8).write(to: sourceURL)
+        let attachment = await repo.importAttachment(sessionID: sessionID, sourceURL: sourceURL)
+        XCTAssertNotNil(attachment)
+
+        let imageFilename = await repo.saveImage(sessionID: sessionID, imageData: Data("png".utf8))
+
+        let template = TemplateSnapshot(
+            id: UUID(), name: "Mirror", icon: "star", systemPrompt: "Be helpful"
+        )
+        let notes = GeneratedNotes(
+            template: template,
+            generatedAt: Date(),
+            markdown: """
+            # Mirror Notes
+
+            [Plan](\(attachment!.relativePath))
+
+            ![](images/\(imageFilename))
+            """
+        )
+
+        await repo.saveNotes(sessionID: sessionID, notes: notes)
+
+        var mirroredPackage: URL?
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .milliseconds(100))
+            let contents = try? FileManager.default.contentsOfDirectory(
+                at: exportDir,
+                includingPropertiesForKeys: [.isDirectoryKey]
+            )
+            mirroredPackage = contents?.first(where: {
+                ((try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false)
+                && $0.lastPathComponent.contains("mirror-assets-meeting")
+            })
+            if mirroredPackage != nil {
+                break
+            }
+        }
+
+        guard let mirroredPackage else {
+            XCTFail("Background mirror package did not complete in time")
+            return
+        }
+
+        let markdownURL = mirroredPackage.appendingPathComponent("notes.md")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markdownURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mirroredPackage.appendingPathComponent(attachment!.relativePath).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mirroredPackage.appendingPathComponent("images").appendingPathComponent(imageFilename).path))
+
+        let topLevelFiles = try? FileManager.default.contentsOfDirectory(at: exportDir, includingPropertiesForKeys: [.isDirectoryKey])
+        XCTAssertFalse(topLevelFiles?.contains(where: { $0.pathExtension == "md" && $0.lastPathComponent.contains("mirror-assets-meeting") }) ?? true)
+
         await repo.deleteSession(sessionID: sessionID)
     }
 

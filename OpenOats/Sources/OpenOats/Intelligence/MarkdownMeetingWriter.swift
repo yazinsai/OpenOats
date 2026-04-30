@@ -1,13 +1,20 @@
 import Foundation
 
-/// Produces spec-compliant openoats/v1 Markdown files from session data.
+/// Produces spec-compliant openoats/v1 Markdown exports from session data.
 ///
 /// The writer is stateless: call `write(...)` with session metadata and transcript records,
-/// and it returns the URL of the generated `.md` file. All I/O is synchronous and runs
-/// on the caller's context (designed for `nonisolated static` or actor-isolated use).
+/// and it returns the markdown output target. Exports are a single `.md` file by default,
+/// but callers can request a package directory when session-local assets must be mirrored
+/// alongside the markdown. All I/O is synchronous and runs on the caller's context
+/// (designed for `nonisolated static` or actor-isolated use).
 enum MarkdownMeetingWriter {
 
     // MARK: - Public API
+
+    struct OutputTarget: Sendable {
+        let markdownFileURL: URL
+        let packageDirectoryURL: URL?
+    }
 
     /// Metadata needed to produce the Markdown file, extracted from SessionIndex + sidecar.
     struct Metadata: Sendable {
@@ -30,21 +37,22 @@ enum MarkdownMeetingWriter {
         }
     }
 
-    /// Write a spec-compliant `.md` file to the output directory.
+    /// Write a spec-compliant Markdown export to the output directory.
     ///
     /// - Parameters:
     ///   - metadata: Session metadata (title, dates, app, engine).
     ///   - records: The transcript records from the JSONL session store.
     ///   - notesMarkdown: Optional LLM-generated notes markdown to include before the transcript.
     ///   - outputDirectory: The directory to write into (e.g. `~/Documents/OpenOats/`).
-    /// - Returns: The URL of the written file, or `nil` on failure.
+    /// - Returns: The written markdown target, or `nil` on failure.
     @discardableResult
     static func write(
         metadata: Metadata,
         records: [SessionRecord],
         notesMarkdown: String? = nil,
-        outputDirectory: URL
-    ) -> URL? {
+        outputDirectory: URL,
+        preferPackage: Bool = false
+    ) -> OutputTarget? {
         guard !records.isEmpty else {
             Log.markdownMeetingWriter.warning("MarkdownMeetingWriter: no records, skipping write")
             return nil
@@ -56,19 +64,31 @@ enum MarkdownMeetingWriter {
         // Build the Markdown content
         let content = buildMarkdown(metadata: metadata, records: records, notesMarkdown: notesMarkdown)
 
-        // Generate filename with collision handling
-        let fileURL = resolveFilename(
-            title: metadata.title,
-            startedAt: metadata.startedAt,
-            directory: outputDirectory
-        )
+        guard let target = resolveOutputTarget(
+            metadata: metadata,
+            directory: outputDirectory,
+            preferPackage: preferPackage
+        ) else {
+            Log.markdownMeetingWriter.error("Failed to resolve markdown output target")
+            return nil
+        }
+        let fileURL = target.markdownFileURL
+
+        if let packageDirectoryURL = target.packageDirectoryURL {
+            do {
+                try fm.createDirectory(at: packageDirectoryURL, withIntermediateDirectories: true)
+            } catch {
+                Log.markdownMeetingWriter.error("Failed to create markdown package: \(error, privacy: .public)")
+                return nil
+            }
+        }
 
         // Write with restricted permissions
         do {
             try content.write(to: fileURL, atomically: true, encoding: .utf8)
             try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
             Log.markdownMeetingWriter.info("Wrote meeting markdown: \(fileURL.lastPathComponent, privacy: .public)")
-            return fileURL
+            return target
         } catch {
             Log.markdownMeetingWriter.error("Failed to write markdown: \(error, privacy: .public)")
             return nil
@@ -309,20 +329,129 @@ enum MarkdownMeetingWriter {
     /// Generate the filename: `YYYY-MM-DD-HHMM-kebab-title.md`
     /// Handles collisions by appending -2, -3, etc.
     static func resolveFilename(title: String?, startedAt: Date, directory: URL) -> URL {
+        let baseName = resolveBaseName(title: title, startedAt: startedAt)
+        let fm = FileManager.default
+        var candidate = directory.appendingPathComponent("\(baseName).md")
+        var counter = 2
+
+        while fm.fileExists(atPath: candidate.path) || fm.fileExists(atPath: directory.appendingPathComponent(candidate.deletingPathExtension().lastPathComponent).path) {
+            candidate = directory.appendingPathComponent("\(baseName)-\(counter).md")
+            counter += 1
+        }
+
+        return candidate
+    }
+
+    static func resolveOutputTarget(
+        metadata: Metadata,
+        directory: URL,
+        preferPackage: Bool
+    ) -> OutputTarget? {
+        let fm = FileManager.default
+
+        if let existing = findExistingOutputTarget(sessionID: metadata.sessionID, in: directory) {
+            switch existing {
+            case let .file(fileURL):
+                if preferPackage {
+                    let baseName = fileURL.deletingPathExtension().lastPathComponent
+                    let packageDirectoryURL = directory.appendingPathComponent(baseName, isDirectory: true)
+                    do {
+                        try fm.removeItem(at: fileURL)
+                    } catch {
+                        Log.markdownMeetingWriter.error("Failed to replace mirrored markdown file with package: \(error, privacy: .public)")
+                        return nil
+                    }
+                    return OutputTarget(
+                        markdownFileURL: packageDirectoryURL.appendingPathComponent("notes.md"),
+                        packageDirectoryURL: packageDirectoryURL
+                    )
+                }
+
+                return OutputTarget(markdownFileURL: fileURL, packageDirectoryURL: nil)
+
+            case let .package(packageDirectoryURL):
+                return OutputTarget(
+                    markdownFileURL: packageDirectoryURL.appendingPathComponent("notes.md"),
+                    packageDirectoryURL: packageDirectoryURL
+                )
+            }
+        }
+
+        let baseName = resolveBaseName(title: metadata.title, startedAt: metadata.startedAt)
+        if preferPackage {
+            let packageDirectoryURL = resolvePackageDirectory(baseName: baseName, directory: directory)
+            return OutputTarget(
+                markdownFileURL: packageDirectoryURL.appendingPathComponent("notes.md"),
+                packageDirectoryURL: packageDirectoryURL
+            )
+        }
+
+        return OutputTarget(
+            markdownFileURL: resolveFilename(title: metadata.title, startedAt: metadata.startedAt, directory: directory),
+            packageDirectoryURL: nil
+        )
+    }
+
+    private enum ExistingOutputTarget {
+        case file(URL)
+        case package(URL)
+    }
+
+    private static func findExistingOutputTarget(sessionID: String, in directory: URL) -> ExistingOutputTarget? {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        for item in contents {
+            let values = try? item.resourceValues(forKeys: [.isDirectoryKey])
+            if values?.isDirectory == true {
+                let markdownURL = item.appendingPathComponent("notes.md")
+                if fm.fileExists(atPath: markdownURL.path),
+                   markdownContainsSessionID(markdownURL, sessionID: sessionID) {
+                    return .package(item)
+                }
+                continue
+            }
+
+            if item.pathExtension == "md",
+               markdownContainsSessionID(item, sessionID: sessionID) {
+                return .file(item)
+            }
+        }
+
+        return nil
+    }
+
+    private static func markdownContainsSessionID(_ url: URL, sessionID: String) -> Bool {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else {
+            return false
+        }
+        return content.contains("x_openoats_session: \(yamlQuote(sessionID))")
+    }
+
+    private static func resolveBaseName(title: String?, startedAt: Date) -> String {
         let dateFmt = DateFormatter()
         dateFmt.dateFormat = "yyyy-MM-dd-HHmm"
         dateFmt.timeZone = TimeZone.current
         let datePrefix = dateFmt.string(from: startedAt)
 
         let titleSlug = toKebabCase(title ?? "meeting")
-        let baseName = "\(datePrefix)-\(titleSlug)"
+        return "\(datePrefix)-\(titleSlug)"
+    }
 
+    private static func resolvePackageDirectory(baseName: String, directory: URL) -> URL {
         let fm = FileManager.default
-        var candidate = directory.appendingPathComponent("\(baseName).md")
+        var candidate = directory.appendingPathComponent(baseName, isDirectory: true)
         var counter = 2
 
-        while fm.fileExists(atPath: candidate.path) {
-            candidate = directory.appendingPathComponent("\(baseName)-\(counter).md")
+        while fm.fileExists(atPath: candidate.path)
+            || fm.fileExists(atPath: directory.appendingPathComponent("\(candidate.lastPathComponent).md").path) {
+            candidate = directory.appendingPathComponent("\(baseName)-\(counter)", isDirectory: true)
             counter += 1
         }
 
