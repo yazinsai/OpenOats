@@ -214,6 +214,149 @@ final class AudioRecorderTests: XCTestCase {
         XCTAssertEqual(anchors.sysAnchors.first?.frame, 0, "Start anchor should be at frame 0")
     }
 
+    // MARK: - Multi-channel mic downmix (regression for ~25 dB attenuation bug)
+
+    /// Make a non-interleaved multi-channel buffer where channel 0 carries the
+    /// "voice" signal and additional channels carry an anti-phase (180°-shifted)
+    /// copy. This is a worst-case proxy for built-in MacBook beamformed mic
+    /// arrays where channel 0 is the front-facing primary beam and other
+    /// channels carry directional/cancellation signal that's anti-phase
+    /// relative to ch 0. With the old `sum * (1/N)` averaging downmix, summing
+    /// these channels nulls the signal entirely; with channel-0-only downmix,
+    /// the output preserves channel 0 unchanged.
+    private func makeBeamformedBuffer(
+        sampleRate: Double,
+        channels: UInt32,
+        frameCount: AVAudioFrameCount,
+        frequency: Float = 440,
+        interleaved: Bool = true
+    ) -> AVAudioPCMBuffer {
+        let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: sampleRate,
+            channels: channels,
+            interleaved: interleaved
+        )!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
+        buffer.frameLength = frameCount
+        let data = buffer.floatChannelData!
+        if interleaved {
+            // Single channelData[0] plane holds [s0_ch0, s0_ch1, s0_ch2, s1_ch0, ...]
+            let chCount = Int(channels)
+            for i in 0..<Int(frameCount) {
+                let phase = Float(i) / Float(sampleRate) * frequency * 2 * .pi
+                let sample = sin(phase) * 0.5
+                data[0][i * chCount] = sample
+                for ch in 1..<chCount {
+                    data[0][i * chCount + ch] = -sample
+                }
+            }
+        } else {
+            for i in 0..<Int(frameCount) {
+                let phase = Float(i) / Float(sampleRate) * frequency * 2 * .pi
+                let sample = sin(phase) * 0.5
+                data[0][i] = sample
+                for ch in 1..<Int(channels) {
+                    data[ch][i] = -sample
+                }
+            }
+        }
+        return buffer
+    }
+
+    /// Read the recorder's mic temp file and return its peak absolute amplitude.
+    /// Touches private state via the timing anchors method to find the temp URL
+    /// — kept simple by reading the recorder's published `tempFileURLs()` API.
+    private func micTempPeak(from recorder: AudioRecorder) -> Float? {
+        let urls = recorder.tempFileURLs()
+        guard let micURL = urls.mic, FileManager.default.fileExists(atPath: micURL.path) else {
+            return nil
+        }
+        guard let file = try? AVAudioFile(forReading: micURL) else { return nil }
+        let frames = AVAudioFrameCount(file.length)
+        guard let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: frames) else {
+            return nil
+        }
+        try? file.read(into: buf)
+        guard let data = buf.floatChannelData?[0] else { return nil }
+        var peak: Float = 0
+        for i in 0..<Int(buf.frameLength) {
+            peak = max(peak, abs(data[i]))
+        }
+        return peak
+    }
+
+    /// Regression test: a 2-channel mic buffer where channel 1 is anti-phase
+    /// to channel 0 must not get averaged into silence. With the old
+    /// `sum * (1/N)` downmix, summing anti-phase channels collapses to zero;
+    /// the fix (channel-0-only downmix) preserves the original signal.
+    ///
+    /// Built-in MacBook mic arrays expose 3 beamformed channels in the wild
+    /// (front + side + cancellation) where summing produces destructive
+    /// interference of ~25 dB on real speech. We test the 2-channel anti-phase
+    /// case here because it's the cleanest demonstration — and AVAudioFormat
+    /// with 3 channels requires an explicit channel layout that's awkward in
+    /// tests. The downmix code path is identical for any N>1.
+    func testInterleavedMultiChannelMicPreservesSignal() {
+        let recorder = AudioRecorder(outputDirectory: outputDir)
+        recorder.startSession()
+
+        let buffer = makeBeamformedBuffer(
+            sampleRate: 48000,
+            channels: 2,
+            frameCount: 4800,
+            interleaved: true
+        )
+        recorder.writeMicBuffer(buffer)
+
+        guard let peak = micTempPeak(from: recorder) else {
+            XCTFail("Mic temp file not produced")
+            return
+        }
+        // Original signal peaks at 0.5. Old averaging downmix on this
+        // anti-phase 2-channel input would collapse to ~0.0. The fix preserves
+        // channel 0 verbatim, so peak should be ≈ 0.5.
+        XCTAssertGreaterThan(peak, 0.4,
+            "Multi-channel downmix is destroying the primary-beam signal — peak \(peak) suggests destructive interference. Expected ≈ 0.5.")
+    }
+
+    /// Same regression check on the non-interleaved code path.
+    func testNonInterleavedMultiChannelMicPreservesSignal() {
+        let recorder = AudioRecorder(outputDirectory: outputDir)
+        recorder.startSession()
+
+        let buffer = makeBeamformedBuffer(
+            sampleRate: 48000,
+            channels: 2,
+            frameCount: 4800,
+            interleaved: false
+        )
+        recorder.writeMicBuffer(buffer)
+
+        guard let peak = micTempPeak(from: recorder) else {
+            XCTFail("Mic temp file not produced")
+            return
+        }
+        XCTAssertGreaterThan(peak, 0.4,
+            "Non-interleaved multi-channel downmix collapsed to peak \(peak). Expected ≈ 0.5.")
+    }
+
+    /// Single-channel mic must continue to work exactly as before — taking
+    /// channel 0 directly is a no-op for mono input.
+    func testSingleChannelMicPassThroughUnchanged() {
+        let recorder = AudioRecorder(outputDirectory: outputDir)
+        recorder.startSession()
+
+        let buffer = makeSineBuffer(sampleRate: 48000, channels: 1, frameCount: 4800)
+        recorder.writeMicBuffer(buffer)
+
+        guard let peak = micTempPeak(from: recorder) else {
+            XCTFail("Mic temp file not produced")
+            return
+        }
+        XCTAssertGreaterThan(peak, 0.4, "Single-channel mic peak should be ≈ 0.5")
+    }
+
     func testDiscardDoesNotProduceOutput() {
         let recorder = AudioRecorder(outputDirectory: outputDir)
         recorder.startSession()
