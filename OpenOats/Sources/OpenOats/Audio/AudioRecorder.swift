@@ -99,65 +99,48 @@ final class AudioRecorder: @unchecked Sendable {
             let dst = monoBuf.floatChannelData?[0] else { return }
             monoBuf.frameLength = buffer.frameLength
 
+            // Multi-channel built-in MacBook mics report 3 channels because
+            // CoreAudio exposes the front-facing primary beam alongside side
+            // and cancellation beams. Channel 0 is the user's voice; channels
+            // 1+ carry directional/cancellation signal that is anti-phase or
+            // uncorrelated with channel 0. Averaging across all channels causes
+            // destructive interference and attenuates the recorded voice by
+            // ~25 dB on a 3-mic array, while the audio level meter (which
+            // reads the raw multi-channel buffer) keeps showing the user's
+            // voice at full level — making the bug invisible at runtime.
+            //
+            // Take channel 0 directly. For non-interleaved buffers that's a
+            // contiguous memcpy of the first channel's plane. For interleaved
+            // buffers we stride by channelCount and grab the first sample of
+            // each frame.
             if let src = buffer.floatChannelData {
-                if channels == 1 {
-                    if buffer.format.isInterleaved {
-                        memcpy(dst, src[0], frames * MemoryLayout<Float>.size)
-                    } else {
-                        memcpy(dst, src[0], frames * MemoryLayout<Float>.size)
+                if buffer.format.isInterleaved {
+                    for i in 0..<frames {
+                        dst[i] = src[0][i * channels]
                     }
                 } else {
-                    let scale = 1.0 / Float(channels)
-                    if buffer.format.isInterleaved {
-                        for i in 0..<frames {
-                            var sum: Float = 0
-                            for ch in 0..<channels { sum += src[0][(i * channels) + ch] }
-                            dst[i] = sum * scale
-                        }
-                    } else {
-                        for i in 0..<frames {
-                            var sum: Float = 0
-                            for ch in 0..<channels { sum += src[ch][i] }
-                            dst[i] = sum * scale
-                        }
-                    }
+                    memcpy(dst, src[0], frames * MemoryLayout<Float>.size)
                 }
             } else if let src = buffer.int16ChannelData {
                 let scale = 1.0 / Float(Int16.max)
-                if channels == 1 {
-                    for i in 0..<frames { dst[i] = Float(src[0][i]) * scale }
-                } else if buffer.format.isInterleaved {
-                    let invCh = 1.0 / Float(channels)
+                if buffer.format.isInterleaved {
                     for i in 0..<frames {
-                        var sum: Float = 0
-                        for ch in 0..<channels { sum += Float(src[0][(i * channels) + ch]) * scale }
-                        dst[i] = sum * invCh
+                        dst[i] = Float(src[0][i * channels]) * scale
                     }
                 } else {
-                    let invCh = 1.0 / Float(channels)
                     for i in 0..<frames {
-                        var sum: Float = 0
-                        for ch in 0..<channels { sum += Float(src[ch][i]) * scale }
-                        dst[i] = sum * invCh
+                        dst[i] = Float(src[0][i]) * scale
                     }
                 }
             } else if let src = buffer.int32ChannelData {
                 let scale = 1.0 / Float(Int32.max)
-                if channels == 1 {
-                    for i in 0..<frames { dst[i] = Float(src[0][i]) * scale }
-                } else if buffer.format.isInterleaved {
-                    let invCh = 1.0 / Float(channels)
+                if buffer.format.isInterleaved {
                     for i in 0..<frames {
-                        var sum: Float = 0
-                        for ch in 0..<channels { sum += Float(src[0][(i * channels) + ch]) * scale }
-                        dst[i] = sum * invCh
+                        dst[i] = Float(src[0][i * channels]) * scale
                     }
                 } else {
-                    let invCh = 1.0 / Float(channels)
                     for i in 0..<frames {
-                        var sum: Float = 0
-                        for ch in 0..<channels { sum += Float(src[ch][i]) * scale }
-                        dst[i] = sum * invCh
+                        dst[i] = Float(src[0][i]) * scale
                     }
                 }
             } else {

@@ -79,6 +79,8 @@ final class MicCapture: @unchecked Sendable {
                 }
             }
 
+            engine.prepare()
+
             // Set input device before accessing inputNode format
             var resolvedDeviceID: AudioDeviceID?
             if let id = deviceID {
