@@ -651,6 +651,12 @@ private struct ComingUpEventRow: View {
     @State private var isHovering = false
     @State private var isFolderHovering = false
     var body: some View {
+        let readiness = UpcomingMeetingReadiness.resolve(
+            for: event,
+            settings: settings,
+            sessionHistory: sessionHistory
+        )
+
         HStack(alignment: .center, spacing: 8) {
             Button(action: {
                 onOpenRelatedNotes(event)
@@ -658,7 +664,7 @@ private struct ComingUpEventRow: View {
                 HStack(alignment: .top, spacing: 10) {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(calendarColor(for: event))
-                        .frame(width: 4, height: 34)
+                        .frame(width: 4, height: 44)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(event.title)
@@ -668,6 +674,11 @@ private struct ComingUpEventRow: View {
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                        Text(readiness.summaryText)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .accessibilityIdentifier("idle.comingUp.readiness.\(event.id)")
                     }
 
                     Spacer(minLength: 0)
@@ -687,7 +698,7 @@ private struct ComingUpEventRow: View {
             .help("Open meeting history")
             .accessibilityIdentifier("idle.comingUp.event.\(event.id)")
 
-            folderMenu
+            folderMenu(readiness: readiness)
 
             if showJoinButton, event.meetingURL != nil {
                 Button(action: {
@@ -709,7 +720,7 @@ private struct ComingUpEventRow: View {
         }
     }
 
-    private var folderMenu: some View {
+    private func folderMenu(readiness: UpcomingMeetingReadiness) -> some View {
         let preferredFolderPath = settings.meetingFamilyPreferences(for: event)?.folderPath
         let choices = meetingFamilyFolderChoices(including: preferredFolderPath)
 
@@ -792,7 +803,7 @@ private struct ComingUpEventRow: View {
         .onHover { hovering in
             isFolderHovering = hovering
         }
-        .help(folderHelpText(for: preferredFolderPath))
+        .help(folderHelpText(for: preferredFolderPath, historyCount: readiness.historyCount))
         .accessibilityIdentifier("idle.comingUp.folder.\(event.id)")
     }
 
@@ -814,16 +825,11 @@ private struct ComingUpEventRow: View {
         return color
     }
 
-    private func folderHelpText(for preferredFolderPath: String?) -> String {
-        let matchingHistoryCount = MeetingHistoryResolver.matchingSessions(
-            forHistoryKey: settings.canonicalMeetingHistoryKey(for: event),
-            sessionHistory: sessionHistory,
-            aliases: settings.meetingHistoryAliasesByKey
-        ).count
+    private func folderHelpText(for preferredFolderPath: String?, historyCount: Int) -> String {
         let base = "Default folder: \(folderDisplayName(for: preferredFolderPath))"
-        guard matchingHistoryCount > 0 else { return base }
-        let noun = matchingHistoryCount == 1 ? "saved meeting" : "saved meetings"
-        return "\(base). \(matchingHistoryCount) \(noun) already exist for this meeting family."
+        guard historyCount > 0 else { return base }
+        let noun = historyCount == 1 ? "saved meeting" : "saved meetings"
+        return "\(base). \(historyCount) \(noun) already exist for this meeting family."
     }
 
     private func meetingFamilyFolderChoices(including preferredFolderPath: String?) -> [NotesFolderDefinition] {
@@ -884,6 +890,43 @@ private struct ComingUpEventRow: View {
         case .red:
             return .red
         }
+    }
+}
+
+struct UpcomingMeetingReadiness: Equatable {
+    let historyCount: Int
+    let folderPath: String?
+
+    var summaryText: String {
+        historySummaryText
+    }
+
+    var historySummaryText: String {
+        switch historyCount {
+        case 0:
+            return "No history"
+        case 1:
+            return "1 previous"
+        default:
+            return "\(historyCount) previous"
+        }
+    }
+    @MainActor
+    static func resolve(
+        for event: CalendarEvent,
+        settings: AppSettings,
+        sessionHistory: [SessionIndex]
+    ) -> UpcomingMeetingReadiness {
+        let historyCount = MeetingHistoryResolver.matchingSessions(
+            for: event,
+            sessionHistory: sessionHistory,
+            aliases: settings.meetingHistoryAliasesByKey
+        ).count
+        let folderPath = settings.meetingFamilyPreferences(for: event)?.folderPath
+        return UpcomingMeetingReadiness(
+            historyCount: historyCount,
+            folderPath: folderPath
+        )
     }
 }
 
