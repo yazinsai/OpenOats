@@ -90,12 +90,14 @@ private struct GeneralSettingsTab: View {
                         }
                     }
 
-                    HStack {
-                        Toggle(
-                            "Save meeting transcripts into subfolders.",
-                            isOn: $settings.saveMeetingTranscriptsInDateSubfolders
-                        )
-                        .font(.system(size: 12))
+                    HStack(alignment: .center) {
+                        Toggle("", isOn: $settings.saveMeetingTranscriptsInDateSubfolders)
+                            .labelsHidden()
+                            .accessibilityLabel("Save meeting transcripts into subfolders")
+
+                        Text("Save meeting transcripts into subfolders.")
+                            .font(.system(size: 12))
+                            .fixedSize(horizontal: false, vertical: true)
 
                         Spacer()
 
