@@ -1,3 +1,5 @@
+// ABOUTME: Renders the app settings window and binds controls to persisted preferences.
+// ABOUTME: Groups capture, transcription, intelligence, template, and integration options.
 import AppKit
 import SwiftUI
 import CoreAudio
@@ -86,6 +88,26 @@ private struct GeneralSettingsTab: View {
                         Button("Choose...") {
                             chooseNotesFolder()
                         }
+                    }
+
+                    HStack {
+                        Toggle(
+                            "Save meeting transcripts into subfolders.",
+                            isOn: $settings.saveMeetingTranscriptsInDateSubfolders
+                        )
+                        .font(.system(size: 12))
+
+                        Spacer()
+
+                        Picker("", selection: $settings.meetingTranscriptDateFolderFormat) {
+                            ForEach(MeetingTranscriptDateFolderFormat.allCases) { format in
+                                Text(format.displayName).tag(format)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 175)
+                        .disabled(!settings.saveMeetingTranscriptsInDateSubfolders)
                     }
                 }
 

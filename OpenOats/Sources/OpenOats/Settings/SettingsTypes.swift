@@ -1,4 +1,38 @@
+// ABOUTME: Defines app settings value types and display metadata shared by the UI.
+// ABOUTME: Keeps persisted preference enums close to the code that reads UserDefaults.
 import Foundation
+
+enum MeetingTranscriptDateFolderFormat: String, CaseIterable, Identifiable, Codable, Sendable {
+    case us
+    case uk
+    case iso
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .us: "US (MM-DD-YYYY)"
+        case .uk: "UK (DD-MM-YYYY)"
+        case .iso: "ISO (YYYY-MM-DD)"
+        }
+    }
+
+    func folderName(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = dateFormat
+        return formatter.string(from: date)
+    }
+
+    private var dateFormat: String {
+        switch self {
+        case .us: "MM-dd-yyyy"
+        case .uk: "dd-MM-yyyy"
+        case .iso: "yyyy-MM-dd"
+        }
+    }
+}
 
 enum NotesFolderColor: String, CaseIterable, Identifiable, Codable {
     case gray

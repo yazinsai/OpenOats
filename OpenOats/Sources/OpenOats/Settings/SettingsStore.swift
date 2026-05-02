@@ -1,3 +1,5 @@
+// ABOUTME: Stores user preferences and secrets behind observable app settings.
+// ABOUTME: Persists non-secret values in UserDefaults and sensitive values in the keychain.
 import AppKit
 import CoreAudio
 import Foundation
@@ -884,6 +886,34 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _saveMeetingTranscriptsInDateSubfolders: Bool
+    var saveMeetingTranscriptsInDateSubfolders: Bool {
+        get {
+            access(keyPath: \.saveMeetingTranscriptsInDateSubfolders)
+            return _saveMeetingTranscriptsInDateSubfolders
+        }
+        set {
+            withMutation(keyPath: \.saveMeetingTranscriptsInDateSubfolders) {
+                _saveMeetingTranscriptsInDateSubfolders = newValue
+                defaults.set(newValue, forKey: "saveMeetingTranscriptsInDateSubfolders")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _meetingTranscriptDateFolderFormat: MeetingTranscriptDateFolderFormat
+    var meetingTranscriptDateFolderFormat: MeetingTranscriptDateFolderFormat {
+        get {
+            access(keyPath: \.meetingTranscriptDateFolderFormat)
+            return _meetingTranscriptDateFolderFormat
+        }
+        set {
+            withMutation(keyPath: \.meetingTranscriptDateFolderFormat) {
+                _meetingTranscriptDateFolderFormat = newValue
+                defaults.set(newValue.rawValue, forKey: "meetingTranscriptDateFolderFormat")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _notesFolders: [NotesFolderDefinition]
     var notesFolders: [NotesFolderDefinition] {
         get { access(keyPath: \.notesFolders); return _notesFolders }
@@ -1278,6 +1308,10 @@ final class SettingsStore {
         }
         let defaultNotesPath = storage.defaultNotesDirectory.path
         self._notesFolderPath = defaults.string(forKey: "notesFolderPath") ?? defaultNotesPath
+        self._saveMeetingTranscriptsInDateSubfolders = defaults.bool(forKey: "saveMeetingTranscriptsInDateSubfolders")
+        self._meetingTranscriptDateFolderFormat = defaults
+            .string(forKey: "meetingTranscriptDateFolderFormat")
+            .flatMap(MeetingTranscriptDateFolderFormat.init(rawValue:)) ?? .iso
         self._notesFolders = Self.decodeNotesFolders(defaults.data(forKey: "notesFolders")) ?? []
         self._meetingPrepNotesByKey = Self.decodeMeetingPrepNotes(defaults.data(forKey: "meetingPrepNotesByKey")) ?? [:]
         self._meetingHistoryAliasesByKey = Self.decodeMeetingHistoryAliases(

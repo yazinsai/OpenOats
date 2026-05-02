@@ -1,3 +1,5 @@
+// ABOUTME: Manages live recording sessions, transcription lifecycle, and session finalization.
+// ABOUTME: Bridges observable app state with repositories, audio capture, and settings changes.
 import Foundation
 import Observation
 import CoreAudio
@@ -133,6 +135,7 @@ final class LiveSessionController {
     private var observedIsGenerating = false
     private var observedKBFolderPath: String?
     private var observedNotesFolderPath = ""
+    private var observedMeetingTranscriptDateFolderFormat: MeetingTranscriptDateFolderFormat?
     private var observedEmbeddingProvider: EmbeddingProvider?
     private var observedVoyageApiKey: String?
     private var observedTranscriptionModel: TranscriptionModel = .parakeetV2
@@ -595,12 +598,20 @@ final class LiveSessionController {
 
         // Configure notes folder for mirroring (prefer security-scoped bookmark)
         if let settings {
+            let dateSubfolderFormat = Self.dateSubfolderFormat(for: settings)
             if let resolvedURL = settings.resolveNotesFolderBookmark() {
-                await coordinator.sessionRepository.setNotesFolderPath(resolvedURL, securityScoped: true)
+                await coordinator.sessionRepository.setNotesFolderPath(
+                    resolvedURL,
+                    securityScoped: true,
+                    dateSubfolderFormat: dateSubfolderFormat
+                )
                 coordinator.audioRecorder?.updateDirectory(resolvedURL, securityScoped: true)
             } else {
                 let notesURL = URL(fileURLWithPath: settings.notesFolderPath)
-                await coordinator.sessionRepository.setNotesFolderPath(notesURL)
+                await coordinator.sessionRepository.setNotesFolderPath(
+                    notesURL,
+                    dateSubfolderFormat: dateSubfolderFormat
+                )
                 coordinator.audioRecorder?.updateDirectory(notesURL)
             }
         }
@@ -966,6 +977,10 @@ final class LiveSessionController {
         )
     }
 
+    private static func dateSubfolderFormat(for settings: AppSettings) -> MeetingTranscriptDateFolderFormat? {
+        settings.saveMeetingTranscriptsInDateSubfolders ? settings.meetingTranscriptDateFolderFormat : nil
+    }
+
     static func transcriptIssue(for input: RecordingHealthInput) -> SessionTranscriptIssue? {
         guard input.utteranceCount == 0 else { return nil }
 
@@ -1277,17 +1292,27 @@ final class LiveSessionController {
             }
         }
 
-        if settings.notesFolderPath != observedNotesFolderPath {
+        let dateSubfolderFormat = Self.dateSubfolderFormat(for: settings)
+        if settings.notesFolderPath != observedNotesFolderPath
+            || dateSubfolderFormat != observedMeetingTranscriptDateFolderFormat {
             observedNotesFolderPath = settings.notesFolderPath
+            observedMeetingTranscriptDateFolderFormat = dateSubfolderFormat
             if let resolvedURL = settings.resolveNotesFolderBookmark() {
                 Task {
-                    await coordinator.sessionRepository.setNotesFolderPath(resolvedURL, securityScoped: true)
+                    await coordinator.sessionRepository.setNotesFolderPath(
+                        resolvedURL,
+                        securityScoped: true,
+                        dateSubfolderFormat: dateSubfolderFormat
+                    )
                 }
                 coordinator.audioRecorder?.updateDirectory(resolvedURL, securityScoped: true)
             } else {
                 let url = URL(fileURLWithPath: settings.notesFolderPath)
                 Task {
-                    await coordinator.sessionRepository.setNotesFolderPath(url)
+                    await coordinator.sessionRepository.setNotesFolderPath(
+                        url,
+                        dateSubfolderFormat: dateSubfolderFormat
+                    )
                 }
                 coordinator.audioRecorder?.updateDirectory(url)
             }

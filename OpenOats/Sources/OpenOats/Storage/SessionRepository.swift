@@ -1,3 +1,5 @@
+// ABOUTME: Persists meeting sessions, transcripts, generated notes, and exported mirrors.
+// ABOUTME: Coordinates the app's canonical session store with user-selected notes folders.
 import Foundation
 import UniformTypeIdentifiers
 
@@ -197,6 +199,7 @@ actor SessionRepository {
 
     /// User-facing notes folder for mirroring (e.g. ~/Documents/OpenOats).
     private var notesFolderPath: URL?
+    private var meetingTranscriptDateFolderFormat: MeetingTranscriptDateFolderFormat?
 
     /// Whether `notesFolderPath` is a security-scoped URL that requires
     /// `startAccessingSecurityScopedResource()` before file I/O.
@@ -233,9 +236,14 @@ actor SessionRepository {
     /// - Parameters:
     ///   - url: The folder URL (may be a security-scoped URL resolved from a bookmark).
     ///   - securityScoped: Pass `true` when the URL was resolved from a security-scoped bookmark.
-    func setNotesFolderPath(_ url: URL?, securityScoped: Bool = false) {
+    func setNotesFolderPath(
+        _ url: URL?,
+        securityScoped: Bool = false,
+        dateSubfolderFormat: MeetingTranscriptDateFolderFormat? = nil
+    ) {
         notesFolderPath = url
         notesFolderIsSecurityScoped = securityScoped
+        meetingTranscriptDateFolderFormat = dateSubfolderFormat
     }
 
     /// Register a callback invoked once per session when a write error occurs.
@@ -1894,6 +1902,7 @@ actor SessionRepository {
         guard let outputDir = notesFolderPath else { return }
         let sessDir = sessionsDirectory
         let isSecurityScoped = notesFolderIsSecurityScoped
+        let dateSubfolderFormat = meetingTranscriptDateFolderFormat
         let meta = loadSessionMetadataFile(sessionID: sessionID)
         Task.detached(priority: .background) {
             SessionRepository.performMirror(
@@ -1902,6 +1911,7 @@ actor SessionRepository {
                 notesMarkdown: notesMarkdown,
                 outputDir: outputDir,
                 isSecurityScoped: isSecurityScoped,
+                dateSubfolderFormat: dateSubfolderFormat,
                 sessionsDirectory: sessDir
             )
         }
@@ -1913,6 +1923,7 @@ actor SessionRepository {
         notesMarkdown: String?,
         outputDir: URL,
         isSecurityScoped: Bool,
+        dateSubfolderFormat: MeetingTranscriptDateFolderFormat?,
         sessionsDirectory: URL
     ) {
         // Acquire security-scoped access if the URL was resolved from a bookmark
@@ -1952,7 +1963,7 @@ actor SessionRepository {
             metadata: .init(from: index),
             records: records,
             notesMarkdown: resolvedMarkdown,
-            outputDirectory: outputDir,
+            outputDirectory: mirrorDirectory(outputDir, format: dateSubfolderFormat, startedAt: index.startedAt),
             preferPackage: !referencedAssetPaths.isEmpty
         )
 
@@ -1965,6 +1976,15 @@ actor SessionRepository {
                 into: packageDirectoryURL
             )
         }
+    }
+
+    private nonisolated static func mirrorDirectory(
+        _ outputDir: URL,
+        format: MeetingTranscriptDateFolderFormat?,
+        startedAt: Date
+    ) -> URL {
+        guard let format else { return outputDir }
+        return outputDir.appendingPathComponent(format.folderName(for: startedAt), isDirectory: true)
     }
 
     private nonisolated static func referencedMirrorAssetPaths(in markdown: String) -> Set<String> {
