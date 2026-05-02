@@ -25,6 +25,17 @@ final class SessionRepositoryTests: XCTestCase {
         )
     }
 
+    private func localDate(year: Int, month: Int, day: Int, hour: Int = 10) -> Date {
+        var components = DateComponents()
+        components.calendar = Calendar(identifier: .gregorian)
+        components.timeZone = .current
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = hour
+        return components.date!
+    }
+
     override func setUp() async throws {
         rootDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("OpenOatsRepoTests", isDirectory: true)
@@ -375,6 +386,57 @@ final class SessionRepositoryTests: XCTestCase {
         }
         
         XCTAssertTrue(didMirror, "Background mirror task did not complete in time")
+
+        await repo.deleteSession(sessionID: sessionID)
+    }
+
+    func testSaveNotesMirrorsIntoISODateSubfolder() async throws {
+        let exportDir = rootDir.appendingPathComponent("exported_notes_by_date", isDirectory: true)
+        try FileManager.default.createDirectory(at: exportDir, withIntermediateDirectories: true)
+
+        await repo.setNotesFolderPath(exportDir, dateSubfolderFormat: .iso)
+
+        let startedAt = localDate(year: 2026, month: 5, day: 2)
+        let sessionID = "test_mirror_date_folder_session"
+        await repo.seedSession(
+            id: sessionID,
+            records: [SessionRecord(speaker: .you, text: "Hello", timestamp: startedAt)],
+            startedAt: startedAt,
+            title: "Date Folder Meeting"
+        )
+
+        let template = TemplateSnapshot(
+            id: UUID(), name: "Mirror", icon: "star", systemPrompt: "Be helpful"
+        )
+        let notes = GeneratedNotes(
+            template: template,
+            generatedAt: startedAt,
+            markdown: "# Date Folder Notes\n\nContent here."
+        )
+
+        await repo.saveNotes(sessionID: sessionID, notes: notes)
+
+        let dateFolder = exportDir.appendingPathComponent("2026-05-02", isDirectory: true)
+        var didMirror = false
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .milliseconds(100))
+            let contents = try? FileManager.default.contentsOfDirectory(
+                at: dateFolder,
+                includingPropertiesForKeys: nil
+            )
+            if contents?.contains(where: { $0.lastPathComponent.contains("date-folder-meeting") && $0.pathExtension == "md" }) ?? false {
+                didMirror = true
+                break
+            }
+        }
+
+        XCTAssertTrue(didMirror, "Background mirror task did not write into the date subfolder")
+
+        let topLevelContents = try FileManager.default.contentsOfDirectory(
+            at: exportDir,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertFalse(topLevelContents.contains(where: { $0.pathExtension == "md" }))
 
         await repo.deleteSession(sessionID: sessionID)
     }

@@ -30,6 +30,17 @@ final class SettingsStoreTests: XCTestCase {
         return SettingsStore(storage: storage)
     }
 
+    private func localDate(year: Int, month: Int, day: Int, hour: Int = 10) -> Date {
+        var components = DateComponents()
+        components.calendar = Calendar(identifier: .gregorian)
+        components.timeZone = .current
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = hour
+        return components.date!
+    }
+
     // MARK: - AI Settings Group
 
     func testDefaultLLMProvider() {
@@ -227,6 +238,33 @@ final class SettingsStoreTests: XCTestCase {
 
         store.diagnosticLoggingEnabled = true
         XCTAssertTrue(store.diagnosticLoggingEnabled)
+    }
+
+    func testDefaultMeetingTranscriptDateSubfoldersSettings() {
+        let store = makeStore()
+        XCTAssertFalse(store.saveMeetingTranscriptsInDateSubfolders)
+        XCTAssertEqual(store.meetingTranscriptDateFolderFormat, .iso)
+    }
+
+    func testMeetingTranscriptDateSubfoldersSettingsRoundTrip() {
+        let suiteName = "com.openoats.test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = makeStore(defaults: defaults)
+        store.saveMeetingTranscriptsInDateSubfolders = true
+        store.meetingTranscriptDateFolderFormat = .uk
+
+        let reopened = makeStore(defaults: defaults)
+        XCTAssertTrue(reopened.saveMeetingTranscriptsInDateSubfolders)
+        XCTAssertEqual(reopened.meetingTranscriptDateFolderFormat, .uk)
+    }
+
+    func testMeetingTranscriptDateFolderFormatFolderNames() {
+        let date = localDate(year: 2026, month: 5, day: 2)
+        XCTAssertEqual(MeetingTranscriptDateFolderFormat.us.folderName(for: date), "05-02-2026")
+        XCTAssertEqual(MeetingTranscriptDateFolderFormat.uk.folderName(for: date), "02-05-2026")
+        XCTAssertEqual(MeetingTranscriptDateFolderFormat.iso.folderName(for: date), "2026-05-02")
     }
 
     func testDefaultBatchTranscriptionModel() {

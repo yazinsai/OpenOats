@@ -87,6 +87,28 @@ private struct GeneralSettingsTab: View {
                             chooseNotesFolder()
                         }
                     }
+
+                    HStack(alignment: .center) {
+                        Toggle("", isOn: $settings.saveMeetingTranscriptsInDateSubfolders)
+                            .labelsHidden()
+                            .accessibilityLabel("Save meeting transcripts into subfolders")
+
+                        Text("Save meeting transcripts into subfolders.")
+                            .font(.system(size: 12))
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Spacer()
+
+                        Picker("", selection: $settings.meetingTranscriptDateFolderFormat) {
+                            ForEach(MeetingTranscriptDateFolderFormat.allCases) { format in
+                                Text(format.displayName).tag(format)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 175)
+                        .disabled(!settings.saveMeetingTranscriptsInDateSubfolders)
+                    }
                 }
 
                 Section("Meeting Detection") {
