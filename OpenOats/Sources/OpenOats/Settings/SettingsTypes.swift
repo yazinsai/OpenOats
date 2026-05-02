@@ -1,5 +1,3 @@
-// ABOUTME: Defines app settings value types and display metadata shared by the UI.
-// ABOUTME: Keeps persisted preference enums close to the code that reads UserDefaults.
 import Foundation
 
 enum MeetingTranscriptDateFolderFormat: String, CaseIterable, Identifiable, Codable, Sendable {

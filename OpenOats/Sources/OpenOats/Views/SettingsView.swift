@@ -1,5 +1,3 @@
-// ABOUTME: Renders the app settings window and binds controls to persisted preferences.
-// ABOUTME: Groups capture, transcription, intelligence, template, and integration options.
 import AppKit
 import SwiftUI
 import CoreAudio

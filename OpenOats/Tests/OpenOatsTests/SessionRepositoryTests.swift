@@ -1,5 +1,3 @@
-// ABOUTME: Exercises the session repository persistence and exported meeting mirror files.
-// ABOUTME: Uses temporary directories to verify on-disk session artifacts without app state.
 import XCTest
 @testable import OpenOatsKit
 

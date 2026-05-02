@@ -1,5 +1,3 @@
-// ABOUTME: Persists meeting sessions, transcripts, generated notes, and exported mirrors.
-// ABOUTME: Coordinates the app's canonical session store with user-selected notes folders.
 import Foundation
 import UniformTypeIdentifiers
 

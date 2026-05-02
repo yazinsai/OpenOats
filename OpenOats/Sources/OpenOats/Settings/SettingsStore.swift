@@ -1,5 +1,3 @@
-// ABOUTME: Stores user preferences and secrets behind observable app settings.
-// ABOUTME: Persists non-secret values in UserDefaults and sensitive values in the keychain.
 import AppKit
 import CoreAudio
 import Foundation

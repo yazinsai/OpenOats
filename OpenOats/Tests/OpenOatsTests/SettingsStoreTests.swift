@@ -1,5 +1,3 @@
-// ABOUTME: Verifies SettingsStore defaults, persistence, and user-facing preferences.
-// ABOUTME: Uses isolated UserDefaults suites so settings tests do not affect local app data.
 import XCTest
 @testable import OpenOatsKit
 

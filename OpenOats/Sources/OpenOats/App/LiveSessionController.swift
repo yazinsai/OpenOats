@@ -1,5 +1,3 @@
-// ABOUTME: Manages live recording sessions, transcription lifecycle, and session finalization.
-// ABOUTME: Bridges observable app state with repositories, audio capture, and settings changes.
 import Foundation
 import Observation
 import CoreAudio
