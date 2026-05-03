@@ -401,7 +401,9 @@ final class MeetingDetectionController {
             } else {
                 app = await meetingDetector?.detectedApp
             }
-            let calEvent = calendarManager?.currentEvent()
+            let calEvent = calendarManager?.currentEvent(
+                excludingCalendarIDs: activeSettings?.excludedCalendarIDs ?? []
+            )
 
             let signal: DetectionSignal
             if snapshot?.trigger == .camera {

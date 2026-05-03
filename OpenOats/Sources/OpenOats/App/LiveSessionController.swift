@@ -283,7 +283,9 @@ final class LiveSessionController {
         coordinator.suggestionEngine?.clear()
         coordinator.sidecastEngine?.clear()
         let calEvent = calendarEventOverride ?? (settings.calendarIntegrationEnabled
-            ? container.calendarManager?.currentEvent()
+            ? container.calendarManager?.currentEvent(
+                excludingCalendarIDs: settings.excludedCalendarIDs
+            )
             : nil)
         DiagnosticsSupport.record(
             category: "meeting",

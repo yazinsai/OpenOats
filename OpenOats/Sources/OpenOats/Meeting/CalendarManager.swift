@@ -16,6 +16,13 @@ final class CalendarManager {
         case denied
     }
 
+    struct AvailableCalendar: Sendable, Hashable, Identifiable {
+        let id: String
+        let title: String
+        let sourceTitle: String?
+        let colorHex: String?
+    }
+
     /// Current authorization status, observed at init and after requesting access.
     private(set) var accessState: AccessState
 
@@ -50,9 +57,13 @@ final class CalendarManager {
 
     /// Find the calendar event that best overlaps the given date (typically now).
     /// Returns nil if no event is found or access is not authorized.
-    func currentEvent(at date: Date = Date()) -> CalendarEvent? {
+    func currentEvent(
+        at date: Date = Date(),
+        excludingCalendarIDs: [String] = []
+    ) -> CalendarEvent? {
         guard accessState == .authorized else { return nil }
-        let calendars = eventCalendars()
+        let calendars = eventCalendars(excludingCalendarIDs: Set(excludingCalendarIDs))
+        guard !calendars.isEmpty else { return nil }
 
         // Look for events in a window: started up to 15 min ago through 15 min from now
         let windowStart = date.addingTimeInterval(-15 * 60)
@@ -84,10 +95,12 @@ final class CalendarManager {
     func upcomingEvents(
         from date: Date = Date(),
         within window: TimeInterval = 12 * 60 * 60,
-        limit: Int = 5
+        limit: Int = 5,
+        excludingCalendarIDs: [String] = []
     ) -> [CalendarEvent] {
         guard accessState == .authorized else { return [] }
-        let calendars = eventCalendars()
+        let calendars = eventCalendars(excludingCalendarIDs: Set(excludingCalendarIDs))
+        guard !calendars.isEmpty else { return [] }
 
         let windowEnd = date.addingTimeInterval(window)
         let predicate = store.predicateForEvents(
@@ -105,9 +118,13 @@ final class CalendarManager {
 
     /// Calendar events occurring on the same local day as the given date, ordered by start date.
     /// Returns an empty array if access is not authorized.
-    func events(onSameDayAs date: Date = Date()) -> [CalendarEvent] {
+    func events(
+        onSameDayAs date: Date = Date(),
+        excludingCalendarIDs: [String] = []
+    ) -> [CalendarEvent] {
         guard accessState == .authorized else { return [] }
-        let calendars = eventCalendars()
+        let calendars = eventCalendars(excludingCalendarIDs: Set(excludingCalendarIDs))
+        guard !calendars.isEmpty else { return [] }
         let calendar = Calendar.current
         let startOfDay = calendar.startOfDay(for: date)
         guard let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) else {
@@ -128,8 +145,31 @@ final class CalendarManager {
 
     // MARK: - Helpers
 
-    private func eventCalendars() -> [EKCalendar] {
+    func availableCalendars() -> [AvailableCalendar] {
+        guard accessState == .authorized else { return [] }
+        return eventCalendars()
+            .map { calendar in
+                AvailableCalendar(
+                    id: calendar.calendarIdentifier,
+                    title: calendar.title,
+                    sourceTitle: calendar.source.title.nilIfBlank,
+                    colorHex: CalendarColorCodec.hexString(from: calendar.cgColor)
+                )
+            }
+            .sorted { lhs, rhs in
+                let lhsSource = lhs.sourceTitle ?? ""
+                let rhsSource = rhs.sourceTitle ?? ""
+                let sourceComparison = lhsSource.localizedCaseInsensitiveCompare(rhsSource)
+                if sourceComparison != .orderedSame {
+                    return sourceComparison == .orderedAscending
+                }
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+    }
+
+    private func eventCalendars(excludingCalendarIDs: Set<String> = []) -> [EKCalendar] {
         store.calendars(for: .event)
+            .filter { !excludingCalendarIDs.contains($0.calendarIdentifier) }
     }
 
     private static func currentAccessState() -> AccessState {
@@ -141,6 +181,13 @@ final class CalendarManager {
         default:
             return .denied
         }
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

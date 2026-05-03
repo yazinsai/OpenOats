@@ -442,7 +442,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             coordinator.handle(.userStopped, settings: settings)
         } else {
             let calEvent = settings.calendarIntegrationEnabled
-                ? container?.calendarManager?.currentEvent()
+                ? container?.calendarManager?.currentEvent(
+                    excludingCalendarIDs: settings.excludedCalendarIDs
+                )
                 : nil
             coordinator.handle(.userStarted(.manual(calendarEvent: calEvent)), settings: settings)
         }

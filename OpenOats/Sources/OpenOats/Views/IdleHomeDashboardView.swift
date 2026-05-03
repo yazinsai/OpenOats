@@ -214,12 +214,19 @@ struct IdleHomeDashboardView: View {
         }
 
         let now = Date()
-        let currentEvent = manager.currentEvent(at: now)
-        let dayEvents = manager.events(onSameDayAs: now)
+        let currentEvent = manager.currentEvent(
+            at: now,
+            excludingCalendarIDs: settings.excludedCalendarIDs
+        )
+        let dayEvents = manager.events(
+            onSameDayAs: now,
+            excludingCalendarIDs: settings.excludedCalendarIDs
+        )
         let upcomingEvents = manager.upcomingEvents(
             from: now,
             within: 7 * 24 * 60 * 60,
-            limit: 24
+            limit: 24,
+            excludingCalendarIDs: settings.excludedCalendarIDs
         )
 
         var combined: [CalendarEvent] = []
