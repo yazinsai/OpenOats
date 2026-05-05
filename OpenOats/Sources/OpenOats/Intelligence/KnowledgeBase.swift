@@ -253,17 +253,26 @@ final class KnowledgeBase {
         // Embed new/changed files in batches
         if !filesToEmbed.isEmpty {
             let allTextsToEmbed = filesToEmbed.flatMap { entry in
-                entry.chunks.map { chunk in
+                entry.chunks.compactMap { chunk -> String? in
+                    let trimmed = chunk.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return nil }
                     var prefix = entry.relativePath
                     if !chunk.header.isEmpty { prefix += " > \(chunk.header)" }
-                    return "\(prefix)\n\(chunk.text)"
+                    return "\(prefix)\n\(trimmed)"
                 }
+            }
+
+            guard !allTextsToEmbed.isEmpty else {
+                finishIndexing(chunks: allChunks, fileCount: scanResult.fileCount)
+                return
             }
 
             indexingStatus = .embedding(completed: 0, total: allTextsToEmbed.count, activeRange: nil)
 
             let result = await embedInBatches(texts: allTextsToEmbed)
-            guard let embeddings = result.embeddings else {
+            let embeddings = result.embeddings
+
+            if embeddings.allSatisfy({ $0 == nil }) {
                 failIndexing(
                     message: result.error ?? "Embedding failed before any chunks were indexed.",
                     availableChunks: allChunks,
@@ -273,25 +282,37 @@ final class KnowledgeBase {
             }
 
             var offset = 0
+            var failedChunkCount = 0
             for entry in filesToEmbed {
                 var fileChunks: [KBChunk] = []
                 for chunk in entry.chunks {
-                    let embedding = embeddings[offset]
-                    let fileName = entry.key.components(separatedBy: ":").first ?? ""
-                    let kbChunk = KBChunk(
-                        text: chunk.text,
-                        sourceFile: fileName,
-                        headerContext: chunk.header,
-                        embedding: Self.normalizeEmbedding(embedding),
-                        relativePath: entry.relativePath,
-                        folderBreadcrumb: entry.folderBreadcrumb,
-                        documentTitle: entry.documentTitle
-                    )
-                    fileChunks.append(kbChunk)
+                    let trimmed = chunk.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { continue }
+                    if let embedding = embeddings[offset] {
+                        let fileName = entry.key.components(separatedBy: ":").first ?? ""
+                        let kbChunk = KBChunk(
+                            text: chunk.text,
+                            sourceFile: fileName,
+                            headerContext: chunk.header,
+                            embedding: Self.normalizeEmbedding(embedding),
+                            relativePath: entry.relativePath,
+                            folderBreadcrumb: entry.folderBreadcrumb,
+                            documentTitle: entry.documentTitle
+                        )
+                        fileChunks.append(kbChunk)
+                    } else {
+                        failedChunkCount += 1
+                    }
                     offset += 1
                 }
-                cache.entries[entry.key] = fileChunks
+                if !fileChunks.isEmpty {
+                    cache.entries[entry.key] = fileChunks
+                }
                 allChunks.append(contentsOf: fileChunks)
+            }
+
+            if failedChunkCount > 0 {
+                Log.knowledgeBase.warning("KB indexing: \(failedChunkCount) chunks failed to embed, continuing with partial results")
             }
 
             // Prune stale cache entries using pre-computed keys
@@ -729,36 +750,34 @@ final class KnowledgeBase {
         }
     }
 
-    private func embedInBatches(texts: [String]) async -> (embeddings: [[Float]]?, error: String?) {
+    private func embedInBatches(texts: [String]) async -> (embeddings: [[Float]?], error: String?) {
         let batchSize = 32
         let batches = stride(from: 0, to: texts.count, by: batchSize).map { start in
             Array(texts[start..<min(start + batchSize, texts.count)])
         }
 
-        // Ollama is local with no rate limits — fire all batches concurrently.
-        // Cloud providers (Voyage, OpenAI-compatible) are rate-limited, keep sequential.
         if settings.embeddingProvider == .ollama {
-            return await embedBatchesConcurrently(batches, total: texts.count)
+            return await embedBatchesConcurrently(batches, total: texts.count, batchSize: batchSize)
         } else {
-            return await embedBatchesSequentially(batches, total: texts.count)
+            return await embedBatchesSequentially(batches, total: texts.count, batchSize: batchSize)
         }
     }
 
-    private func embedBatchesConcurrently(_ batches: [[String]], total: Int) async -> (embeddings: [[Float]]?, error: String?) {
+    private func embedBatchesConcurrently(_ batches: [[String]], total: Int, batchSize: Int) async -> (embeddings: [[Float]?], error: String?) {
         if total > 0 {
-            indexingStatus = .embedding(completed: 0, total: total, activeRange: 1...min(32, total))
+            indexingStatus = .embedding(completed: 0, total: total, activeRange: 1...min(batchSize, total))
         }
-        typealias Indexed = (order: Int, embeddings: [[Float]]?)
+        typealias Indexed = (order: Int, embeddings: [[Float]]?, batchCount: Int)
         let results: [Indexed] = await withTaskGroup(of: Indexed.self) { group in
             for (i, batch) in batches.enumerated() {
                 group.addTask {
                     for attempt in 0..<2 {
                         if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
                         if let embs = try? await self.embedTexts(batch, inputType: "document") {
-                            return (i, embs)
+                            return (i, embs, batch.count)
                         }
                     }
-                    return (i, nil)
+                    return (i, nil, batch.count)
                 }
             }
             var collected: [Indexed] = []
@@ -772,26 +791,37 @@ final class KnowledgeBase {
             }
             return collected.sorted { $0.order < $1.order }
         }
-        guard !results.contains(where: { $0.embeddings == nil }) else {
-            return (nil, "One or more embedding batches failed")
+
+        var ordered: [[Float]?] = []
+        var lastError: String?
+        for result in results {
+            if let embs = result.embeddings {
+                ordered.append(contentsOf: embs.map { Optional($0) })
+            } else {
+                ordered.append(contentsOf: Array(repeating: nil as [Float]?, count: result.batchCount))
+                lastError = "One or more embedding batches failed"
+            }
         }
-        return (results.flatMap { $0.embeddings! }, nil)
+        return (ordered, lastError)
     }
 
-    private func embedBatchesSequentially(_ batches: [[String]], total: Int) async -> (embeddings: [[Float]]?, error: String?) {
-        var allEmbeddings: [[Float]] = []
+    private func embedBatchesSequentially(_ batches: [[String]], total: Int, batchSize: Int) async -> (embeddings: [[Float]?], error: String?) {
+        var allEmbeddings: [[Float]?] = []
         var offset = 0
+        var lastError: String?
         for batch in batches {
             let rangeStart = offset + 1
             let rangeEnd = offset + batch.count
             indexingStatus = .embedding(completed: offset, total: total, activeRange: rangeStart...rangeEnd)
             var retried = false
+            var succeeded = false
             while true {
                 do {
                     let embeddings = try await embedTexts(batch, inputType: "document")
-                    allEmbeddings.append(contentsOf: embeddings)
+                    allEmbeddings.append(contentsOf: embeddings.map { Optional($0) })
                     offset += embeddings.count
                     indexingStatus = .embedding(completed: min(offset, total), total: total, activeRange: nil)
+                    succeeded = true
                     break
                 } catch {
                     if !retried {
@@ -799,11 +829,16 @@ final class KnowledgeBase {
                         try? await Task.sleep(for: .seconds(1))
                         continue
                     }
-                    return (nil, error.localizedDescription)
+                    lastError = error.localizedDescription
+                    break
                 }
             }
+            if !succeeded {
+                allEmbeddings.append(contentsOf: Array(repeating: nil as [Float]?, count: batch.count))
+                offset += batch.count
+            }
         }
-        return (allEmbeddings, nil)
+        return (allEmbeddings, lastError)
     }
 
     // MARK: - Vector Math
