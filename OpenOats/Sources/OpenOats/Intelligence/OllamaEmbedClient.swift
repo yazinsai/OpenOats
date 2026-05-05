@@ -1,24 +1,26 @@
 import Foundation
 
-/// Client for Ollama's OpenAI-compatible embeddings endpoint.
+/// Client for Ollama and OpenAI-compatible embeddings endpoints.
 actor OllamaEmbedClient {
-    enum OllamaEmbedError: Error, LocalizedError {
-        case httpError(Int, String)
-        case invalidURL
-        case emptyResponse
+    enum EmbedClientError: Error, LocalizedError {
+        case httpError(Int, String, provider: String)
+        case invalidURL(provider: String)
+        case emptyResponse(provider: String)
 
         var errorDescription: String? {
             switch self {
-            case .httpError(let code, let msg): "Ollama embed error (HTTP \(code)): \(msg)"
-            case .invalidURL: "Invalid Ollama base URL"
-            case .emptyResponse: "Empty response from Ollama embeddings"
+            case .httpError(let code, let msg, let provider): "\(provider) embed error (HTTP \(code)): \(msg)"
+            case .invalidURL(let provider): "Invalid \(provider) base URL"
+            case .emptyResponse(let provider): "Empty response from \(provider) embeddings"
             }
         }
     }
 
     func embed(texts: [String], baseURL: String, model: String, apiKey: String? = nil) async throws -> [[Float]] {
-        guard let url = URL(string: baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/v1/embeddings") else {
-            throw OllamaEmbedError.invalidURL
+        let providerName = apiKey != nil ? "OpenAI Compatible" : "Ollama"
+        let normalized = Self.normalizeBaseURL(baseURL)
+        guard let url = URL(string: normalized + "/v1/embeddings") else {
+            throw EmbedClientError.invalidURL(provider: providerName)
         }
 
         let body = EmbedRequest(model: model, input: texts)
@@ -34,20 +36,30 @@ actor OllamaEmbedClient {
         let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let http = response as? HTTPURLResponse else {
-            throw OllamaEmbedError.httpError(-1, "No HTTP response")
+            throw EmbedClientError.httpError(-1, "No HTTP response", provider: providerName)
         }
 
         guard (200...299).contains(http.statusCode) else {
             let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw OllamaEmbedError.httpError(http.statusCode, msg)
+            throw EmbedClientError.httpError(http.statusCode, msg, provider: providerName)
         }
 
         let decoded = try JSONDecoder().decode(EmbedResponse.self, from: data)
-        guard !decoded.data.isEmpty else { throw OllamaEmbedError.emptyResponse }
+        guard !decoded.data.isEmpty else { throw EmbedClientError.emptyResponse(provider: providerName) }
 
         return decoded.data
             .sorted { $0.index < $1.index }
             .map { $0.embedding }
+    }
+
+    /// Strips trailing slashes and a trailing `/v1` path segment so callers
+    /// can enter either `http://localhost:11434` or `http://localhost:11434/v1`.
+    static func normalizeBaseURL(_ raw: String) -> String {
+        var url = raw.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if url.hasSuffix("/v1") {
+            url = String(url.dropLast(3))
+        }
+        return url
     }
 
     // MARK: - Request/Response Types

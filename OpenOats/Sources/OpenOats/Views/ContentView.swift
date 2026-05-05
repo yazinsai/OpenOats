@@ -395,6 +395,7 @@ struct ContentView: View {
     }
 
     private func openSettingsWindow() {
+        NSApp.activate()
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 
