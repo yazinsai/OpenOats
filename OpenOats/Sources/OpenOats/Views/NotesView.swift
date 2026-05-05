@@ -169,6 +169,11 @@ struct NotesView: View {
         .onChange(of: coordinator.sessionHistory.count) {
             Task { await controller.loadHistory() }
         }
+        .onChange(of: coordinator.batchStatus) { _, newStatus in
+            if case .completed = newStatus {
+                Task { await controller.loadHistory() }
+            }
+        }
         .onChange(of: coordinator.requestedNotesNavigation?.id) {
             Task {
                 _ = await handleRequestedNotesNavigation(controller: controller)
