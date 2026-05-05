@@ -143,6 +143,8 @@ final class LiveSessionController {
     /// preventing the auto-dismiss → re-poll cycle from re-triggering the notification.
     private var lastNotifiedBatchSessionID: String?
     private var observedPeakAudioLevelSinceStart: Float = 0
+    private var observedSystemHasEverCapturedFrames = false
+    private var observedMicHasEverCapturedFrames = false
     private var pendingRecoveryDiagnostics: PendingRecoveryDiagnostics?
 
     init(coordinator: AppCoordinator, container: AppContainer) {
@@ -1370,13 +1372,19 @@ final class LiveSessionController {
             observedPeakAudioLevelSinceStart = max(observedPeakAudioLevelSinceStart, currentState.audioLevel)
             if case .recording(let metadata) = currentState.sessionPhase {
                 let captureHealth = coordinator.transcriptionEngine?.captureHealthSnapshot
+                if captureHealth?.systemHasCapturedFrames == true {
+                    observedSystemHasEverCapturedFrames = true
+                }
+                if captureHealth?.micHasCapturedFrames == true {
+                    observedMicHasEverCapturedFrames = true
+                }
                 let input = RecordingHealthInput(
                     elapsed: max(0, Date().timeIntervalSince(metadata.startedAt)),
                     transcriptionModel: settings.transcriptionModel,
                     utteranceCount: utteranceCount,
                     peakAudioLevel: observedPeakAudioLevelSinceStart,
-                    micHasCapturedFrames: captureHealth?.micHasCapturedFrames ?? false,
-                    systemHasCapturedFrames: captureHealth?.systemHasCapturedFrames ?? false,
+                    micHasCapturedFrames: observedMicHasEverCapturedFrames,
+                    systemHasCapturedFrames: observedSystemHasEverCapturedFrames,
                     micCaptureError: captureHealth?.micCaptureError,
                     isMicMuted: currentState.isMicMuted,
                     isRecordingPaused: currentState.isRecordingPaused,
@@ -1388,6 +1396,8 @@ final class LiveSessionController {
             }
         } else {
             observedPeakAudioLevelSinceStart = 0
+            observedSystemHasEverCapturedFrames = false
+            observedMicHasEverCapturedFrames = false
             set(\.recordingHealthNotice, nil)
         }
 
