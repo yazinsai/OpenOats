@@ -335,6 +335,23 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(store.shareCalendarContextWithCloudNotes)
     }
 
+    func testDefaultExcludedCalendarIDs() {
+        let store = makeStore()
+        XCTAssertEqual(store.excludedCalendarIDs, [])
+    }
+
+    func testExcludedCalendarIDsRoundTrip() {
+        let store = makeStore()
+        store.excludedCalendarIDs = ["work", "personal"]
+        XCTAssertEqual(store.excludedCalendarIDs, ["work", "personal"])
+    }
+
+    func testExcludedCalendarIDsAreNormalized() {
+        let store = makeStore()
+        store.excludedCalendarIDs = [" work ", "", "personal", "work"]
+        XCTAssertEqual(store.excludedCalendarIDs, ["work", "personal"])
+    }
+
     // MARK: - Privacy Settings Group
 
     func testDefaultHasAcknowledgedRecordingConsent() {

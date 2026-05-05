@@ -9,6 +9,7 @@ import Sparkle
 
 private enum SettingsTab: String, CaseIterable {
     case general
+    case calendar
     case transcription
     case intelligence
     case sidecast
@@ -28,6 +29,10 @@ struct SettingsView: View {
             GeneralSettingsTab(settings: settings, updater: updater)
                 .tabItem { Label("General", systemImage: "gear") }
                 .tag(SettingsTab.general)
+
+            CalendarSettingsTab(settings: settings)
+                .tabItem { Label("Calendar", systemImage: "calendar") }
+                .tag(SettingsTab.calendar)
 
             TranscriptionSettingsTab(settings: settings)
                 .tabItem { Label("Transcription", systemImage: "waveform") }
@@ -50,7 +55,7 @@ struct SettingsView: View {
                 .tag(SettingsTab.integrations)
         }
         .accessibilityIdentifier("settings.tabView")
-        .frame(width: 500, height: 600)
+        .frame(width: 640, height: 700)
     }
 }
 
@@ -198,26 +203,6 @@ private struct GeneralSettingsTab: View {
                             .foregroundStyle(.secondary)
                     }
                     .font(.system(size: 12))
-                }
-
-                Section("Calendar") {
-                    Toggle("Use calendar context for meetings", isOn: $settings.calendarIntegrationEnabled)
-                        .font(.system(size: 12))
-
-                    Text("When enabled, OpenOats looks up your calendar for a matching event and uses it to title sessions, show local meeting context, and improve local notes. Calendar access is requested only when you enable this.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-
-                    if settings.calendarIntegrationEnabled {
-                        Toggle("Include calendar context in cloud-generated notes", isOn: $settings.shareCalendarContextWithCloudNotes)
-                            .font(.system(size: 12))
-
-                        Text("When enabled, matching event titles, organizers, and invited participant names may be sent as text context to remote note providers. This does not apply to local providers like Ollama, MLX, or localhost OpenAI-compatible endpoints.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-
-                        CalendarStatusView()
-                    }
                 }
 
                 if !settings.ignoredAppBundleIDs.isEmpty {
@@ -1302,193 +1287,6 @@ private struct GranolaImportButton: View {
             } catch {
                 importState = .failed(error.localizedDescription)
                 isImporting = false
-            }
-        }
-    }
-}
-
-// MARK: - Calendar Status View
-
-/// Displays the current Calendar authorization state, the currently matching event
-/// (if any), and a short list of upcoming events. Scoped to Settings visibility —
-/// does not change session title or finalization behavior.
-private struct CalendarStatusView: View {
-    @Environment(AppContainer.self) private var container
-
-    @State private var accessState: CalendarManager.AccessState = .notDetermined
-    @State private var currentEvent: CalendarEvent?
-    @State private var upcomingEvents: [CalendarEvent] = []
-    @State private var refreshTick: Int = 0
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            statusRow
-
-            switch accessState {
-            case .authorized:
-                authorizedContent
-            case .denied:
-                deniedContent
-            case .notDetermined:
-                Text("OpenOats will ask for Calendar access shortly.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.top, 4)
-        .task(id: refreshTick) {
-            await refresh()
-            // Periodic refresh while the Settings window is open.
-            try? await Task.sleep(for: .seconds(30))
-            refreshTick &+= 1
-        }
-    }
-
-    // MARK: - Subviews
-
-    private var statusRow: some View {
-        HStack(spacing: 6) {
-            Image(systemName: statusIcon)
-                .font(.system(size: 12))
-                .foregroundStyle(statusColor)
-            Text(statusLabel)
-                .font(.system(size: 12, weight: .medium))
-            Spacer()
-        }
-    }
-
-    @ViewBuilder
-    private var authorizedContent: some View {
-        if let event = currentEvent {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Currently matching")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-                Text(event.title)
-                    .font(.system(size: 12, weight: .medium))
-                Text(timeRange(for: event))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.accentColor.opacity(0.1))
-            )
-        }
-
-        if upcomingEvents.isEmpty {
-            Text(currentEvent == nil
-                ? "No upcoming events in the next 12 hours."
-                : "No further upcoming events in the next 12 hours.")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        } else {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Upcoming")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-                ForEach(upcomingEvents) { event in
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(startTime(for: event))
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 58, alignment: .leading)
-                        Text(event.title)
-                            .font(.system(size: 12))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer()
-                    }
-                }
-            }
-        }
-    }
-
-    private var deniedContent: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Calendar access is denied. Grant access in System Settings for OpenOats to see your events.")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            Button("Open Privacy Settings…") {
-                openCalendarPrivacySettings()
-            }
-            .font(.system(size: 12))
-        }
-    }
-
-    // MARK: - Helpers
-
-    private var statusIcon: String {
-        switch accessState {
-        case .authorized: return "checkmark.circle.fill"
-        case .denied: return "exclamationmark.triangle.fill"
-        case .notDetermined: return "clock"
-        }
-    }
-
-    private var statusColor: Color {
-        switch accessState {
-        case .authorized: return .green
-        case .denied: return .orange
-        case .notDetermined: return .secondary
-        }
-    }
-
-    private var statusLabel: String {
-        switch accessState {
-        case .authorized: return "Calendar access authorized"
-        case .denied: return "Calendar access denied"
-        case .notDetermined: return "Calendar access not yet requested"
-        }
-    }
-
-    private func timeRange(for event: CalendarEvent) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        return "\(formatter.string(from: event.startDate)) – \(formatter.string(from: event.endDate))"
-    }
-
-    private func startTime(for event: CalendarEvent) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        return formatter.string(from: event.startDate)
-    }
-
-    @MainActor
-    private func refresh() async {
-        guard let manager = container.calendarManager else {
-            accessState = .notDetermined
-            currentEvent = nil
-            upcomingEvents = []
-            return
-        }
-        accessState = manager.accessState
-        if manager.accessState == .authorized {
-            let now = Date()
-            let current = manager.currentEvent(at: now)
-            currentEvent = current
-            let allUpcoming = manager.upcomingEvents(from: now, limit: 6)
-            upcomingEvents = allUpcoming.filter { $0.id != current?.id }.prefix(5).map { $0 }
-        } else {
-            currentEvent = nil
-            upcomingEvents = []
-        }
-    }
-
-    private func openCalendarPrivacySettings() {
-        let urls = [
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars",
-            "x-apple.systempreferences:com.apple.preference.security?Privacy",
-        ]
-        for urlString in urls {
-            if let url = URL(string: urlString) {
-                if NSWorkspace.shared.open(url) { return }
             }
         }
     }

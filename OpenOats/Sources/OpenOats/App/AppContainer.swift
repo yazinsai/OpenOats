@@ -241,7 +241,7 @@ final class AppContainer {
     func updateCalendarIntegration(enabled: Bool) {
         if enabled {
             if calendarManager == nil {
-                calendarManager = CalendarManager()
+                setCalendarManager(CalendarManager())
             } else {
                 // Re-read TCC in case the system state changed since the manager was created.
                 calendarManager?.refreshFromSystem()
@@ -252,8 +252,29 @@ final class AppContainer {
                 }
             }
         } else {
-            calendarManager = nil
+            setCalendarManager(nil)
         }
+    }
+
+    /// Recreates the calendar manager so EventKit state is reloaded from scratch.
+    /// Use this when permission or visible calendars may have changed in System Settings
+    /// and a soft status refresh is not sufficient.
+    func reloadCalendarIntegration() {
+        guard calendarManager != nil else {
+            updateCalendarIntegration(enabled: true)
+            return
+        }
+        setCalendarManager(CalendarManager())
+        if calendarManager?.accessState == .notDetermined {
+            Task {
+                _ = await calendarManager?.requestAccess()
+            }
+        }
+    }
+
+    private func setCalendarManager(_ manager: CalendarManager?) {
+        calendarManager = manager
+        detectionController?.calendarManager = manager
     }
 
     func seedIfNeeded(coordinator: AppCoordinator) async {

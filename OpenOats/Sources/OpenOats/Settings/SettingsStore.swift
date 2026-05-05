@@ -13,6 +13,18 @@ final class SettingsStore {
     private static let enableBatchRetranscriptionLegacyKey = "enableBatchRefinement"
     @ObservationIgnored private var loadedSecretKeys: Set<String> = []
 
+    private static func normalizedIdentifierList(_ values: [String]) -> [String] {
+        var result: [String] = []
+        var seen: Set<String> = []
+        for rawValue in values {
+            let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            guard seen.insert(trimmed).inserted else { continue }
+            result.append(trimmed)
+        }
+        return result
+    }
+
     private func loadSecretIfNeeded(
         key: String,
         currentValue: String,
@@ -718,6 +730,18 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _excludedCalendarIDs: [String]
+    var excludedCalendarIDs: [String] {
+        get { access(keyPath: \.excludedCalendarIDs); return _excludedCalendarIDs }
+        set {
+            withMutation(keyPath: \.excludedCalendarIDs) {
+                let normalized = Self.normalizedIdentifierList(newValue)
+                _excludedCalendarIDs = normalized
+                defaults.set(normalized, forKey: "excludedCalendarIDs")
+            }
+        }
+    }
+
     // MARK: - Privacy Settings
 
     @ObservationIgnored nonisolated(unsafe) private var _hasAcknowledgedRecordingConsent: Bool
@@ -1266,6 +1290,9 @@ final class SettingsStore {
         self._hasShownCameraDetectExplanation = defaults.bool(forKey: "hasShownCameraDetectExplanation")
         self._calendarIntegrationEnabled = defaults.bool(forKey: "calendarIntegrationEnabled")
         self._shareCalendarContextWithCloudNotes = defaults.bool(forKey: "shareCalendarContextWithCloudNotes")
+        self._excludedCalendarIDs = Self.normalizedIdentifierList(
+            defaults.stringArray(forKey: "excludedCalendarIDs") ?? []
+        )
 
         // Privacy Settings
         self._hasAcknowledgedRecordingConsent = defaults.bool(forKey: "hasAcknowledgedRecordingConsent")
