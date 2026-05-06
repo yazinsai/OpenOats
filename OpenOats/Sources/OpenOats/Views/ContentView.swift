@@ -238,14 +238,17 @@ struct ContentView: View {
     }
 
     private var sizedRootContent: some View {
-        rootContent
+        let isRunning = liveSessionController?.state.isRunning == true
+
+        return rootContent
             .frame(
-                minWidth: liveSessionController?.state.isRunning == true ? 360 : 460,
-                maxWidth: liveSessionController?.state.isRunning == true ? 600 : 1080,
+                minWidth: isRunning ? 360 : 460,
+                maxWidth: isRunning ? 600 : .infinity,
                 minHeight: 400,
                 maxHeight: .infinity,
-                alignment: .top
+                alignment: .topLeading
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(.ultraThinMaterial)
     }
 
