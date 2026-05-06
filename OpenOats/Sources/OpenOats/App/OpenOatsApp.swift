@@ -66,7 +66,7 @@ public struct OpenOatsRootApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
-        .defaultSize(width: 320, height: 560)
+        .defaultSize(width: 520, height: 560)
         .commands {
             CommandGroup(after: .appInfo) {
                 if case .live = container.mode {
