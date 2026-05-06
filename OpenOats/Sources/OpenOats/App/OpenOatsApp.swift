@@ -130,6 +130,27 @@ extension OpenOatsRootApp {
 
     private func openNotesWindow() {
         openWindow(id: "notes")
+        bringWindowToFront(id: "notes", title: "Notes")
+    }
+
+    private func bringWindowToFront(id: String, title: String) {
+        DispatchQueue.main.async {
+            Self.focusWindow(id: id, title: title)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            Self.focusWindow(id: id, title: title)
+        }
+    }
+
+    private static func focusWindow(id: String, title: String) {
+        guard let window = NSApp.windows.first(where: {
+            $0.identifier?.rawValue == id || $0.title == title
+        }) else {
+            return
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 
     private var isBatchEngineBusy: Bool {
