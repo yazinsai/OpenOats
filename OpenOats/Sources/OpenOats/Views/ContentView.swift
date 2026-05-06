@@ -230,6 +230,7 @@ struct ContentView: View {
                 }
             )
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var bodyWithModifiers: some View {
@@ -238,7 +239,7 @@ struct ContentView: View {
 
     private var sizedRootContent: some View {
         rootContent
-            .frame(minWidth: 360, maxWidth: 600, minHeight: 400)
+            .frame(minWidth: 360, maxWidth: 600, minHeight: 400, maxHeight: .infinity, alignment: .top)
             .background(.ultraThinMaterial)
     }
 
