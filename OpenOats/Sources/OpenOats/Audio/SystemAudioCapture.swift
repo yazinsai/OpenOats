@@ -73,7 +73,10 @@ final class SystemAudioCapture: @unchecked Sendable {
         tapDescription.isMono = true
         tapDescription.isExclusive = true
         tapDescription.deviceUID = outputUID
-        tapDescription.stream = 0
+        // Leaving `stream` unset (nil) tells the tap to capture from all output
+        // streams on the device. Hardcoding stream index 0 silently fails on
+        // USB audio interfaces whose first stream is not the playback stream
+        // (control/aux channel, multi-stream interfaces, etc.).
 
         var tapID = AudioObjectID(kAudioObjectUnknown)
         var status = AudioHardwareCreateProcessTap(tapDescription, &tapID)
@@ -83,23 +86,24 @@ final class SystemAudioCapture: @unchecked Sendable {
         }
 
         let aggregateUID = UUID().uuidString
+        // Use a tap-only private aggregate device. Including the tapped output
+        // device as a real subdevice (kAudioAggregateDeviceMainSubDeviceKey +
+        // kAudioAggregateDeviceSubDeviceListKey) works for built-in speakers
+        // but causes the IO proc to never fire on many USB audio interfaces —
+        // HAL gets confused trying to drive the aggregate's clock cycle from
+        // the USB hardware. The tap is already pinned to `outputUID` via
+        // `tapDescription.deviceUID`, so we don't need the device to also be a
+        // subdevice of the aggregate; the aggregate's only purpose is to
+        // expose the tap as an input source for AudioDeviceCreateIOProcID.
         let aggregateDescription: [String: Any] = [
             kAudioAggregateDeviceNameKey: "OpenOats System Audio",
             kAudioAggregateDeviceUIDKey: aggregateUID,
-            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
             kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceIsStackedKey: false,
             kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceSubDeviceListKey: [
-                [
-                    kAudioSubDeviceUIDKey: outputUID,
-                    kAudioSubDeviceInputChannelsKey: []
-                ]
-            ],
             kAudioAggregateDeviceTapListKey: [
                 [
-                    kAudioSubTapDriftCompensationKey: true,
-                    kAudioSubTapUIDKey: tapUUID.uuidString
+                    kAudioSubTapUIDKey: tapUUID.uuidString,
+                    kAudioSubTapDriftCompensationKey: true
                 ]
             ]
         ]
