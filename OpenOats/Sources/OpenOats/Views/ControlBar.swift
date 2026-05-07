@@ -94,7 +94,7 @@ struct ControlBar: View {
                 .padding(.vertical, 4)
             }
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 if isRunning {
                     HStack(spacing: 6) {
                         Circle()
@@ -106,19 +106,27 @@ struct ControlBar: View {
                         Text("\(isRecordingPaused ? "Paused" : (isMicMuted ? "Muted" : "Live")) \(ElapsedTimeFormatter.compactMinutesSeconds(recordingElapsedSeconds))")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(isRecordingPaused ? .orange : (isMicMuted ? .red : .primary))
+                            .lineLimit(1)
+                            .monospacedDigit()
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
                     .background(isRecordingPaused ? Color.orange.opacity(0.1) : (isMicMuted ? Color.red.opacity(0.1) : Color.green.opacity(0.1)))
                     .clipShape(Capsule())
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(2)
                     .accessibilityIdentifier("app.controlBar.status")
 
                     Button(action: onToggle) {
                         Label("Stop", systemImage: "stop.fill")
                             .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                     .buttonStyle(OpenOatsProminentButtonStyle(color: .red))
                     .controlSize(.small)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(2)
                     .accessibilityIdentifier("app.controlBar.stop")
                 } else {
                     Button(action: onToggle) {
@@ -130,6 +138,7 @@ struct ControlBar: View {
                             Text("Start")
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(.white)
+                                .lineLimit(1)
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
@@ -137,6 +146,7 @@ struct ControlBar: View {
                         .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .fixedSize(horizontal: true, vertical: false)
                     .accessibilityIdentifier("app.controlBar.toggle")
                 }
 
@@ -148,6 +158,7 @@ struct ControlBar: View {
                             .frame(width: 20, height: 20)
                     }
                     .buttonStyle(.plain)
+                    .fixedSize(horizontal: true, vertical: false)
                     .help(isRecordingPaused ? "Resume recording" : "Pause recording")
                     .accessibilityIdentifier("app.controlBar.pauseToggle")
 
@@ -158,6 +169,7 @@ struct ControlBar: View {
                             .frame(width: 20, height: 20)
                     }
                     .buttonStyle(.plain)
+                    .fixedSize(horizontal: true, vertical: false)
                     .help(isMicMuted ? "Unmute microphone" : "Mute microphone")
                     .accessibilityIdentifier("app.controlBar.muteToggle")
                     .opacity(isRecordingPaused ? 0.3 : 1.0)
@@ -165,18 +177,23 @@ struct ControlBar: View {
 
                     AudioLevelView(level: audioLevel)
                         .frame(width: 40, height: 14)
+                        .fixedSize(horizontal: true, vertical: false)
                         .opacity(isRecordingPaused || isMicMuted ? 0.3 : 1.0)
                 }
 
-                Spacer()
+                Spacer(minLength: 6)
 
                 Text(modelDisplayName)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(Color.primary.opacity(0.04))
                     .clipShape(Capsule())
+                    .frame(maxWidth: 118, alignment: .trailing)
+                    .layoutPriority(-1)
                     .accessibilityIdentifier("app.controlBar.model")
             }
             .padding(.horizontal, 16)

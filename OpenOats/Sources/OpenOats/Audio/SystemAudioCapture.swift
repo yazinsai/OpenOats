@@ -73,7 +73,6 @@ final class SystemAudioCapture: @unchecked Sendable {
         tapDescription.isMono = true
         tapDescription.isExclusive = true
         tapDescription.deviceUID = outputUID
-        tapDescription.stream = 0
 
         var tapID = AudioObjectID(kAudioObjectUnknown)
         var status = AudioHardwareCreateProcessTap(tapDescription, &tapID)
@@ -86,20 +85,12 @@ final class SystemAudioCapture: @unchecked Sendable {
         let aggregateDescription: [String: Any] = [
             kAudioAggregateDeviceNameKey: "OpenOats System Audio",
             kAudioAggregateDeviceUIDKey: aggregateUID,
-            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
             kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceIsStackedKey: false,
             kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceSubDeviceListKey: [
-                [
-                    kAudioSubDeviceUIDKey: outputUID,
-                    kAudioSubDeviceInputChannelsKey: []
-                ]
-            ],
             kAudioAggregateDeviceTapListKey: [
                 [
-                    kAudioSubTapDriftCompensationKey: true,
-                    kAudioSubTapUIDKey: tapUUID.uuidString
+                    kAudioSubTapUIDKey: tapUUID.uuidString,
+                    kAudioSubTapDriftCompensationKey: true
                 ]
             ]
         ]
