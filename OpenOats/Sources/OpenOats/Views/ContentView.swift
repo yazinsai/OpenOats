@@ -205,6 +205,10 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
 
+            if controllerState.isRunning {
+                Spacer(minLength: 0)
+            }
+
             Divider()
 
             // Bottom bar: live indicator + model
