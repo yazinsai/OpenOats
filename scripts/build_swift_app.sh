@@ -76,6 +76,20 @@ else
   echo "Warning: Sparkle.framework not found in build artifacts"
 fi
 
+# Copy SPM resource bundles (needed by swift-transformers for tokenizer fallback configs)
+ARCH=$(uname -m)
+BUNDLE_DIR="$SWIFT_DIR/.build/${ARCH}-apple-macosx/release"
+COPIED_BUNDLES=0
+for bundle in "$BUNDLE_DIR"/*.bundle; do
+  if [[ -d "$bundle" ]]; then
+    cp -R "$bundle" "$APP_DIR/Contents/Resources/"
+    COPIED_BUNDLES=$((COPIED_BUNDLES + 1))
+  fi
+done
+if [[ $COPIED_BUNDLES -gt 0 ]]; then
+  echo "Copied $COPIED_BUNDLES SPM resource bundle(s)"
+fi
+
 # Add PkgInfo
 echo -n "APPL????" > "$APP_DIR/Contents/PkgInfo"
 
