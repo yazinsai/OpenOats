@@ -365,19 +365,24 @@ final class SystemAudioCapture: @unchecked Sendable {
         var streamDescription = AudioStreamBasicDescription()
         var dataSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
 
-        let status = AudioObjectGetPropertyData(
-            tapID,
-            &address,
-            0,
-            nil,
-            &dataSize,
-            &streamDescription
-        )
-
-        guard status == noErr else {
-            throw CaptureError.tapFormatUnavailable(status)
+        // Retry on kAudioHardwareBadObjectError — Sequoia 15.7.x has a race where
+        // the tap's AudioObjectID isn't resolvable for a few tens of milliseconds
+        // after AudioHardwareCreateProcessTap returns.
+        var status: OSStatus = noErr
+        for _ in 0..<10 {
+            status = AudioObjectGetPropertyData(
+                tapID,
+                &address,
+                0,
+                nil,
+                &dataSize,
+                &streamDescription
+            )
+            if status == noErr { return streamDescription }
+            if status != kAudioHardwareBadObjectError { break }
+            usleep(50_000)
         }
-        return streamDescription
+        throw CaptureError.tapFormatUnavailable(status)
     }
 
     enum CaptureError: LocalizedError {
