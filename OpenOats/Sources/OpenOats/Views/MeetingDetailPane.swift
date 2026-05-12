@@ -639,30 +639,11 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(event.title)
-                            .font(.system(size: 26, weight: .semibold))
-                            .foregroundStyle(.primary)
-
-                        HStack(spacing: 12) {
-                            Text(CalendarEventDisplay.timeRange(for: event))
-                            if let calendarTitle = event.calendarTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-                               !calendarTitle.isEmpty {
-                                Text(calendarTitle)
-                            }
-                            meetingFamilyFolderMenu(
-                                controller: controller,
-                                selection: selection,
-                                historyCount: historyCount,
-                                preferredFolderPath: preferredFolderPath,
-                                preferredFolder: preferredFolder,
-                                folders: folders
-                            )
-                            meetingFamilyKnowledgeBaseSignal(state: state)
-                        }
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                    }
+                    Text(event.title)
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .layoutPriority(1)
 
                     Spacer(minLength: 0)
 
@@ -696,7 +677,20 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                             .disabled(coordinator.isRecording)
                         }
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                 }
+
+                meetingFamilyOverviewMetadataRow(
+                    leadingText: CalendarEventDisplay.timeRange(for: event),
+                    trailingText: event.calendarTitle,
+                    controller: controller,
+                    state: state,
+                    selection: selection,
+                    historyCount: historyCount,
+                    preferredFolderPath: preferredFolderPath,
+                    preferredFolder: preferredFolder,
+                    folders: folders
+                )
 
                 VStack(alignment: .leading, spacing: 0) {
                     TextEditor(text: prepNotes)
@@ -733,25 +727,18 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(.primary)
 
-                HStack(spacing: 12) {
-                    Text("Meeting history")
-                    Text("\(historyCount) saved meeting\(historyCount == 1 ? "" : "s")")
-                    if let calendarTitle = selection.calendarTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-                       !calendarTitle.isEmpty {
-                        Text(calendarTitle)
-                    }
-                    meetingFamilyFolderMenu(
-                        controller: controller,
-                        selection: selection,
-                        historyCount: historyCount,
-                        preferredFolderPath: preferredFolderPath,
-                        preferredFolder: preferredFolder,
-                        folders: folders
-                    )
-                    meetingFamilyKnowledgeBaseSignal(state: state)
-                }
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+                meetingFamilyOverviewMetadataRow(
+                    leadingText: "Meeting history",
+                    secondaryText: "\(historyCount) saved meeting\(historyCount == 1 ? "" : "s")",
+                    trailingText: selection.calendarTitle,
+                    controller: controller,
+                    state: state,
+                    selection: selection,
+                    historyCount: historyCount,
+                    preferredFolderPath: preferredFolderPath,
+                    preferredFolder: preferredFolder,
+                    folders: folders
+                )
             }
             .padding(18)
             .background(
@@ -763,6 +750,54 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                     .strokeBorder(.quaternary, lineWidth: 1)
             )
         }
+    }
+
+    @ViewBuilder
+    private func meetingFamilyOverviewMetadataRow(
+        leadingText: String,
+        secondaryText: String? = nil,
+        trailingText: String?,
+        controller: NotesController,
+        state: NotesState,
+        selection: MeetingFamilySelection,
+        historyCount: Int,
+        preferredFolderPath: String?,
+        preferredFolder: NotesFolderDefinition?,
+        folders: [NotesFolderDefinition]
+    ) -> some View {
+        FlowLayout(spacing: 10) {
+            Text(leadingText)
+                .lineLimit(1)
+                .fixedSize()
+
+            if let secondaryText,
+               !secondaryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(secondaryText)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+
+            if let trailingText = trailingText?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !trailingText.isEmpty {
+                Text(trailingText)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+
+            meetingFamilyFolderMenu(
+                controller: controller,
+                selection: selection,
+                historyCount: historyCount,
+                preferredFolderPath: preferredFolderPath,
+                preferredFolder: preferredFolder,
+                folders: folders
+            )
+
+            meetingFamilyKnowledgeBaseSignal(state: state)
+        }
+        .font(.system(size: 13))
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder

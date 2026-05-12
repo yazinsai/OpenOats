@@ -41,6 +41,7 @@ struct HomeTimelineWorkspaceView: View {
             await container.seedIfNeeded(coordinator: coordinator)
             await coordinator.loadHistory()
             await controller.loadHistory()
+            _ = await handleRequestedHomeNavigation(controller: controller)
         }
         .task(id: refreshTaskID(for: accessState)) {
             await refreshCalendarEvents()
@@ -57,6 +58,12 @@ struct HomeTimelineWorkspaceView: View {
         .onChange(of: coordinator.batchStatus) { _, newStatus in
             if case .completed = newStatus {
                 Task { await notesController?.loadHistory() }
+            }
+        }
+        .onChange(of: coordinator.requestedHomeNavigation?.id) {
+            guard let controller = notesController else { return }
+            Task {
+                _ = await handleRequestedHomeNavigation(controller: controller)
             }
         }
         .sheet(
@@ -293,6 +300,59 @@ struct HomeTimelineWorkspaceView: View {
     }
 
     @MainActor
+    private func handleRequestedHomeNavigation(controller: NotesController) async -> Bool {
+        guard let requested = coordinator.consumeRequestedHomeNavigation() else { return false }
+
+        switch requested {
+        case .session(let sessionID):
+            controller.selectSession(sessionID)
+            let selectedSession = coordinator.sessionHistory.first(where: { $0.id == sessionID })
+                ?? controller.state.sessionHistory.first(where: { $0.id == sessionID })
+            detailViewMode = selectedSession?.source == "imported" ? .transcript : .notes
+            selectedEntryID = "session:\(sessionID)"
+            resizeMainWindow(detailVisible: true)
+        case .transcriptSession(let sessionID):
+            controller.selectSession(sessionID)
+            detailViewMode = .transcript
+            selectedEntryID = "session:\(sessionID)"
+            resizeMainWindow(detailVisible: true)
+        case .retranscribeSession(let sessionID):
+            controller.selectSession(sessionID)
+            detailViewMode = .transcript
+            selectedEntryID = "session:\(sessionID)"
+            resizeMainWindow(detailVisible: true)
+            try? await Task.sleep(for: .milliseconds(200))
+            if controller.state.canRetranscribeSelectedSession {
+                container.ensureRecordingServicesInitialized(settings: settings, coordinator: coordinator)
+                controller.rerunBatchTranscription(
+                    model: settings.batchTranscriptionModel,
+                    settings: settings
+                )
+            }
+        case .meetingHistory(let event):
+            controller.showMeetingFamily(for: event)
+            detailViewMode = .notes
+            selectedEntryID = "calendar:\(event.id)"
+            resizeMainWindow(detailVisible: true)
+        case .manualTranscript(let event):
+            detailViewMode = .transcript
+            selectedEntryID = "calendar:\(event.id)"
+            resizeMainWindow(detailVisible: true)
+            let shouldPromptForTranscript = await controller.prepareManualTranscriptSession(for: event)
+            if shouldPromptForTranscript {
+                beginAddTranscript()
+            }
+        case .clearSelection:
+            controller.selectSession(nil)
+            detailViewMode = .notes
+            selectedEntryID = nil
+            resizeMainWindow(detailVisible: false)
+        }
+
+        return true
+    }
+
+    @MainActor
     private func refreshCalendarEvents() async {
         guard settings.calendarIntegrationEnabled, let manager = container.calendarManager else {
             calendarEvents = []
@@ -378,6 +438,11 @@ struct HomeTimelineWorkspaceView: View {
             guard let url = URL(string: urlString) else { continue }
             if NSWorkspace.shared.open(url) { return }
         }
+    }
+
+    private func beginAddTranscript() {
+        manualTranscriptDraft = ""
+        showingAddTranscriptSheet = true
     }
 
     private func resizeMainWindow(detailVisible: Bool) {

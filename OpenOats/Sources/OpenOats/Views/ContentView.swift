@@ -42,7 +42,7 @@ struct ContentView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "note.text")
                             .font(.system(size: 11))
-                        Text("Past Meetings")
+                        Text("Notes Workspace")
                             .font(.system(size: 11))
                     }
                     .padding(.horizontal, 6)
@@ -51,8 +51,8 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("View past meeting notes")
-                .accessibilityIdentifier("app.pastMeetingsButton")
+                .help("Open the advanced notes workspace")
+                .accessibilityIdentifier("app.notesWorkspaceButton")
 
                 SettingsLink {
                     Image(systemName: "gearshape")
@@ -77,19 +77,16 @@ struct ContentView: View {
                     canRetranscribe: controllerState.lastEndedSessionCanRetranscribe,
                     recoveryIsPending: coordinator.pendingRecoverySessionID == lastSession.id,
                     onOpenTranscript: {
-                        coordinator.queueTranscriptSessionSelection(lastSession.id)
-                        openWindow(id: "notes")
+                        coordinator.queueHomeTranscriptSessionSelection(lastSession.id)
                     },
                     onOpenNotes: {
-                        coordinator.queueSessionSelection(lastSession.id)
-                        openWindow(id: "notes")
+                        coordinator.queueHomeSessionSelection(lastSession.id)
                     },
                     onGenerateNotes: {
-                        openWindow(id: "notes")
+                        coordinator.queueHomeSessionSelection(lastSession.id)
                     },
                     onRetranscribe: {
-                        coordinator.queueSessionRetranscription(lastSession.id)
-                        openWindow(id: "notes")
+                        coordinator.queueHomeSessionRetranscription(lastSession.id)
                     }
                 )
             }

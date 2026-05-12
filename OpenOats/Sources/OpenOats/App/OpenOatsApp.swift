@@ -80,7 +80,7 @@ public struct OpenOatsRootApp: App {
                 }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
 
-                Button("Past Meetings") {
+                Button("Notes Workspace") {
                     openNotesWindow()
                 }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
@@ -99,7 +99,7 @@ public struct OpenOatsRootApp: App {
             }
         }
 
-        Window("Notes", id: "notes") {
+        Window("Notes Workspace", id: "notes") {
             NotesView(settings: settings)
                 .environment(container)
                 .environment(coordinator)
@@ -130,7 +130,7 @@ extension OpenOatsRootApp {
 
     private func openNotesWindow() {
         openWindow(id: "notes")
-        bringWindowToFront(id: "notes", title: "Notes")
+        bringWindowToFront(id: "notes", title: "Notes Workspace")
     }
 
     private func bringWindowToFront(id: String, title: String) {
@@ -223,9 +223,9 @@ extension OpenOatsRootApp {
             // Check result
             let status = await batchAudioTranscriber.status
             if case .completed = status {
-                coordinator.queueSessionSelection(sessionID)
-                openNotesWindow()
                 await coordinator.loadHistory()
+                coordinator.queueHomeSessionSelection(sessionID)
+                showMainWindow()
             } else if case .failed = status {
                 // Clean up the orphaned session
                 await repo.deleteSession(sessionID: sessionID)

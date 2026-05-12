@@ -5,7 +5,6 @@ struct IdleHomeDashboardView: View {
     @Bindable var settings: AppSettings
     @Environment(AppContainer.self) private var container
     @Environment(AppCoordinator.self) private var coordinator
-    @Environment(\.openWindow) private var openWindow
 
     @State private var events: [CalendarEvent] = []
     @State private var earlierTodayEvents: [CalendarEvent] = []
@@ -301,11 +300,10 @@ struct IdleHomeDashboardView: View {
 
     private func openRelatedNotes(for event: CalendarEvent) {
         if event.endDate <= Date() {
-            coordinator.queueManualTranscript(event)
+            coordinator.queueHomeManualTranscript(event)
         } else {
-            coordinator.queueMeetingHistory(event)
+            coordinator.queueHomeMeetingHistory(event)
         }
-        openWindow(id: "notes")
     }
 
     private func beginCreateFolder(for event: CalendarEvent) {

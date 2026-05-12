@@ -11,7 +11,7 @@ final class SmokeTests: XCTestCase {
         let app = launchApp(scenario: "launchSmoke")
 
         XCTAssertTrue(element(in: app, identifier: "app.controlBar.toggle").waitForExistence(timeout: 5))
-        XCTAssertTrue(element(in: app, identifier: "app.pastMeetingsButton").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(in: app, identifier: "app.notesWorkspaceButton").waitForExistence(timeout: 5))
     }
 
     func testSettingsSmokeShowsCorePickers() {
@@ -50,6 +50,24 @@ final class SmokeTests: XCTestCase {
 
         app.typeKey("l", modifierFlags: [.command, .shift])
         XCTAssertTrue(element(in: app, identifier: "app.sessionEndedBanner").waitForExistence(timeout: 5))
+    }
+
+    func testSessionSmokeRoutesGenerateNotesIntoMainWindowDetail() {
+        let app = launchApp(scenario: "sessionSmoke")
+
+        let toggle = element(in: app, identifier: "app.controlBar.toggle")
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+
+        app.typeKey("l", modifierFlags: [.command, .shift])
+        let stop = element(in: app, identifier: "app.controlBar.stop")
+        XCTAssertTrue(stop.waitForExistence(timeout: 5))
+
+        app.typeKey("l", modifierFlags: [.command, .shift])
+        let generateNotes = element(in: app, identifier: "app.generateNotesButton")
+        XCTAssertTrue(generateNotes.waitForExistence(timeout: 5))
+        generateNotes.click()
+
+        XCTAssertTrue(element(in: app, identifier: "home.detailPane").waitForExistence(timeout: 5))
     }
 
     func testNotesSmokeSupportsDeepLinkAndGeneration() async {
@@ -121,7 +139,7 @@ final class SmokeTests: XCTestCase {
     }
 
     private func closeNotesWindowIfPresent(in app: XCUIApplication) {
-        for identifier in ["notes", "Notes"] {
+        for identifier in ["notes", "Notes", "Notes Workspace"] {
             let window = app.windows[identifier]
             guard window.exists else { continue }
             let closeButton = window.buttons.firstMatch

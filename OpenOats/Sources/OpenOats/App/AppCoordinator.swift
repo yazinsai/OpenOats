@@ -75,6 +75,12 @@ final class AppCoordinator {
         set { withMutation(keyPath: \.requestedNotesNavigation) { _requestedNotesNavigation = newValue } }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _requestedHomeNavigation: NotesNavigationRequest?
+    var requestedHomeNavigation: NotesNavigationRequest? {
+        get { access(keyPath: \.requestedHomeNavigation); return _requestedHomeNavigation }
+        set { withMutation(keyPath: \.requestedHomeNavigation) { _requestedHomeNavigation = newValue } }
+    }
+
     var isRecording: Bool {
         if case .recording = state { return true }
         return false
@@ -268,6 +274,35 @@ final class AppCoordinator {
     func consumeRequestedSessionSelection() -> NotesNavigationRequest.Target? {
         defer { requestedNotesNavigation = nil }
         return requestedNotesNavigation?.target
+    }
+
+    func queueHomeSessionSelection(_ sessionID: String?) {
+        if let sessionID {
+            requestedHomeNavigation = NotesNavigationRequest(target: .session(sessionID))
+        } else {
+            requestedHomeNavigation = NotesNavigationRequest(target: .clearSelection)
+        }
+    }
+
+    func queueHomeTranscriptSessionSelection(_ sessionID: String) {
+        requestedHomeNavigation = NotesNavigationRequest(target: .transcriptSession(sessionID))
+    }
+
+    func queueHomeSessionRetranscription(_ sessionID: String) {
+        requestedHomeNavigation = NotesNavigationRequest(target: .retranscribeSession(sessionID))
+    }
+
+    func queueHomeMeetingHistory(_ event: CalendarEvent) {
+        requestedHomeNavigation = NotesNavigationRequest(target: .meetingHistory(event))
+    }
+
+    func queueHomeManualTranscript(_ event: CalendarEvent) {
+        requestedHomeNavigation = NotesNavigationRequest(target: .manualTranscript(event))
+    }
+
+    func consumeRequestedHomeNavigation() -> NotesNavigationRequest.Target? {
+        defer { requestedHomeNavigation = nil }
+        return requestedHomeNavigation?.target
     }
 
     // MARK: - Detection Event Loop
