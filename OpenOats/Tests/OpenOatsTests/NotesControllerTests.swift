@@ -1323,7 +1323,7 @@ final class NotesControllerTests: XCTestCase {
     }
 
     func testNormalizedNotesMarkdownPrependsFallbackHeadingWhenMissing() {
-        let markdown = NotesController.normalizedNotesMarkdown(
+        let markdown = GeneratedNotes.normalizedMarkdown(
             "## Summary\nHello",
             title: "Standup",
             date: Date(timeIntervalSince1970: 1_700_000_000)
@@ -1333,7 +1333,7 @@ final class NotesControllerTests: XCTestCase {
     }
 
     func testNormalizedNotesMarkdownFallsBackToDateForMissingTitle() {
-        let markdown = NotesController.normalizedNotesMarkdown(
+        let markdown = GeneratedNotes.normalizedMarkdown(
             "## Summary\nHello",
             title: "",
             date: Date(timeIntervalSince1970: 1_700_000_000)
@@ -1344,7 +1344,7 @@ final class NotesControllerTests: XCTestCase {
     }
 
     func testNormalizedNotesMarkdownPreservesExistingHeading() {
-        let markdown = NotesController.normalizedNotesMarkdown(
+        let markdown = GeneratedNotes.normalizedMarkdown(
             "# Test Notes\n\n## Summary\nHello",
             title: "Standup",
             date: Date(timeIntervalSince1970: 1_700_000_000)

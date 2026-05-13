@@ -71,6 +71,35 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.selectedModel, "anthropic/claude-4-sonnet")
     }
 
+    func testAutoPostMeetingNotesRequiresOpenRouterKey() {
+        let store = makeStore()
+        store.llmProvider = .openRouter
+        store.selectedModel = "google/gemini-3-flash-preview"
+
+        XCTAssertFalse(store.canAutoGeneratePostMeetingNotes)
+
+        store.openRouterApiKey = "sk-or-v1-test"
+        XCTAssertTrue(store.canAutoGeneratePostMeetingNotes)
+    }
+
+    func testAutoPostMeetingNotesAcceptsValidLocalProviderConfiguration() {
+        let store = makeStore()
+        store.llmProvider = .ollama
+        store.ollamaBaseURL = "http://localhost:11434"
+        store.ollamaLLMModel = "qwen3:8b"
+
+        XCTAssertTrue(store.canAutoGeneratePostMeetingNotes)
+    }
+
+    func testAutoPostMeetingNotesRejectsInvalidLocalProviderURL() {
+        let store = makeStore()
+        store.llmProvider = .mlx
+        store.mlxBaseURL = "not a url"
+        store.mlxModel = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+
+        XCTAssertFalse(store.canAutoGeneratePostMeetingNotes)
+    }
+
     func testDefaultEmbeddingProvider() {
         let store = makeStore()
         XCTAssertEqual(store.embeddingProvider, .voyageAI)

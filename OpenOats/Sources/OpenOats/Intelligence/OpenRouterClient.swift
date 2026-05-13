@@ -7,14 +7,35 @@ actor OpenRouterClient {
     /// Builds a chat completions URL from a user-provided base URL, stripping
     /// any trailing `/v1` or `/v1/chat/completions` to avoid double-pathing.
     static func chatCompletionsURL(from rawBase: String) -> URL? {
-        var base = rawBase.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        // Strip paths that users commonly include so we don't get /v1/v1/...
+        let trimmed = rawBase.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var components = URLComponents(string: trimmed),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = components.host,
+              !host.isEmpty else {
+            return nil
+        }
+
+        var path = components.path
+        while path.hasSuffix("/") {
+            path.removeLast()
+        }
+
         for suffix in ["/v1/chat/completions", "/v1"] {
-            if base.hasSuffix(suffix) {
-                base = String(base.dropLast(suffix.count))
+            if path.hasSuffix(suffix) {
+                path.removeLast(suffix.count)
+                break
             }
         }
-        return URL(string: base + "/v1/chat/completions")
+
+        if path.isEmpty {
+            components.path = "/v1/chat/completions"
+        } else {
+            components.path = path + "/v1/chat/completions"
+        }
+        components.query = nil
+        components.fragment = nil
+        return components.url
     }
 
     static func isLocalHost(_ url: URL) -> Bool {

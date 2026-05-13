@@ -83,9 +83,10 @@ final class SmokeTests: XCTestCase {
 
     func testHomeTimelineSelectsSavedSessionAndCollapsesDetail() {
         let app = launchApp(scenario: "notesSmoke")
-        closeNotesWindowIfPresent(in: app)
         app.activate()
-        XCTAssertTrue(app.windows["main"].waitForExistence(timeout: 2))
+        let mainWindow = app.windows["main"]
+        XCTAssertTrue(mainWindow.waitForExistence(timeout: 2))
+        focus(window: mainWindow)
 
         let savedSession = element(in: app, identifier: "home.timeline.session.session_ui_test_notes")
         XCTAssertTrue(savedSession.waitForExistence(timeout: 5))
@@ -101,9 +102,10 @@ final class SmokeTests: XCTestCase {
 
     func testHomeTimelineSupportsRenamingFromDetailManageMenu() {
         let app = launchApp(scenario: "notesSmoke")
-        closeNotesWindowIfPresent(in: app)
         app.activate()
-        XCTAssertTrue(app.windows["main"].waitForExistence(timeout: 2))
+        let mainWindow = app.windows["main"]
+        XCTAssertTrue(mainWindow.waitForExistence(timeout: 2))
+        focus(window: mainWindow)
 
         let savedSession = element(in: app, identifier: "home.timeline.session.session_ui_test_notes")
         XCTAssertTrue(savedSession.waitForExistence(timeout: 5))
@@ -168,16 +170,8 @@ final class SmokeTests: XCTestCase {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
-    private func closeNotesWindowIfPresent(in app: XCUIApplication) {
-        for identifier in ["notes", "Notes", "Notes Workspace"] {
-            let window = app.windows[identifier]
-            guard window.exists else { continue }
-            let closeButton = window.buttons.firstMatch
-            if closeButton.exists {
-                closeButton.click()
-            }
-            return
-        }
+    private func focus(window: XCUIElement) {
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)).click()
     }
 
     private func openDeepLink(_ url: URL) async {
