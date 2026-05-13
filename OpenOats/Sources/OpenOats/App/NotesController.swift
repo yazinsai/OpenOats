@@ -877,6 +877,11 @@ final class NotesController {
         Task {
             await coordinator.sessionRepository.renameSession(sessionID: sessionID, title: newTitle)
             await loadHistory()
+            guard state.selectedSessionID == sessionID else { return }
+            guard let session = state.sessionHistory.first(where: { $0.id == sessionID }) else { return }
+            let familySelection = Self.meetingFamilySelection(for: session, calendarEvent: state.loadedCalendarEvent)
+            state.selectedMeetingFamily = familySelection
+            presentMeetingHistory(for: familySelection)
         }
     }
 

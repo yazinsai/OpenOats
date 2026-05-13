@@ -5,6 +5,15 @@ import Sparkle
 import UniformTypeIdentifiers
 import UserNotifications
 
+enum OpenOatsWindowSizing {
+    static let homeTimelinePaneMinWidth: CGFloat = 340
+    static let meetingDetailPaneMinWidth: CGFloat = 700
+    static let notesWorkspaceSidebarWidth: CGFloat = 250
+    static let mainWindowCollapsedMinSize = CGSize(width: 520, height: 560)
+    static let mainWindowExpandedMinSize = CGSize(width: 1080, height: 560)
+    static let notesWorkspaceMinSize = CGSize(width: 980, height: 560)
+}
+
 public struct OpenOatsRootApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Environment(\.openWindow) private var openWindow
@@ -66,7 +75,10 @@ public struct OpenOatsRootApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
-        .defaultSize(width: 520, height: 560)
+        .defaultSize(
+            width: OpenOatsWindowSizing.mainWindowCollapsedMinSize.width,
+            height: OpenOatsWindowSizing.mainWindowCollapsedMinSize.height
+        )
         .commands {
             CommandGroup(after: .appInfo) {
                 if case .live = container.mode {
@@ -105,7 +117,11 @@ public struct OpenOatsRootApp: App {
                 .environment(coordinator)
                 .defaultAppStorage(defaults)
         }
-        .defaultSize(width: 700, height: 550)
+        .windowResizability(.contentMinSize)
+        .defaultSize(
+            width: OpenOatsWindowSizing.notesWorkspaceMinSize.width,
+            height: OpenOatsWindowSizing.notesWorkspaceMinSize.height
+        )
 
         Window("Transcript", id: "transcript") {
             TranscriptWindowView()

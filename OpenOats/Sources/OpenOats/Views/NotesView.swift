@@ -83,7 +83,7 @@ struct NotesView: View {
     private func mainLayout(controller: NotesController, state: NotesState) -> some View {
         HStack(spacing: 0) {
             sidebar(controller: controller, state: state)
-                .frame(width: 250)
+                .frame(width: OpenOatsWindowSizing.notesWorkspaceSidebarWidth)
             Divider()
             MeetingDetailPane(
                 settings: settings,
@@ -95,7 +95,11 @@ struct NotesView: View {
             ) { session in
                 folderAssignmentMenu(controller: controller, session: session)
             }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(
+                minWidth: OpenOatsWindowSizing.meetingDetailPaneMinWidth,
+                maxWidth: .infinity,
+                maxHeight: .infinity
+            )
         }
         .onChange(of: coordinator.lastEndedSession?.id) {
             Task { await controller.handleLastEndedSessionChanged() }

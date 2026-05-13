@@ -99,6 +99,36 @@ final class SmokeTests: XCTestCase {
         XCTAssertFalse(element(in: app, identifier: "home.detailPane").waitForExistence(timeout: 2))
     }
 
+    func testHomeTimelineSupportsRenamingFromDetailManageMenu() {
+        let app = launchApp(scenario: "notesSmoke")
+        closeNotesWindowIfPresent(in: app)
+        app.activate()
+        XCTAssertTrue(app.windows["main"].waitForExistence(timeout: 2))
+
+        let savedSession = element(in: app, identifier: "home.timeline.session.session_ui_test_notes")
+        XCTAssertTrue(savedSession.waitForExistence(timeout: 5))
+        savedSession.click()
+
+        XCTAssertTrue(element(in: app, identifier: "home.detailPane").waitForExistence(timeout: 5))
+
+        let manageButton = element(in: app, identifier: "meetingDetail.manage")
+        XCTAssertTrue(manageButton.waitForExistence(timeout: 5))
+        manageButton.click()
+
+        let renameMenuItem = app.menuItems["Rename..."]
+        XCTAssertTrue(renameMenuItem.waitForExistence(timeout: 5))
+        renameMenuItem.click()
+
+        let renameField = app.textFields.firstMatch
+        XCTAssertTrue(renameField.waitForExistence(timeout: 5))
+        renameField.click()
+        renameField.typeKey("a", modifierFlags: .command)
+        renameField.typeText("Renamed Discovery Call")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(app.staticTexts["Renamed Discovery Call"].waitForExistence(timeout: 5))
+    }
+
     func testNotesSmokeSupportsRenamingFromContextMenu() async {
         let app = launchApp(scenario: "notesSmoke")
 
