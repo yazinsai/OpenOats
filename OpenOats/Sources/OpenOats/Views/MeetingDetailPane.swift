@@ -43,6 +43,17 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
     @State private var meetingFamilyBottomTab: MeetingFamilyBottomTab = .history
     @State private var isMeetingFamilyBottomCollapsed = false
     @State private var isNotesAssetDropTarget = false
+    @State private var renamingSessionID: String?
+    @State private var renameText: String = ""
+    @FocusState private var renameFieldFocused: Bool
+    @State private var editingTagsSessionID: String?
+    @State private var editingTags: [String] = []
+    @State private var newTagText: String = ""
+    @State private var availableTags: [String] = []
+    @State private var sessionToDeleteID: String?
+    @State private var isBulkDeleteMode = false
+    @State private var bulkDeleteSelection: Set<String> = []
+    @State private var showBulkDeleteConfirmation = false
     @State private var creatingFolderForMeetingFamilyKey: String?
     @State private var pendingMeetingFamilyFolderChange: PendingMeetingFamilyFolderChange?
     @State private var newFolderPath: String = ""
@@ -107,6 +118,26 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
             ) {
                 meetingFamilyFolderSheetContent(controller: controller)
             }
+            .sheet(
+                isPresented: Binding(
+                    get: { renamingSessionID != nil },
+                    set: { if !$0 { cancelRename() } }
+                )
+            ) {
+                if let sessionID = renamingSessionID {
+                    renameSessionSheet(controller: controller, sessionID: sessionID)
+                }
+            }
+            .sheet(
+                isPresented: Binding(
+                    get: { editingTagsSessionID != nil },
+                    set: { if !$0 { cancelTagEditing() } }
+                )
+            ) {
+                if let sessionID = editingTagsSessionID {
+                    tagEditorSheet(controller: controller, sessionID: sessionID)
+                }
+            }
             .confirmationDialog(
                 "Update default folder?",
                 isPresented: Binding(
@@ -130,14 +161,65 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
             } message: { pendingChange in
                 Text(meetingFamilyFolderChangeMessage(for: pendingChange))
             }
+            .alert(
+                "Delete Meeting?",
+                isPresented: Binding(
+                    get: { sessionToDeleteID != nil },
+                    set: { if !$0 { sessionToDeleteID = nil } }
+                )
+            ) {
+                Button("Delete", role: .destructive) {
+                    if let sessionID = sessionToDeleteID {
+                        controller.deleteSession(sessionID: sessionID)
+                    }
+                    sessionToDeleteID = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    sessionToDeleteID = nil
+                }
+            } message: {
+                Text("This will permanently delete the transcript and any generated notes.")
+            }
+            .alert("Delete \(bulkDeleteSelection.count) Meetings?", isPresented: $showBulkDeleteConfirmation) {
+                Button("Delete \(bulkDeleteSelection.count)", role: .destructive) {
+                    controller.deleteSessions(sessionIDs: bulkDeleteSelection)
+                    cancelBulkDeleteMode()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will permanently delete the selected transcripts and any generated notes.")
+            }
             .onChange(of: state.selectedMeetingFamily?.key) {
                 meetingFamilyBottomTab = .history
                 isMeetingFamilyBottomCollapsed = false
                 pendingMeetingFamilyFolderChange = nil
+                cancelSessionManagement()
+                cancelBulkDeleteMode()
             }
             .onChange(of: state.selectedSessionID) {
                 appleNotesSyncState = .idle
                 appleNotesLastSyncDate = state.selectedSessionID.flatMap { AppleNotesService.lastSyncDate(for: $0) }
+                if renamingSessionID != state.selectedSessionID {
+                    cancelRename()
+                }
+                if editingTagsSessionID != state.selectedSessionID {
+                    cancelTagEditing()
+                }
+                if sessionToDeleteID != state.selectedSessionID {
+                    sessionToDeleteID = nil
+                }
+            }
+            .onChange(of: meetingFamilyBottomTab) {
+                if meetingFamilyBottomTab != .history {
+                    cancelBulkDeleteMode()
+                }
+            }
+            .onChange(of: state.meetingHistoryEntries.map(\.session.id)) {
+                let validSessionIDs = Set(state.meetingHistoryEntries.map(\.session.id))
+                bulkDeleteSelection = bulkDeleteSelection.intersection(validSessionIDs)
+                if validSessionIDs.isEmpty {
+                    cancelBulkDeleteMode()
+                }
             }
     }
 
@@ -469,7 +551,12 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                             showsTabs: showsTabs,
                             linkingSuggestionKey: state.linkingMeetingSuggestionKey
                         )
-                        .frame(maxWidth: .infinity, minHeight: bottomHeight, maxHeight: bottomHeight)
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: bottomHeight,
+                            maxHeight: bottomHeight,
+                            alignment: .topLeading
+                        )
                     }
                 } else if focusedSessionID == nil {
                     ContentUnavailableView(
@@ -1049,71 +1136,89 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
         let selectedSession = state.selectedSessionID.flatMap { sessionID in
             state.sessionHistory.first(where: { $0.id == sessionID })
         }
+        let selectedSessionTags = selectedSession.map(NotesController.visibleTags(for:)) ?? []
 
-        HStack(alignment: .center, spacing: 10) {
-            Button {
-                controller.showCurrentMeetingFamilyOverview()
-                detailViewMode = .notes
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 28, height: 28)
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .buttonStyle(.borderless)
-            .help("Back")
-
-            if hasCalendarContext {
-                Text("Meeting history")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(selection.title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    HStack(spacing: 8) {
-                        if let sessionID = state.selectedSessionID,
-                           let session = state.sessionHistory.first(where: { $0.id == sessionID }) {
-                            Text(session.startedAt, format: .dateTime.day().month(.abbreviated).year().hour().minute())
-                        }
-
-                        if let calendarTitle = selection.calendarTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-                           !calendarTitle.isEmpty {
-                            Text(calendarTitle)
-                        }
-                    }
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: selectedSessionTags.isEmpty ? 0 : 8) {
+            HStack(alignment: .center, spacing: 10) {
+                Button {
+                    controller.showCurrentMeetingFamilyOverview()
+                    detailViewMode = .notes
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
-            }
+                .buttonStyle(.borderless)
+                .help("Back")
 
-            Spacer(minLength: 0)
-
-            HStack(spacing: 8) {
-                if let selectedSession {
-                    sessionFolderMenuChip(
-                        controller: controller,
-                        session: selectedSession,
-                        selection: selection,
-                        historyCount: historyCount,
-                        preferredFolderPath: preferredFolderPath,
-                        folders: folders
-                    )
+                if hasCalendarContext {
+                    Text("Meeting history")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
                 } else {
-                    meetingFamilyFolderMenu(
-                        controller: controller,
-                        selection: selection,
-                        historyCount: historyCount,
-                        preferredFolderPath: preferredFolderPath,
-                        preferredFolder: preferredFolder,
-                        folders: folders
-                    )
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(selection.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+
+                        HStack(spacing: 8) {
+                            if let sessionID = state.selectedSessionID,
+                               let session = state.sessionHistory.first(where: { $0.id == sessionID }) {
+                                Text(session.startedAt, format: .dateTime.day().month(.abbreviated).year().hour().minute())
+                            }
+
+                            if let calendarTitle = selection.calendarTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+                               !calendarTitle.isEmpty {
+                                Text(calendarTitle)
+                            }
+                        }
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    }
                 }
 
-                meetingFamilyKnowledgeBaseSignal(state: state)
+                Spacer(minLength: 0)
+
+                HStack(spacing: 8) {
+                    if let selectedSession {
+                        sessionFolderMenuChip(
+                            controller: controller,
+                            session: selectedSession,
+                            selection: selection,
+                            historyCount: historyCount,
+                            preferredFolderPath: preferredFolderPath,
+                            folders: folders
+                        )
+                    } else {
+                        meetingFamilyFolderMenu(
+                            controller: controller,
+                            selection: selection,
+                            historyCount: historyCount,
+                            preferredFolderPath: preferredFolderPath,
+                            preferredFolder: preferredFolder,
+                            folders: folders
+                        )
+                    }
+
+                    meetingFamilyKnowledgeBaseSignal(state: state)
+                }
+            }
+
+            if !selectedSessionTags.isEmpty {
+                FlowLayout(spacing: 6) {
+                    ForEach(selectedSessionTags, id: \.self) { tag in
+                        Text(tag)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.primary.opacity(0.05))
+                            .clipShape(Capsule())
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.horizontal, 16)
@@ -1128,106 +1233,186 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
         showsHeader: Bool = true
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            if showsHeader {
-                Text("Previous meetings")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.secondary)
+            if showsHeader || isBulkDeleteMode || !historyEntries.isEmpty {
+                HStack(spacing: 8) {
+                    if showsHeader {
+                        Text("Previous meetings")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    if isBulkDeleteMode {
+                        Button("Select All") {
+                            bulkDeleteSelection = Set(historyEntries.map(\.session.id))
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.accentColor)
+                        .disabled(historyEntries.isEmpty)
+                        .accessibilityIdentifier("meetingDetail.history.selectAll")
+
+                        if !bulkDeleteSelection.isEmpty {
+                            Button("Delete \(bulkDeleteSelection.count)") {
+                                showBulkDeleteConfirmation = true
+                            }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.red)
+                            .accessibilityIdentifier("meetingDetail.history.bulkDelete")
+                        }
+
+                        Button("Done") {
+                            cancelBulkDeleteMode()
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.accentColor)
+                        .accessibilityIdentifier("meetingDetail.history.done")
+                    } else if !historyEntries.isEmpty {
+                        Button {
+                            isBulkDeleteMode = true
+                            bulkDeleteSelection = []
+                        } label: {
+                            Label("Select", systemImage: "checklist")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("meetingDetail.history.select")
+                    }
+                }
             }
 
             ScrollView {
                 VStack(spacing: 10) {
                     ForEach(historyEntries) { entry in
+                        let isSelectedForDelete = bulkDeleteSelection.contains(entry.session.id)
                         Button {
-                            openSessionFromMeetingHistory(entry.session, controller: controller)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                    Text(entry.session.startedAt, format: .dateTime.day().month(.abbreviated).year().hour().minute())
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundStyle(.primary)
-
-                                    Spacer(minLength: 0)
-
-                                    if entry.session.hasNotes {
-                                        Image(systemName: "doc.text.fill")
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundStyle(.secondary)
-                                    }
-
-                                    if entry.session.folderPath != nil {
-                                        Image(systemName: "folder.fill")
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundStyle(folderColor(for: entry.session.folderPath))
-                                    }
-
-                                    if entry.hasAudio {
-                                        Image(systemName: "waveform")
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundStyle(.secondary)
-                                            .help("Audio recording available")
-                                    }
-                                }
-
-                                HStack(spacing: 8) {
-                                    Text(entry.session.notesTranscriptStatusText)
-
-                                    if let source = entry.session.source?.trimmingCharacters(in: .whitespacesAndNewlines),
-                                       !source.isEmpty {
-                                        Text("•")
-                                        Text(source.capitalized)
-                                    }
-
-                                    if let recovery = entry.session.transcriptRecovery {
-                                        Text("•")
-                                        Text(recovery.listLabel)
-                                    }
-                                }
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-
-                                if !entry.highlights.isEmpty {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        ForEach(entry.highlights) { highlight in
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(highlight.title)
-                                                    .font(.system(size: 11, weight: .semibold))
-                                                    .foregroundStyle(.secondary)
-                                                Text(highlight.value)
-                                                    .font(.system(size: 13))
-                                                    .foregroundStyle(.primary)
-                                                    .lineLimit(2)
-                                                    .multilineTextAlignment(.leading)
-                                            }
-                                        }
-                                    }
-                                } else if let preview = entry.notesPreview {
-                                    Text(preview)
-                                        .font(.system(size: 13))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                        .multilineTextAlignment(.leading)
-                                }
+                            if isBulkDeleteMode {
+                                toggleBulkDeleteSelection(for: entry.session.id)
+                            } else {
+                                openSessionFromMeetingHistory(entry.session, controller: controller)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color(nsColor: .controlBackgroundColor))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .strokeBorder(.quaternary, lineWidth: 1)
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 12))
+                        } label: {
+                            meetingHistoryEntryCard(entry: entry, isSelectedForDelete: isSelectedForDelete)
                         }
                         .buttonStyle(.plain)
-                        .help("Open this meeting")
+                        .help(isBulkDeleteMode ? "Select this meeting for deletion" : "Open this meeting")
+                        .accessibilityIdentifier("meetingDetail.history.session.\(entry.session.id)")
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
+    }
+
+    @ViewBuilder
+    private func meetingHistoryEntryCard(
+        entry: MeetingHistoryEntry,
+        isSelectedForDelete: Bool
+    ) -> some View {
+        let source = entry.session.source?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasSource = source?.isEmpty == false
+
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(entry.session.startedAt, format: .dateTime.day().month(.abbreviated).year().hour().minute())
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.primary)
+
+                Spacer(minLength: 0)
+
+                if entry.session.hasNotes {
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+
+                if entry.session.folderPath != nil {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(folderColor(for: entry.session.folderPath))
+                }
+
+                if entry.hasAudio {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .help("Audio recording available")
+                }
+            }
+
+            HStack(spacing: 8) {
+                Text(entry.session.notesTranscriptStatusText)
+
+                if hasSource, let source {
+                    Text("•")
+                    Text(source.capitalized)
+                }
+
+                if let recovery = entry.session.transcriptRecovery {
+                    Text("•")
+                    Text(recovery.listLabel)
+                }
+            }
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+
+            if !entry.highlights.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(entry.highlights) { highlight in
+                        meetingHistoryHighlightView(highlight)
+                    }
+                }
+            } else if let preview = entry.notesPreview {
+                Text(preview)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(
+                    isSelectedForDelete ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.08),
+                    lineWidth: isSelectedForDelete ? 1.5 : 1
+                )
+        )
+        .overlay(alignment: .topTrailing) {
+            if isBulkDeleteMode {
+                Image(systemName: isSelectedForDelete ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(isSelectedForDelete ? Color.accentColor : Color.secondary.opacity(0.7))
+                    .padding(10)
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    private func meetingHistoryHighlightView(_ highlight: MeetingHistoryHighlight) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(highlight.title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text(highlight.value)
+                .font(.system(size: 13))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+        }
     }
 
     private func openSessionFromMeetingHistory(_ session: SessionIndex, controller: NotesController) {
@@ -1281,46 +1466,98 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
 
     @ViewBuilder
     private func detailToolbar(controller: NotesController, state: NotesState) -> some View {
-        HStack(spacing: 8) {
-            Picker("View", selection: $detailViewMode) {
-                ForEach(MeetingDetailViewMode.allCases, id: \.self) { mode in
-                    Text(mode.rawValue).tag(mode)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Picker("View", selection: $detailViewMode) {
+                    ForEach(MeetingDetailViewMode.allCases, id: \.self) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
                 }
-            }
-            .pickerStyle(.segmented)
-            .frame(minWidth: 120, maxWidth: 220)
-            .layoutPriority(1)
+                .pickerStyle(.segmented)
+                .frame(minWidth: 120, maxWidth: 220)
+                .layoutPriority(1)
 
-            Spacer(minLength: 4)
-
-            if detailViewMode == .transcript {
-                transcriptToolbarActions(controller: controller, state: state)
-            } else if detailViewMode == .notes {
-                notesToolbarActions(controller: controller, state: state)
+                Spacer(minLength: 0)
             }
 
-            if state.selectedSessionID != nil,
-               (state.canRetranscribeSelectedSession || state.hasOriginalTranscriptBackup) {
-                transcriptMaintenanceMenu(controller: controller, state: state)
+            FlowLayout(spacing: 8) {
+                detailToolbarPrimaryActions(controller: controller, state: state)
             }
-
-            if !state.availableAudioSources.isEmpty {
-                audioPlaybackButton(controller: controller, state: state)
-            }
-
-            Button {
-                copyCurrentContent(state: state)
-            } label: {
-                Label("Copy", systemImage: "doc.on.doc")
-                    .font(.system(size: 12))
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.bordered)
-            .disabled(copyContentIsEmpty(state: state))
-            .help("Copy to clipboard")
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private func detailToolbarPrimaryActions(controller: NotesController, state: NotesState) -> some View {
+        if detailViewMode == .transcript {
+            transcriptToolbarActions(controller: controller, state: state)
+        } else if detailViewMode == .notes {
+            notesToolbarActions(controller: controller, state: state)
+        }
+
+        if state.selectedSessionID != nil,
+           (state.canRetranscribeSelectedSession || state.hasOriginalTranscriptBackup) {
+            transcriptMaintenanceMenu(controller: controller, state: state)
+        }
+
+        if state.selectedSessionID != nil {
+            sessionManagementMenu(controller: controller, state: state)
+        }
+
+        if !state.availableAudioSources.isEmpty {
+            audioPlaybackButton(controller: controller, state: state)
+        }
+
+        copyCurrentContentButton(state: state)
+    }
+
+    @ViewBuilder
+    private func copyCurrentContentButton(state: NotesState) -> some View {
+        Button {
+            copyCurrentContent(state: state)
+        } label: {
+            Label("Copy", systemImage: "doc.on.doc")
+                .font(.system(size: 12))
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.bordered)
+        .disabled(copyContentIsEmpty(state: state))
+        .help("Copy to clipboard")
+    }
+
+    @ViewBuilder
+    private func sessionManagementMenu(controller: NotesController, state: NotesState) -> some View {
+        if let session = selectedSession(in: state) {
+            Menu {
+                Button("Rename...") {
+                    beginRenaming(session)
+                }
+
+                Button("Edit Tags...") {
+                    beginTagEditing(session, controller: controller)
+                }
+
+                Menu("Move to Folder") {
+                    sessionFolderMenuItems(session)
+                }
+
+                Divider()
+
+                Button("Delete", role: .destructive) {
+                    sessionToDeleteID = session.id
+                }
+            } label: {
+                Label("Manage", systemImage: "ellipsis.circle")
+                    .font(.system(size: 12))
+            }
+            .menuStyle(.button)
+            .buttonStyle(.bordered)
+            .fixedSize()
+            .help("Manage this meeting")
+            .accessibilityIdentifier("meetingDetail.manage")
+        }
     }
 
     @ViewBuilder
@@ -1417,6 +1654,217 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
         default:
             return "Invited participants: \(participants[0]), \(participants[1]), +\(participants.count - 2) more"
         }
+    }
+
+    @ViewBuilder
+    private func renameSessionSheet(controller: NotesController, sessionID: String) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Rename Meeting")
+                .font(.headline)
+
+            TextField(renamePlaceholder(for: sessionID), text: $renameText)
+                .textFieldStyle(.roundedBorder)
+                .focused($renameFieldFocused)
+                .accessibilityIdentifier("meetingDetail.renameSheet.field")
+                .onAppear {
+                    renameFieldFocused = true
+                }
+                .onSubmit {
+                    commitRename(controller: controller, sessionID: sessionID)
+                }
+
+            HStack {
+                Spacer()
+
+                Button("Cancel") {
+                    cancelRename()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Rename") {
+                    commitRename(controller: controller, sessionID: sessionID)
+                }
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("meetingDetail.renameSheet.saveButton")
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+        .accessibilityIdentifier("meetingDetail.renameSheet")
+    }
+
+    @ViewBuilder
+    private func tagEditorSheet(controller: NotesController, sessionID: String) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Tags")
+                .font(.headline)
+
+            if !editingTags.isEmpty {
+                FlowLayout(spacing: 6) {
+                    ForEach(editingTags, id: \.self) { tag in
+                        HStack(spacing: 4) {
+                            Text(tag)
+                                .font(.system(size: 12))
+                            Button {
+                                editingTags.removeAll { $0.localizedCaseInsensitiveCompare(tag) == .orderedSame }
+                                controller.updateSessionTags(sessionID: sessionID, tags: editingTags)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.quaternary)
+                        .clipShape(Capsule())
+                    }
+                }
+            }
+
+            if editingTags.count < 5 {
+                HStack(spacing: 8) {
+                    TextField("Add tag...", text: $newTagText)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+                        .onSubmit {
+                            commitNewTag(controller: controller, sessionID: sessionID)
+                        }
+
+                    Button("Add") {
+                        commitNewTag(controller: controller, sessionID: sessionID)
+                    }
+                    .disabled(newTagText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                let trimmed = newTagText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let suggestions = availableTags.filter { suggestion in
+                    guard !trimmed.isEmpty else { return false }
+                    let lower = suggestion.lowercased()
+                    return lower.contains(trimmed)
+                        && !editingTags.contains(where: { $0.localizedCaseInsensitiveCompare(suggestion) == .orderedSame })
+                }
+                if !suggestions.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(suggestions.prefix(5), id: \.self) { suggestion in
+                            Button {
+                                editingTags.append(suggestion)
+                                newTagText = ""
+                                controller.updateSessionTags(sessionID: sessionID, tags: editingTags)
+                            } label: {
+                                Text(suggestion)
+                                    .font(.system(size: 12))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 2)
+                                    .padding(.horizontal, 4)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(4)
+                    .background(.background.secondary)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+            } else {
+                Text("Maximum 5 tags per session")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Spacer()
+
+                Button("Done") {
+                    cancelTagEditing()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 320)
+        .accessibilityIdentifier("meetingDetail.tagsSheet")
+    }
+
+    private func beginRenaming(_ session: SessionIndex) {
+        renameText = session.title ?? ""
+        renamingSessionID = session.id
+    }
+
+    private func commitRename(controller: NotesController, sessionID: String) {
+        let trimmedTitle = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        controller.renameSession(sessionID: sessionID, newTitle: trimmedTitle)
+        cancelRename()
+    }
+
+    private func cancelRename() {
+        renamingSessionID = nil
+        renameFieldFocused = false
+        renameText = ""
+    }
+
+    private func beginTagEditing(_ session: SessionIndex, controller: NotesController) {
+        editingTags = NotesController.visibleTags(for: session)
+        newTagText = ""
+        availableTags = []
+        editingTagsSessionID = session.id
+        Task {
+            availableTags = await controller.allTags()
+        }
+    }
+
+    private func cancelTagEditing() {
+        editingTagsSessionID = nil
+        editingTags = []
+        newTagText = ""
+        availableTags = []
+    }
+
+    private func commitNewTag(controller: NotesController, sessionID: String) {
+        let trimmed = newTagText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard !editingTags.contains(where: { $0.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) else {
+            newTagText = ""
+            return
+        }
+        guard editingTags.count < 5 else { return }
+        editingTags.append(trimmed)
+        newTagText = ""
+        controller.updateSessionTags(sessionID: sessionID, tags: editingTags)
+    }
+
+    private func toggleBulkDeleteSelection(for sessionID: String) {
+        if bulkDeleteSelection.contains(sessionID) {
+            bulkDeleteSelection.remove(sessionID)
+        } else {
+            bulkDeleteSelection.insert(sessionID)
+        }
+    }
+
+    private func cancelBulkDeleteMode() {
+        isBulkDeleteMode = false
+        bulkDeleteSelection = []
+        showBulkDeleteConfirmation = false
+    }
+
+    private func cancelSessionManagement() {
+        cancelRename()
+        cancelTagEditing()
+        sessionToDeleteID = nil
+    }
+
+    private func selectedSession(in state: NotesState) -> SessionIndex? {
+        guard let sessionID = state.selectedSessionID else { return nil }
+        return state.sessionHistory.first(where: { $0.id == sessionID })
+    }
+
+    private func renamePlaceholder(for sessionID: String) -> String {
+        let title = state.sessionHistory
+            .first(where: { $0.id == sessionID })?
+            .title?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (title?.isEmpty == false ? title : nil) ?? "Untitled"
     }
 
     @ViewBuilder
@@ -2243,8 +2691,12 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                         )
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
     }
 
     private func generatingView(controller: NotesController, state: NotesState) -> some View {

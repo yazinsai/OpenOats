@@ -93,13 +93,21 @@ struct HomeTimelineWorkspaceView: View {
                 accessState: accessState,
                 isDetailVisible: isDetailVisible
             )
-            .frame(minWidth: 340, idealWidth: isDetailVisible ? 360 : 520, maxWidth: isDetailVisible ? 390 : .infinity)
+            .frame(
+                minWidth: OpenOatsWindowSizing.homeTimelinePaneMinWidth,
+                idealWidth: isDetailVisible ? 360 : 520,
+                maxWidth: isDetailVisible ? 390 : .infinity
+            )
 
             if isDetailVisible {
                 Divider()
 
                 detailPane(controller: controller)
-                    .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(
+                        minWidth: OpenOatsWindowSizing.meetingDetailPaneMinWidth,
+                        maxWidth: .infinity,
+                        maxHeight: .infinity
+                    )
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
@@ -450,14 +458,24 @@ struct HomeTimelineWorkspaceView: View {
             return
         }
 
-        let targetWidth: CGFloat = detailVisible ? 980 : 520
+        let minimumSize = detailVisible
+            ? OpenOatsWindowSizing.mainWindowExpandedMinSize
+            : OpenOatsWindowSizing.mainWindowCollapsedMinSize
+        window.contentMinSize = minimumSize
+
         let currentFrame = window.frame
-        let newWidth = detailVisible ? max(currentFrame.width, targetWidth) : min(currentFrame.width, targetWidth)
-        guard abs(newWidth - currentFrame.width) > 8 else { return }
+        let newWidth = detailVisible
+            ? max(currentFrame.width, minimumSize.width)
+            : min(currentFrame.width, minimumSize.width)
+        let newHeight = max(currentFrame.height, minimumSize.height)
+        guard abs(newWidth - currentFrame.width) > 8 || abs(newHeight - currentFrame.height) > 8 else {
+            return
+        }
 
         var frame = currentFrame
         frame.origin.x -= max(0, newWidth - currentFrame.width)
         frame.size.width = newWidth
+        frame.size.height = newHeight
         window.setFrame(frame, display: true, animate: true)
     }
 
