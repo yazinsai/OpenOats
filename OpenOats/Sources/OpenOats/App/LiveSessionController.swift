@@ -146,6 +146,8 @@ final class LiveSessionController {
     private var observedSystemHasEverCapturedFrames = false
     private var observedMicHasEverCapturedFrames = false
     private var pendingRecoveryDiagnostics: PendingRecoveryDiagnostics?
+    private var pendingAutoNotesSessionID: String?
+    private var autoGeneratingNotesSessionID: String?
 
     init(coordinator: AppCoordinator, container: AppContainer) {
         self.coordinator = coordinator
@@ -261,6 +263,8 @@ final class LiveSessionController {
                             }
                         }
                     }
+
+                    resumePendingAutoNotesIfNeeded(for: status, settings: settings)
                 }
             }
 
@@ -943,8 +947,18 @@ final class LiveSessionController {
         )
         await coordinator.loadHistory()
 
+        let willRunBatchRetranscription = shouldRunBatchRetranscription && coordinator.batchAudioTranscriber != nil
+
+        if let settings {
+            scheduleAutoNotesIfNeeded(
+                for: effectiveIndex,
+                settings: settings,
+                waitForBatch: willRunBatchRetranscription
+            )
+        }
+
         // 9. Kick off batch transcription if enabled
-        if let settings, shouldRunBatchRetranscription, let batchAudioTranscriber = coordinator.batchAudioTranscriber {
+        if let settings, willRunBatchRetranscription, let batchAudioTranscriber = coordinator.batchAudioTranscriber {
             let batchSessionID = sessionID
             let batchModel = settings.batchTranscriptionModel
             let batchLocale = settings.locale
@@ -964,6 +978,128 @@ final class LiveSessionController {
                 )
             }
         }
+    }
+
+    private func scheduleAutoNotesIfNeeded(
+        for session: SessionIndex,
+        settings: AppSettings,
+        waitForBatch: Bool
+    ) {
+        guard settings.canAutoGeneratePostMeetingNotes else {
+            pendingAutoNotesSessionID = nil
+            return
+        }
+
+        if waitForBatch {
+            pendingAutoNotesSessionID = session.id
+            return
+        }
+
+        guard session.utteranceCount > 0 else { return }
+        startAutoNotesGeneration(sessionID: session.id, settings: settings)
+    }
+
+    private func resumePendingAutoNotesIfNeeded(
+        for status: BatchAudioTranscriber.Status,
+        settings: AppSettings
+    ) {
+        guard let pendingSessionID = pendingAutoNotesSessionID else { return }
+
+        switch status {
+        case .completed(let sessionID) where sessionID == pendingSessionID:
+            pendingAutoNotesSessionID = nil
+            startAutoNotesGeneration(sessionID: sessionID, settings: settings)
+        case .failed, .cancelled:
+            pendingAutoNotesSessionID = nil
+            startAutoNotesGeneration(sessionID: pendingSessionID, settings: settings)
+        default:
+            break
+        }
+    }
+
+    private func startAutoNotesGeneration(sessionID: String, settings: AppSettings) {
+        guard settings.canAutoGeneratePostMeetingNotes else { return }
+        guard autoGeneratingNotesSessionID != sessionID else { return }
+
+        autoGeneratingNotesSessionID = sessionID
+        Task { [weak self] in
+            await self?.generatePostMeetingNotes(sessionID: sessionID, settings: settings)
+        }
+    }
+
+    private func generatePostMeetingNotes(sessionID: String, settings: AppSettings) async {
+        defer {
+            if autoGeneratingNotesSessionID == sessionID {
+                autoGeneratingNotesSessionID = nil
+            }
+        }
+
+        let sessionDetail = await coordinator.sessionRepository.loadSession(id: sessionID)
+        let session = sessionDetail.index
+        guard !session.hasNotes else { return }
+        guard session.utteranceCount > 0 else { return }
+
+        let sessionData = await coordinator.sessionRepository.loadSessionData(sessionID: sessionID)
+        guard !sessionData.transcript.isEmpty else { return }
+        let customGuidance = await coordinator.sessionRepository.loadCustomNotesGuidance(sessionID: sessionID)
+
+        let template = resolvedNotesTemplate(for: session)
+        let scratchpad = await coordinator.sessionRepository.loadScratchpad(sessionID: sessionID)
+
+        do {
+            let generatedMarkdown = try await coordinator.notesEngine.generateMarkdownDetached(
+                transcript: sessionData.transcript,
+                template: template,
+                settings: settings,
+                calendarEvent: sessionData.calendarEvent,
+                scratchpad: scratchpad.isEmpty ? nil : scratchpad,
+                customGuidance: customGuidance
+            )
+
+            let notes = GeneratedNotes(
+                template: coordinator.templateStore.snapshot(of: template),
+                generatedAt: Date(),
+                markdown: GeneratedNotes.normalizedMarkdown(
+                    generatedMarkdown,
+                    title: session.title,
+                    date: session.startedAt
+                )
+            )
+
+            await coordinator.sessionRepository.saveNotes(sessionID: sessionID, notes: notes)
+            await coordinator.loadHistory()
+
+            if coordinator.lastEndedSession?.id == sessionID {
+                coordinator.lastEndedSession = await coordinator.sessionRepository.loadSession(id: sessionID).index
+            }
+
+            syncProjectedState(settings: settings)
+            DiagnosticsSupport.record(
+                category: "meeting",
+                message: "Auto-generated post-meeting notes for \(sessionID)"
+            )
+        } catch {
+            DiagnosticsSupport.record(
+                category: "meeting",
+                message: "Auto-generated post-meeting notes failed for \(sessionID): \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func resolvedNotesTemplate(for session: SessionIndex) -> MeetingTemplate {
+        if let snapshot = session.templateSnapshot {
+            return coordinator.templateStore.template(for: snapshot.id)
+                ?? MeetingTemplate(
+                    id: snapshot.id,
+                    name: snapshot.name,
+                    icon: snapshot.icon,
+                    systemPrompt: snapshot.systemPrompt,
+                    isBuiltIn: false
+                )
+        }
+
+        return coordinator.templateStore.template(for: TemplateStore.genericID)
+            ?? TemplateStore.builtInTemplates.first!
     }
 
     static func audioRetentionPlan(settings: AppSettings, utteranceCount: Int?) -> AudioRetentionPlan {

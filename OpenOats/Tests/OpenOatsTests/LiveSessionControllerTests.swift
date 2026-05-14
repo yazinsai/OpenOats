@@ -697,6 +697,107 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertEqual(mergedDetail.calendarEvent?.id, event.id)
     }
 
+    func testFinalizeCurrentSessionAutoGeneratesNotesWhenConfigured() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        settings.llmProvider = .ollama
+        settings.ollamaBaseURL = "http://localhost:11434"
+        settings.ollamaLLMModel = "qwen3:8b"
+        settings.enableBatchRetranscription = false
+
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: [Utterance(text: "Follow up on merchant fees", speaker: .you)]
+        )
+
+        controller.startSession(settings: settings)
+
+        var sessionID: String?
+        for _ in 0..<20 {
+            sessionID = await coordinator.sessionRepository.getCurrentSessionID()
+            if sessionID != nil { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        guard let sessionID else {
+            return XCTFail("Expected session ID after starting session")
+        }
+
+        let recordedUtterance = Utterance(
+            text: "Follow up on merchant fees",
+            speaker: .you,
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        await coordinator.sessionRepository.appendLiveUtterance(
+            sessionID: sessionID,
+            utterance: recordedUtterance
+        )
+
+        controller.stopSession(settings: settings)
+        await controller.finalizeCurrentSession(settings: settings)
+
+        var savedNotes: GeneratedNotes?
+        for _ in 0..<20 {
+            savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
+            if savedNotes != nil { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        XCTAssertNotNil(savedNotes)
+        XCTAssertTrue(savedNotes?.markdown.contains("Test") ?? false)
+        XCTAssertEqual(coordinator.lastEndedSession?.id, sessionID)
+        XCTAssertTrue(coordinator.lastEndedSession?.hasNotes == true)
+    }
+
+    func testFinalizeCurrentSessionSkipsAutoNotesWhenProviderIsNotConfigured() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        settings.llmProvider = .openRouter
+        settings.selectedModel = "google/gemini-3-flash-preview"
+        settings.openRouterApiKey = ""
+        settings.enableBatchRetranscription = false
+
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: [Utterance(text: "Follow up on merchant fees", speaker: .you)]
+        )
+
+        controller.startSession(settings: settings)
+
+        var sessionID: String?
+        for _ in 0..<20 {
+            sessionID = await coordinator.sessionRepository.getCurrentSessionID()
+            if sessionID != nil { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        guard let sessionID else {
+            return XCTFail("Expected session ID after starting session")
+        }
+
+        let recordedUtterance = Utterance(
+            text: "Follow up on merchant fees",
+            speaker: .you,
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        await coordinator.sessionRepository.appendLiveUtterance(
+            sessionID: sessionID,
+            utterance: recordedUtterance
+        )
+
+        controller.stopSession(settings: settings)
+        await controller.finalizeCurrentSession(settings: settings)
+        try? await Task.sleep(for: .milliseconds(300))
+
+        let savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
+        XCTAssertNil(savedNotes)
+        XCTAssertFalse(coordinator.lastEndedSession?.hasNotes == true)
+    }
+
     func testAudioRetentionPlanKeepsRecoveryAudioForCloudLiveTranscription() {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)
