@@ -676,7 +676,7 @@ private struct PostSessionBanner: View {
 private struct ScratchpadSection: View {
     @Binding var text: String
     let onPasteAssetProviders: ([NSItemProvider]) -> Void
-    @AppStorage("isScratchpadExpanded") private var isExpanded = true
+    @State private var isExpanded = true
 
     private let pasteAssetTypes: [UTType] = [.png, .jpeg, .tiff, .image, .fileURL]
 
@@ -689,6 +689,7 @@ private struct ScratchpadSection: View {
                 .padding(4)
                 .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
+                .accessibilityIdentifier("app.scratchpadEditor")
                 .onPasteCommand(of: pasteAssetTypes) { providers in
                     onPasteAssetProviders(providers)
                 }

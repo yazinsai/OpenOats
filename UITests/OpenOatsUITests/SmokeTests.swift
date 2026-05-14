@@ -52,6 +52,16 @@ final class SmokeTests: XCTestCase {
         XCTAssertTrue(element(in: app, identifier: "app.sessionEndedBanner").waitForExistence(timeout: 5))
     }
 
+    func testSessionSmokeShowsScratchpadEditorByDefault() {
+        let app = launchApp(scenario: "sessionSmoke")
+
+        let toggle = element(in: app, identifier: "app.controlBar.toggle")
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+
+        app.typeKey("l", modifierFlags: [.command, .shift])
+        XCTAssertTrue(element(in: app, identifier: "app.scratchpadEditor").waitForExistence(timeout: 5))
+    }
+
     func testSessionSmokeRoutesGenerateNotesIntoMainWindowDetail() {
         let app = launchApp(scenario: "sessionSmoke")
 
