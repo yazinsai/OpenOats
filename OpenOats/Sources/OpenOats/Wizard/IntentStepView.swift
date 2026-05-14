@@ -122,6 +122,7 @@ struct IntentStepView: View {
                         .font(.system(size: 16))
                 }
             }
+            .contentShape(Rectangle())
             .padding(14)
             .background(
                 RoundedRectangle(cornerRadius: 10)
