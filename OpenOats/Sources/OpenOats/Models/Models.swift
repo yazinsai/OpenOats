@@ -340,6 +340,36 @@ struct GeneratedNotes: Codable, Sendable {
     let template: TemplateSnapshot
     let generatedAt: Date
     let markdown: String
+
+    static func normalizedMarkdown(_ markdown: String, title: String?, date: Date) -> String {
+        let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return notesHeading(title: title, date: date)
+        }
+
+        let firstLine = trimmed
+            .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if firstLine.hasPrefix("# ") {
+            return trimmed
+        }
+
+        return notesHeading(title: title, date: date) + trimmed
+    }
+
+    static func notesHeading(title: String?, date: Date) -> String {
+        let displayTitle: String
+        if let title, !title.isEmpty {
+            displayTitle = title
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            displayTitle = formatter.string(from: date)
+        }
+        return "# Meeting Notes: \(displayTitle)\n\n"
+    }
 }
 
 struct NoteAttachment: Codable, Sendable, Equatable, Identifiable {

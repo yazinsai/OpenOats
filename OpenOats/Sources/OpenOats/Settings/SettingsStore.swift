@@ -1382,15 +1382,41 @@ final class SettingsStore {
         transcriptionModel.displayName
     }
 
+    /// The model ID to use for notes generation, respecting the active LLM provider.
+    var activeNotesModel: String {
+        switch llmProvider {
+        case .openRouter:
+            selectedModel
+        case .ollama:
+            ollamaLLMModel
+        case .mlx:
+            mlxModel
+        case .openAICompatible:
+            openAILLMModel
+        }
+    }
+
+    /// Returns true when notes generation has enough provider-specific configuration
+    /// to run automatically after a meeting ends without a guaranteed setup failure.
+    var canAutoGeneratePostMeetingNotes: Bool {
+        let model = activeNotesModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else { return false }
+
+        switch llmProvider {
+        case .openRouter:
+            return !openRouterApiKey.isEmpty
+        case .ollama:
+            return OpenRouterClient.chatCompletionsURL(from: ollamaBaseURL) != nil
+        case .mlx:
+            return OpenRouterClient.chatCompletionsURL(from: mlxBaseURL) != nil
+        case .openAICompatible:
+            return OpenRouterClient.chatCompletionsURL(from: openAILLMBaseURL) != nil
+        }
+    }
+
     /// The model name to display in the UI, respecting the active LLM provider.
     var activeModelDisplay: String {
-        let raw: String
-        switch llmProvider {
-        case .openRouter: raw = selectedModel
-        case .ollama: raw = ollamaLLMModel
-        case .mlx: raw = mlxModel
-        case .openAICompatible: raw = openAILLMModel
-        }
+        let raw = activeNotesModel
         return raw.split(separator: "/").last.map(String.init) ?? raw
     }
 

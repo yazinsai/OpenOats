@@ -5,6 +5,17 @@ import Observation
 @Observable
 @MainActor
 final class NotesEngine {
+    enum GenerationError: LocalizedError {
+        case failed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .failed(let message):
+                return message
+            }
+        }
+    }
+
     enum Mode {
         case live
         case scripted(markdown: String)
@@ -35,6 +46,25 @@ final class NotesEngine {
 
     init(mode: Mode = .live) {
         self.mode = mode
+    }
+
+    func generateMarkdownDetached(
+        transcript: [SessionRecord],
+        template: MeetingTemplate,
+        settings: AppSettings,
+        calendarEvent: CalendarEvent? = nil,
+        scratchpad: String? = nil,
+        customGuidance: String? = nil
+    ) async throws -> String {
+        let detachedEngine = NotesEngine(mode: mode)
+        return try await detachedEngine.awaitGeneratedMarkdown(
+            transcript: transcript,
+            template: template,
+            settings: settings,
+            calendarEvent: calendarEvent,
+            scratchpad: scratchpad,
+            customGuidance: customGuidance
+        )
     }
 
     /// Starts streaming note generation from the LLM, updating `generatedMarkdown` in real time.
@@ -172,6 +202,36 @@ final class NotesEngine {
         currentTask?.cancel()
         currentTask = nil
         isGenerating = false
+    }
+
+    private func awaitGeneratedMarkdown(
+        transcript: [SessionRecord],
+        template: MeetingTemplate,
+        settings: AppSettings,
+        calendarEvent: CalendarEvent? = nil,
+        scratchpad: String? = nil,
+        customGuidance: String? = nil
+    ) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            generate(
+                transcript: transcript,
+                template: template,
+                settings: settings,
+                calendarEvent: calendarEvent,
+                scratchpad: scratchpad,
+                customGuidance: customGuidance
+            ) { [weak self] in
+                guard let self else {
+                    continuation.resume(throwing: GenerationError.failed("Notes generation ended unexpectedly"))
+                    return
+                }
+                if let error = self.error {
+                    continuation.resume(throwing: GenerationError.failed(error))
+                } else {
+                    continuation.resume(returning: self.generatedMarkdown)
+                }
+            }
+        }
     }
 
     nonisolated static func buildUserContent(

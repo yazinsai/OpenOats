@@ -241,6 +241,25 @@ final class NotesController {
         }
     }
 
+    func handleSessionHistoryChanged() async {
+        let selectedSessionID = state.selectedSessionID
+        let selectedSessionHasLoadedNotes = state.loadedNotes != nil
+
+        await loadHistory()
+
+        guard let selectedSessionID else { return }
+        guard let session = state.sessionHistory.first(where: { $0.id == selectedSessionID }) else {
+            if state.selectedSessionID == selectedSessionID {
+                selectSession(nil)
+            }
+            return
+        }
+
+        if session.hasNotes != selectedSessionHasLoadedNotes {
+            selectSession(selectedSessionID)
+        }
+    }
+
     /// React to a deep-link session selection request.
     /// Returns true if a request was consumed (caller may want to switch to notes tab).
     func handleRequestedSessionSelection() -> Bool {
@@ -570,7 +589,7 @@ final class NotesController {
         if !coordinator.notesEngine.generatedMarkdown.isEmpty {
             let generatedMarkdown = coordinator.notesEngine.generatedMarkdown
             let session = state.sessionHistory.first { $0.id == sessionID }
-            let markdown = Self.normalizedNotesMarkdown(
+            let markdown = GeneratedNotes.normalizedMarkdown(
                 generatedMarkdown,
                 title: session?.title,
                 date: session?.startedAt ?? Date()
@@ -1290,37 +1309,6 @@ final class NotesController {
         if let selection = state.selectedMeetingFamily {
             presentMeetingHistory(for: selection)
         }
-    }
-
-    static func normalizedNotesMarkdown(_ markdown: String, title: String?, date: Date) -> String {
-        let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return notesHeading(title: title, date: date)
-        }
-
-        let firstLine = trimmed
-            .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
-            .first?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if firstLine.hasPrefix("# ") {
-            return trimmed
-        }
-
-        return notesHeading(title: title, date: date) + trimmed
-    }
-
-    /// Builds a markdown heading for generated notes when the model does not provide one.
-    static func notesHeading(title: String?, date: Date) -> String {
-        let displayTitle: String
-        if let title, !title.isEmpty {
-            displayTitle = title
-        } else {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .short
-            displayTitle = formatter.string(from: date)
-        }
-        return "# Meeting Notes: \(displayTitle)\n\n"
     }
 
     private func matchingMeetingHistorySessions(for selection: MeetingFamilySelection) -> [SessionIndex] {

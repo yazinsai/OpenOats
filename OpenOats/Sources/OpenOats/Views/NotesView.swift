@@ -104,8 +104,8 @@ struct NotesView: View {
         .onChange(of: coordinator.lastEndedSession?.id) {
             Task { await controller.handleLastEndedSessionChanged() }
         }
-        .onChange(of: coordinator.sessionHistory.count) {
-            Task { await controller.loadHistory() }
+        .onChange(of: coordinator.sessionHistory) {
+            Task { await controller.handleSessionHistoryChanged() }
         }
         .onChange(of: coordinator.batchStatus) { _, newStatus in
             if case .completed = newStatus {

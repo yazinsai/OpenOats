@@ -52,8 +52,8 @@ struct HomeTimelineWorkspaceView: View {
         .onChange(of: settings.calendarIntegrationEnabled) {
             refreshTick &+= 1
         }
-        .onChange(of: coordinator.sessionHistory.count) {
-            Task { await notesController?.loadHistory() }
+        .onChange(of: coordinator.sessionHistory) {
+            Task { await notesController?.handleSessionHistoryChanged() }
         }
         .onChange(of: coordinator.batchStatus) { _, newStatus in
             if case .completed = newStatus {
