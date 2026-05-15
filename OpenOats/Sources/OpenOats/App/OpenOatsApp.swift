@@ -20,6 +20,7 @@ public struct OpenOatsRootApp: App {
     @State private var settings: AppSettings
     @State private var coordinator: AppCoordinator
     @State private var container: AppContainer
+    @State private var whatsNewController: WhatsNewController
     private let updaterController: AppUpdaterController
     private let defaults: UserDefaults
 
@@ -28,6 +29,7 @@ public struct OpenOatsRootApp: App {
         self._settings = State(initialValue: context.settings)
         self._coordinator = State(initialValue: context.coordinator)
         self._container = State(initialValue: context.container)
+        self._whatsNewController = State(initialValue: WhatsNewController(defaults: context.container.defaults))
         self.updaterController = context.updaterController
         self.defaults = context.container.defaults
         AppLaunchBootstrap.context = .init(
@@ -57,6 +59,9 @@ public struct OpenOatsRootApp: App {
                     DiagnosticsSupport.record(category: "app", message: "Main window appeared")
                     settings.applyScreenShareVisibility()
                 }
+                .task {
+                    await whatsNewController.presentPostUpdateReleaseNotesIfNeeded()
+                }
                 .onOpenURL { url in
                     guard let command = OpenOatsDeepLink.parse(url) else { return }
                     // Restore visibility when app is in background mode (LSUIElement)
@@ -70,6 +75,20 @@ public struct OpenOatsRootApp: App {
                         openNotesWindow()
                     default:
                         coordinator.queueExternalCommand(command)
+                    }
+                }
+                .sheet(
+                    item: Binding(
+                        get: { whatsNewController.presentedRelease },
+                        set: { release in
+                            if release == nil {
+                                whatsNewController.markPresentedReleaseSeen()
+                            }
+                        }
+                    )
+                ) { release in
+                    WhatsNewView(release: release) {
+                        whatsNewController.markPresentedReleaseSeen()
                     }
                 }
         }
