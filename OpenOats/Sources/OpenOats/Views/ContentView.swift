@@ -12,6 +12,7 @@ struct ContentView: View {
     @Environment(AppContainer.self) private var container
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     @State private var overlayManager = OverlayManager()
     @State private var miniBarManager = MiniBarManager()
     @State private var liveSessionController: LiveSessionController?
@@ -407,7 +408,7 @@ struct ContentView: View {
 
     private func openSettingsWindow() {
         NSApp.activate()
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        openSettings()
     }
 
     private func openMicrophonePrivacySettings() {
