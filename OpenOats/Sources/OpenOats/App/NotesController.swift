@@ -913,6 +913,7 @@ final class NotesController {
                 state.loadedTranscript = []
                 state.loadedCalendarEvent = nil
             }
+            await coordinator.loadHistory()
             await loadHistory()
         }
     }
@@ -928,6 +929,7 @@ final class NotesController {
                 state.loadedTranscript = []
                 state.loadedCalendarEvent = nil
             }
+            await coordinator.loadHistory()
             await loadHistory()
         }
     }

@@ -720,6 +720,39 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertNil(controller.state.loadedNotes)
     }
 
+    func testDeleteSessionRefreshesSharedCoordinatorHistory() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_delete_shared_history"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID)
+        await controller.loadHistory()
+        XCTAssertTrue(coordinator.sessionHistory.contains { $0.id == sessionID })
+
+        controller.deleteSession(sessionID: sessionID)
+        try? await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertFalse(coordinator.sessionHistory.contains { $0.id == sessionID })
+        XCTAssertFalse(controller.state.sessionHistory.contains { $0.id == sessionID })
+    }
+
+    func testDeleteSessionsRefreshesSharedCoordinatorHistory() async {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+
+        await seedSession(coordinator: coordinator, sessionID: "session_delete_bulk_one")
+        await seedSession(coordinator: coordinator, sessionID: "session_delete_bulk_two")
+        await controller.loadHistory()
+        XCTAssertTrue(coordinator.sessionHistory.contains { $0.id == "session_delete_bulk_one" })
+        XCTAssertTrue(coordinator.sessionHistory.contains { $0.id == "session_delete_bulk_two" })
+
+        controller.deleteSessions(sessionIDs: ["session_delete_bulk_one", "session_delete_bulk_two"])
+        try? await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertFalse(coordinator.sessionHistory.contains { $0.id == "session_delete_bulk_one" })
+        XCTAssertFalse(coordinator.sessionHistory.contains { $0.id == "session_delete_bulk_two" })
+    }
+
     func testOpenNotesSelectsCorrectSession() async {
         let (root, _) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)
@@ -1351,6 +1384,37 @@ final class NotesControllerTests: XCTestCase {
         )
 
         XCTAssertEqual(markdown, "# Test Notes\n\n## Summary\nHello")
+    }
+
+    func testNormalizedNotesMarkdownStripsWholeMarkdownFence() {
+        let markdown = GeneratedNotes.normalizedMarkdown(
+            """
+            ```markdown
+            ## Summary
+            Hello
+            ```
+            """,
+            title: "Standup",
+            date: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        XCTAssertEqual(markdown, "# Meeting Notes: Standup\n\n## Summary\nHello")
+    }
+
+    func testNormalizedNotesMarkdownPreservesPartialCodeFence() {
+        let markdown = GeneratedNotes.normalizedMarkdown(
+            """
+            ## Summary
+
+            ```swift
+            let example = true
+            ```
+            """,
+            title: "Standup",
+            date: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        XCTAssertTrue(markdown.contains("```swift"))
     }
 
     func testOriginalTranscriptToggle() async {
