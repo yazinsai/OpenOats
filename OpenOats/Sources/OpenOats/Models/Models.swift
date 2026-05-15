@@ -342,7 +342,7 @@ struct GeneratedNotes: Codable, Sendable {
     let markdown: String
 
     static func normalizedMarkdown(_ markdown: String, title: String?, date: Date) -> String {
-        let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = strippingWholeResponseMarkdownFence(from: markdown)
         guard !trimmed.isEmpty else {
             return notesHeading(title: title, date: date)
         }
@@ -356,6 +356,25 @@ struct GeneratedNotes: Codable, Sendable {
         }
 
         return notesHeading(title: title, date: date) + trimmed
+    }
+
+    static func strippingWholeResponseMarkdownFence(from markdown: String) -> String {
+        let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("```") else { return trimmed }
+
+        let lines = trimmed.components(separatedBy: .newlines)
+        guard lines.count >= 2 else { return trimmed }
+
+        let openingFence = lines[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard openingFence == "```" || openingFence.lowercased() == "```markdown" else {
+            return trimmed
+        }
+
+        let closingFence = lines[lines.count - 1].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard closingFence == "```" else { return trimmed }
+
+        let inner = lines.dropFirst().dropLast().joined(separator: "\n")
+        return inner.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func notesHeading(title: String?, date: Date) -> String {
