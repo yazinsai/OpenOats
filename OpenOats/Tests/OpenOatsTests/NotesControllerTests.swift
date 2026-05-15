@@ -838,6 +838,69 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertFalse(markdown.contains("# Meeting Notes: Q4 Planning\n\n# Test Notes"))
     }
 
+    func testShowMeetingHistoryUsesGlobalDefaultTemplateFallback() {
+        let (root, notes) = makeTempDirs()
+        let settings = makeSettings(notesDirectory: notes)
+        let (controller, coordinator) = makeController(root: root, settings: settings)
+
+        let customTemplate = MeetingTemplate(
+            id: UUID(),
+            name: "Board Update",
+            icon: "briefcase",
+            systemPrompt: "Summarize in board format.",
+            isBuiltIn: false
+        )
+        coordinator.templateStore.add(customTemplate)
+        settings.defaultNotesTemplateID = customTemplate.id
+
+        let event = CalendarEvent(
+            id: "evt_global_default",
+            title: "Product Review",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+
+        controller.showMeetingHistory(for: event)
+
+        XCTAssertEqual(controller.state.selectedTemplate?.id, customTemplate.id)
+    }
+
+    func testShowMeetingHistoryPrefersMeetingFamilyTemplateOverGlobalDefault() {
+        let (root, notes) = makeTempDirs()
+        let settings = makeSettings(notesDirectory: notes)
+        let (controller, coordinator) = makeController(root: root, settings: settings)
+
+        let customTemplate = MeetingTemplate(
+            id: UUID(),
+            name: "Board Update",
+            icon: "briefcase",
+            systemPrompt: "Summarize in board format.",
+            isBuiltIn: false
+        )
+        coordinator.templateStore.add(customTemplate)
+        settings.defaultNotesTemplateID = customTemplate.id
+
+        let event = CalendarEvent(
+            id: "evt_meeting_family_default",
+            title: "Daily Standup",
+            startDate: Date(timeIntervalSince1970: 1_700_000_000),
+            endDate: Date(timeIntervalSince1970: 1_700_000_900),
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+        settings.setMeetingFamilyTemplatePreference(TemplateStore.standUpID, for: event)
+
+        controller.showMeetingHistory(for: event)
+
+        XCTAssertEqual(controller.state.selectedTemplate?.id, TemplateStore.standUpID)
+    }
+
     func testShowMeetingHistoryLoadsMatchingSessionsAndNotePreviews() async {
         let (root, _) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)

@@ -362,7 +362,7 @@ final class NotesController {
             let session = state.sessionHistory.first { $0.id == sessionID }
             let familySelection = session.map { Self.meetingFamilySelection(for: $0, calendarEvent: data.calendarEvent) }
             state.selectedTemplate = selectedTemplate(
-                forSessionTemplateID: session?.templateSnapshot?.id,
+                sessionTemplateSnapshot: session?.templateSnapshot,
                 meetingFamilySelection: familySelection
             )
 
@@ -409,7 +409,7 @@ final class NotesController {
         state.showingOriginal = false
         state.customNotesGuidance = ""
         state.selectedTemplate = selectedTemplate(
-            forSessionTemplateID: nil,
+            sessionTemplateSnapshot: nil,
             meetingFamilySelection: selection
         )
         coordinator.batchTextCleaner.cancel()
@@ -1212,36 +1212,16 @@ final class NotesController {
     // MARK: - Private
 
     private func selectedTemplate(
-        forSessionTemplateID sessionTemplateID: UUID?,
+        sessionTemplateSnapshot: TemplateSnapshot?,
         meetingFamilySelection: MeetingFamilySelection?
     ) -> MeetingTemplate? {
-        if let sessionTemplateID,
-           sessionTemplateID != TemplateStore.genericID,
-           let template = coordinator.templateStore.template(for: sessionTemplateID) {
-            return template
-        }
-
-        let preferredID: UUID?
-        if let upcomingEvent = meetingFamilySelection?.upcomingEvent {
-            preferredID = settings?.meetingFamilyPreferences(for: upcomingEvent)?.templateID
-        } else if let meetingFamilyKey = meetingFamilySelection?.key {
-            preferredID = settings?.meetingFamilyPreferences(forHistoryKey: meetingFamilyKey)?.templateID
-        } else {
-            preferredID = nil
-        }
-
-        if let preferredID,
-           let template = coordinator.templateStore.template(for: preferredID) {
-            return template
-        }
-
-        if let sessionTemplateID,
-           let template = coordinator.templateStore.template(for: sessionTemplateID) {
-            return template
-        }
-
-        return coordinator.templateStore.template(for: TemplateStore.genericID)
-            ?? TemplateStore.builtInTemplates.first
+        NotesTemplateResolver.resolve(
+            templateStore: coordinator.templateStore,
+            settings: settings,
+            sessionTemplateSnapshot: sessionTemplateSnapshot,
+            meetingFamilyEvent: meetingFamilySelection?.upcomingEvent,
+            meetingFamilyKey: meetingFamilySelection?.key
+        )
     }
 
     private func persistCurrentManualNotesDraftIfNeeded() {

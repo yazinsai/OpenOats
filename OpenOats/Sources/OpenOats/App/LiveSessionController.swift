@@ -1043,7 +1043,11 @@ final class LiveSessionController {
         guard !sessionData.transcript.isEmpty else { return }
         let customGuidance = await coordinator.sessionRepository.loadCustomNotesGuidance(sessionID: sessionID)
 
-        let template = resolvedNotesTemplate(for: session)
+        let template = resolvedNotesTemplate(
+            for: session,
+            calendarEvent: sessionData.calendarEvent,
+            settings: settings
+        )
         let scratchpad = await coordinator.sessionRepository.loadScratchpad(sessionID: sessionID)
 
         do {
@@ -1086,20 +1090,18 @@ final class LiveSessionController {
         }
     }
 
-    private func resolvedNotesTemplate(for session: SessionIndex) -> MeetingTemplate {
-        if let snapshot = session.templateSnapshot {
-            return coordinator.templateStore.template(for: snapshot.id)
-                ?? MeetingTemplate(
-                    id: snapshot.id,
-                    name: snapshot.name,
-                    icon: snapshot.icon,
-                    systemPrompt: snapshot.systemPrompt,
-                    isBuiltIn: false
-                )
-        }
-
-        return coordinator.templateStore.template(for: TemplateStore.genericID)
-            ?? TemplateStore.builtInTemplates.first!
+    private func resolvedNotesTemplate(
+        for session: SessionIndex,
+        calendarEvent: CalendarEvent?,
+        settings: AppSettings
+    ) -> MeetingTemplate {
+        NotesTemplateResolver.resolve(
+            templateStore: coordinator.templateStore,
+            settings: settings,
+            sessionTemplateSnapshot: session.templateSnapshot,
+            meetingFamilyEvent: calendarEvent,
+            meetingFamilyKey: session.meetingFamilyKey
+        ) ?? TemplateStore.builtInTemplates.first!
     }
 
     static func audioRetentionPlan(settings: AppSettings, utteranceCount: Int?) -> AudioRetentionPlan {

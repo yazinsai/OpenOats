@@ -751,6 +751,141 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertTrue(coordinator.lastEndedSession?.hasNotes == true)
     }
 
+    func testFinalizeCurrentSessionAutoGeneratesNotesUsingGlobalDefaultTemplateFallback() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        settings.llmProvider = .ollama
+        settings.ollamaBaseURL = "http://localhost:11434"
+        settings.ollamaLLMModel = "qwen3:8b"
+        settings.enableBatchRetranscription = false
+
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: [Utterance(text: "Follow up on merchant fees", speaker: .you)]
+        )
+
+        let customTemplate = MeetingTemplate(
+            id: UUID(),
+            name: "Board Update",
+            icon: "briefcase",
+            systemPrompt: "Summarize in board format.",
+            isBuiltIn: false
+        )
+        coordinator.templateStore.add(customTemplate)
+        settings.defaultNotesTemplateID = customTemplate.id
+
+        controller.startSession(settings: settings)
+
+        var sessionID: String?
+        for _ in 0..<20 {
+            sessionID = await coordinator.sessionRepository.getCurrentSessionID()
+            if sessionID != nil { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        guard let sessionID else {
+            return XCTFail("Expected session ID after starting session")
+        }
+
+        let recordedUtterance = Utterance(
+            text: "Follow up on merchant fees",
+            speaker: .you,
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        await coordinator.sessionRepository.appendLiveUtterance(
+            sessionID: sessionID,
+            utterance: recordedUtterance
+        )
+
+        controller.stopSession(settings: settings)
+        await controller.finalizeCurrentSession(settings: settings)
+
+        var savedNotes: GeneratedNotes?
+        for _ in 0..<20 {
+            savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
+            if savedNotes != nil { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        XCTAssertEqual(savedNotes?.template.id, customTemplate.id)
+    }
+
+    func testFinalizeCurrentSessionAutoGeneratesNotesPreferringMeetingFamilyTemplate() async {
+        let dirs = makeTempDirs()
+        let settings = makeSettings(notesDirectory: dirs.notes)
+        settings.llmProvider = .ollama
+        settings.ollamaBaseURL = "http://localhost:11434"
+        settings.ollamaLLMModel = "qwen3:8b"
+        settings.enableBatchRetranscription = false
+
+        let (controller, coordinator) = makeController(
+            root: dirs.root,
+            notesDirectory: dirs.notes,
+            settings: settings,
+            scripted: [Utterance(text: "Follow up on merchant fees", speaker: .you)]
+        )
+
+        let customTemplate = MeetingTemplate(
+            id: UUID(),
+            name: "Board Update",
+            icon: "briefcase",
+            systemPrompt: "Summarize in board format.",
+            isBuiltIn: false
+        )
+        coordinator.templateStore.add(customTemplate)
+        settings.defaultNotesTemplateID = customTemplate.id
+
+        let event = CalendarEvent(
+            id: "evt_meeting_family_auto_notes",
+            title: "Daily Standup",
+            startDate: Date(),
+            endDate: Date().addingTimeInterval(900),
+            externalIdentifier: "series-standup",
+            organizer: nil,
+            participants: [],
+            isOnlineMeeting: false,
+            meetingURL: nil
+        )
+        settings.setMeetingFamilyTemplatePreference(TemplateStore.standUpID, for: event)
+
+        controller.startSession(settings: settings, calendarEventOverride: event)
+
+        var sessionID: String?
+        for _ in 0..<20 {
+            sessionID = await coordinator.sessionRepository.getCurrentSessionID()
+            if sessionID != nil { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        guard let sessionID else {
+            return XCTFail("Expected session ID after starting session")
+        }
+
+        let recordedUtterance = Utterance(
+            text: "Follow up on merchant fees",
+            speaker: .you,
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        await coordinator.sessionRepository.appendLiveUtterance(
+            sessionID: sessionID,
+            utterance: recordedUtterance
+        )
+
+        controller.stopSession(settings: settings)
+        await controller.finalizeCurrentSession(settings: settings)
+
+        var savedNotes: GeneratedNotes?
+        for _ in 0..<20 {
+            savedNotes = await coordinator.sessionRepository.loadNotes(sessionID: sessionID)
+            if savedNotes != nil { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        XCTAssertEqual(savedNotes?.template.id, TemplateStore.standUpID)
+    }
+
     func testFinalizeCurrentSessionSkipsAutoNotesWhenProviderIsNotConfigured() async {
         let dirs = makeTempDirs()
         let settings = makeSettings(notesDirectory: dirs.notes)
