@@ -178,7 +178,8 @@ final class SuggestionEngine {
                 model: activePrimaryModel,
                 messages: statePrompt,
                 maxTokens: 512,
-                baseURL: llmBaseURL(forRealtime: false)
+                baseURL: llmBaseURL(forRealtime: false),
+                transport: settings.activeLLMTransport
             )
 
             let jsonString = extractJSON(from: response)
@@ -222,6 +223,10 @@ final class SuggestionEngine {
         switch settings.llmProvider {
         case .openRouter:
             guard !settings.openRouterApiKey.isEmpty else { return }
+        case .openAI:
+            guard !settings.openAIApiKey.isEmpty, llmBaseURL(forRealtime: true) != nil else { return }
+        case .anthropic:
+            guard !settings.anthropicApiKey.isEmpty, llmBaseURL(forRealtime: true) != nil else { return }
         case .ollama, .mlx, .openAICompatible:
             guard llmBaseURL(forRealtime: true) != nil else { return }
         }
@@ -386,7 +391,8 @@ final class SuggestionEngine {
                 model: settings.activeRealtimeModel,
                 messages: messages,
                 maxTokens: 200,
-                baseURL: llmBaseURL(forRealtime: true)
+                baseURL: llmBaseURL(forRealtime: true),
+                transport: settings.activeLLMTransport
             )
 
             var accumulated = ""
@@ -496,6 +502,8 @@ final class SuggestionEngine {
     private var activePrimaryModel: String {
         switch settings.llmProvider {
         case .openRouter: settings.selectedModel
+        case .openAI: settings.openAIModel
+        case .anthropic: settings.anthropicModel
         case .ollama: settings.ollamaLLMModel
         case .mlx: settings.mlxModel
         case .openAICompatible: settings.openAILLMModel
@@ -505,6 +513,10 @@ final class SuggestionEngine {
     private var llmApiKey: String? {
         switch settings.llmProvider {
         case .openRouter: settings.openRouterApiKey
+        case .openAI:
+            settings.openAIApiKey.isEmpty ? nil : settings.openAIApiKey
+        case .anthropic:
+            settings.anthropicApiKey.isEmpty ? nil : settings.anthropicApiKey
         case .ollama: nil
         case .mlx: nil
         case .openAICompatible:
@@ -515,6 +527,10 @@ final class SuggestionEngine {
     private func llmBaseURL(forRealtime: Bool) -> URL? {
         switch settings.llmProvider {
         case .openRouter: return nil
+        case .openAI:
+            return OpenRouterClient.chatCompletionsURL(from: settings.openAIBaseURL)
+        case .anthropic:
+            return OpenRouterClient.anthropicMessagesURL(from: settings.anthropicBaseURL)
         case .ollama:
             return OpenRouterClient.chatCompletionsURL(from: settings.ollamaBaseURL)
         case .mlx:

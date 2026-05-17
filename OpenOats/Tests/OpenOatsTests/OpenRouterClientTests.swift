@@ -37,4 +37,23 @@ final class OpenRouterClientTests: XCTestCase {
 
         XCTAssertNil(error)
     }
+
+    func testAnthropicMessagesURLNormalizesBaseURL() {
+        XCTAssertEqual(
+            OpenRouterClient.anthropicMessagesURL(from: "https://api.anthropic.com")?.absoluteString,
+            "https://api.anthropic.com/v1/messages"
+        )
+        XCTAssertEqual(
+            OpenRouterClient.anthropicMessagesURL(from: "https://api.anthropic.com/v1")?.absoluteString,
+            "https://api.anthropic.com/v1/messages"
+        )
+        XCTAssertEqual(
+            OpenRouterClient.anthropicMessagesURL(from: "https://proxy.example.com/anthropic/v1/messages")?.absoluteString,
+            "https://proxy.example.com/anthropic/v1/messages"
+        )
+    }
+
+    func testAnthropicMessagesURLRejectsInvalidBaseURL() {
+        XCTAssertNil(OpenRouterClient.anthropicMessagesURL(from: "not a url"))
+    }
 }

@@ -1309,12 +1309,7 @@ final class LiveSessionController {
             coordinator.sessionHistory.first { $0.id == lastSession.id }?.hasNotes
         } ?? false
 
-        let activeModelRaw = switch settings.llmProvider {
-        case .openRouter: settings.selectedModel
-        case .ollama: settings.ollamaLLMModel
-        case .mlx: settings.mlxModel
-        case .openAICompatible: settings.openAILLMModel
-        }
+        let activeModelRaw = settings.activeNotesModel
 
         let sidebarSuggestions: [Suggestion]
         let sidebarGenerating: Bool

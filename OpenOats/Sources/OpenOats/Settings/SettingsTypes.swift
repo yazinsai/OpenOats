@@ -294,6 +294,8 @@ enum PersonaAvatarTint: String, CaseIterable, Identifiable, Codable {
 
 enum LLMProvider: String, CaseIterable, Identifiable {
     case openRouter
+    case openAI
+    case anthropic
     case ollama
     case mlx
     case openAICompatible
@@ -303,6 +305,8 @@ enum LLMProvider: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .openRouter: "OpenRouter"
+        case .openAI: "OpenAI"
+        case .anthropic: "Anthropic"
         case .ollama: "Ollama"
         case .mlx: "MLX"
         case .openAICompatible: "OpenAI Compatible"
