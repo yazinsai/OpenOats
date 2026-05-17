@@ -46,7 +46,7 @@ struct SettingsView: View {
                 .tabItem { Label("Sidecast", systemImage: "person.3.sequence") }
                 .tag(SettingsTab.sidecast)
 
-            TemplatesSettingsTab()
+            TemplatesSettingsTab(settings: settings)
                 .tabItem { Label("Templates", systemImage: "doc.text") }
                 .tag(SettingsTab.templates)
 
@@ -863,6 +863,7 @@ private struct TemplatesSettingsTab: View {
         case name
     }
 
+    @Bindable var settings: AppSettings
     @Environment(AppCoordinator.self) private var coordinator
     @State private var templates: [MeetingTemplate] = []
     @State private var isAddingTemplate = false
@@ -876,6 +877,27 @@ private struct TemplatesSettingsTab: View {
         ScrollView {
             Form {
                 Section("Meeting Templates") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Default template")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Picker("Default template", selection: defaultTemplateSelection) {
+                            Text("Generic").tag(Optional<UUID>.none)
+                            ForEach(templatesForPicker) { template in
+                                Text(template.name).tag(Optional(template.id))
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 260, alignment: .leading)
+
+                        Text("Used when a session has no explicit template and the meeting family does not have its own default.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, 2)
+
                     ForEach(templates) { template in
                         HStack {
                             Image(systemName: template.icon)
@@ -894,6 +916,7 @@ private struct TemplatesSettingsTab: View {
                                 .font(.system(size: 11))
                                 .buttonStyle(.plain)
                                 .foregroundStyle(.blue)
+                                .disabled(!isBuiltInTemplateModified(template))
                             } else {
                                 Button {
                                     beginEditing(template)
@@ -914,6 +937,11 @@ private struct TemplatesSettingsTab: View {
                             }
                         }
                     }
+
+                    Text("Built-in templates are shipped defaults. Reset only applies if a built-in template was changed outside this view.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     if isAddingTemplate || editingTemplateID != nil {
                         VStack(alignment: .leading, spacing: 10) {
@@ -1013,7 +1041,7 @@ private struct TemplatesSettingsTab: View {
         }
         .onAppear {
             Task { @MainActor in
-                templates = coordinator.templateStore.templates
+                refreshTemplates()
             }
         }
     }
@@ -1030,24 +1058,44 @@ private struct TemplatesSettingsTab: View {
         !trimmedTemplateName.isEmpty && !trimmedTemplatePrompt.isEmpty
     }
 
+    private var defaultTemplateSelection: Binding<UUID?> {
+        Binding(
+            get: {
+                guard let templateID = settings.defaultNotesTemplateID,
+                      coordinator.templateStore.template(for: templateID) != nil else {
+                    return nil
+                }
+                return templateID
+            },
+            set: { settings.defaultNotesTemplateID = $0 }
+        )
+    }
+
+    private var templatesForPicker: [MeetingTemplate] {
+        templates.filter { $0.id != TemplateStore.genericID }
+    }
+
     private func addTemplate(_ template: MeetingTemplate) {
         Task { @MainActor in
             coordinator.templateStore.add(template)
-            templates = coordinator.templateStore.templates
+            refreshTemplates()
         }
     }
 
     private func resetTemplate(id: UUID) {
         Task { @MainActor in
             coordinator.templateStore.resetBuiltIn(id: id)
-            templates = coordinator.templateStore.templates
+            refreshTemplates()
         }
     }
 
     private func deleteTemplate(id: UUID) {
         Task { @MainActor in
             coordinator.templateStore.delete(id: id)
-            templates = coordinator.templateStore.templates
+            if settings.defaultNotesTemplateID == id {
+                settings.defaultNotesTemplateID = nil
+            }
+            refreshTemplates()
         }
     }
 
@@ -1065,7 +1113,22 @@ private struct TemplatesSettingsTab: View {
     private func updateTemplate(_ template: MeetingTemplate) {
         Task { @MainActor in
             coordinator.templateStore.update(template)
-            templates = coordinator.templateStore.templates
+            refreshTemplates()
+        }
+    }
+
+    private func isBuiltInTemplateModified(_ template: MeetingTemplate) -> Bool {
+        guard let builtIn = TemplateStore.builtInTemplates.first(where: { $0.id == template.id }) else {
+            return false
+        }
+        return template != builtIn
+    }
+
+    private func refreshTemplates() {
+        templates = coordinator.templateStore.templates
+        if let templateID = settings.defaultNotesTemplateID,
+           coordinator.templateStore.template(for: templateID) == nil {
+            settings.defaultNotesTemplateID = nil
         }
     }
 

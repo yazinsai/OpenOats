@@ -71,6 +71,26 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.selectedModel, "anthropic/claude-4-sonnet")
     }
 
+    func testDefaultNotesTemplateIDRoundTripAndNormalizesGenericToNil() {
+        let suiteName = "com.openoats.test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = makeStore(defaults: defaults)
+        let customTemplateID = UUID()
+        store.defaultNotesTemplateID = customTemplateID
+        XCTAssertEqual(store.defaultNotesTemplateID, customTemplateID)
+
+        let reopened = makeStore(defaults: defaults)
+        XCTAssertEqual(reopened.defaultNotesTemplateID, customTemplateID)
+
+        reopened.defaultNotesTemplateID = TemplateStore.genericID
+        XCTAssertNil(reopened.defaultNotesTemplateID)
+
+        let reopenedAgain = makeStore(defaults: defaults)
+        XCTAssertNil(reopenedAgain.defaultNotesTemplateID)
+    }
+
     func testNativeOpenAISettingsRoundTripAndRequireAPIKeyForAutoNotes() {
         let store = makeStore()
         store.llmProvider = .openAI

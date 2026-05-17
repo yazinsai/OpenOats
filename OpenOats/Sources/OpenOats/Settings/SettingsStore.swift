@@ -25,6 +25,11 @@ final class SettingsStore {
         return result
     }
 
+    private static func normalizeDefaultNotesTemplateID(_ value: UUID?) -> UUID? {
+        guard value != TemplateStore.genericID else { return nil }
+        return value
+    }
+
     private func loadSecretIfNeeded(
         key: String,
         currentValue: String,
@@ -334,6 +339,22 @@ final class SettingsStore {
             withMutation(keyPath: \.selectedModel) {
                 _selectedModel = newValue
                 defaults.set(newValue, forKey: "selectedModel")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _defaultNotesTemplateID: UUID?
+    var defaultNotesTemplateID: UUID? {
+        get { access(keyPath: \.defaultNotesTemplateID); return _defaultNotesTemplateID }
+        set {
+            withMutation(keyPath: \.defaultNotesTemplateID) {
+                let normalized = Self.normalizeDefaultNotesTemplateID(newValue)
+                _defaultNotesTemplateID = normalized
+                if let normalized {
+                    defaults.set(normalized.uuidString, forKey: "defaultNotesTemplateID")
+                } else {
+                    defaults.removeObject(forKey: "defaultNotesTemplateID")
+                }
             }
         }
     }
@@ -1286,6 +1307,9 @@ final class SettingsStore {
         self._openAIEmbedApiKey = ""
         self._openAIEmbedModel = defaults.string(forKey: "openAIEmbedModel") ?? "text-embedding-3-small"
         self._selectedModel = defaults.string(forKey: "selectedModel") ?? "google/gemini-3-flash-preview"
+        self._defaultNotesTemplateID = Self.normalizeDefaultNotesTemplateID(
+            defaults.string(forKey: "defaultNotesTemplateID").flatMap(UUID.init(uuidString:))
+        )
         self._embeddingProvider = EmbeddingProvider(rawValue: defaults.string(forKey: "embeddingProvider") ?? "") ?? .voyageAI
         self._voyageApiKey = ""
         self._suggestionVerbosity = SuggestionVerbosity(
