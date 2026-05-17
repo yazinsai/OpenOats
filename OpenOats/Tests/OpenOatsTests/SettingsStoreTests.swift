@@ -71,6 +71,36 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.selectedModel, "anthropic/claude-4-sonnet")
     }
 
+    func testNativeOpenAISettingsRoundTripAndRequireAPIKeyForAutoNotes() {
+        let store = makeStore()
+        store.llmProvider = .openAI
+        store.openAIBaseURL = "https://proxy.example.com/openai"
+        store.openAIModel = "gpt-4.1"
+
+        XCTAssertEqual(store.activeNotesModel, "gpt-4.1")
+        XCTAssertFalse(store.canAutoGeneratePostMeetingNotes)
+
+        store.openAIApiKey = "  sk-openai-test  "
+        XCTAssertEqual(store.openAIApiKey, "sk-openai-test")
+        XCTAssertTrue(store.canAutoGeneratePostMeetingNotes)
+        XCTAssertEqual(store.activeLLMTransport, .chatCompletions)
+    }
+
+    func testNativeAnthropicSettingsRoundTripAndRequireAPIKeyForAutoNotes() {
+        let store = makeStore()
+        store.llmProvider = .anthropic
+        store.anthropicBaseURL = "https://api.anthropic.com/v1"
+        store.anthropicModel = "claude-sonnet-4-5-20250929"
+
+        XCTAssertEqual(store.activeNotesModel, "claude-sonnet-4-5-20250929")
+        XCTAssertFalse(store.canAutoGeneratePostMeetingNotes)
+
+        store.anthropicApiKey = "  sk-ant-test  "
+        XCTAssertEqual(store.anthropicApiKey, "sk-ant-test")
+        XCTAssertTrue(store.canAutoGeneratePostMeetingNotes)
+        XCTAssertEqual(store.activeLLMTransport, .anthropicMessages)
+    }
+
     func testAutoPostMeetingNotesRequiresOpenRouterKey() {
         let store = makeStore()
         store.llmProvider = .openRouter

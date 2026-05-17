@@ -22,8 +22,10 @@ final class AppSettingsTests: XCTestCase {
 
     func testLLMProviderAllCases() {
         let cases = LLMProvider.allCases
-        XCTAssertEqual(cases.count, 4)
+        XCTAssertEqual(cases.count, 6)
         XCTAssertTrue(cases.contains(.openRouter))
+        XCTAssertTrue(cases.contains(.openAI))
+        XCTAssertTrue(cases.contains(.anthropic))
         XCTAssertTrue(cases.contains(.ollama))
         XCTAssertTrue(cases.contains(.openAICompatible))
         XCTAssertTrue(cases.contains(.mlx))
@@ -31,6 +33,8 @@ final class AppSettingsTests: XCTestCase {
 
     func testLLMProviderDisplayNames() {
         XCTAssertEqual(LLMProvider.openRouter.displayName, "OpenRouter")
+        XCTAssertEqual(LLMProvider.openAI.displayName, "OpenAI")
+        XCTAssertEqual(LLMProvider.anthropic.displayName, "Anthropic")
         XCTAssertEqual(LLMProvider.ollama.displayName, "Ollama")
         XCTAssertEqual(LLMProvider.openAICompatible.displayName, "OpenAI Compatible")
         XCTAssertEqual(LLMProvider.mlx.displayName, "MLX")
@@ -38,6 +42,8 @@ final class AppSettingsTests: XCTestCase {
 
     func testLLMProviderRawValues() {
         XCTAssertEqual(LLMProvider.openRouter.rawValue, "openRouter")
+        XCTAssertEqual(LLMProvider.openAI.rawValue, "openAI")
+        XCTAssertEqual(LLMProvider.anthropic.rawValue, "anthropic")
         XCTAssertEqual(LLMProvider.ollama.rawValue, "ollama")
         XCTAssertEqual(LLMProvider.openAICompatible.rawValue, "openAICompatible")
         XCTAssertEqual(LLMProvider.mlx.rawValue, "mlx")

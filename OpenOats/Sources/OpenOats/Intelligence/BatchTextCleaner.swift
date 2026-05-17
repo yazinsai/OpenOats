@@ -59,12 +59,34 @@ final class BatchTextCleaner {
         let apiKey: String?
         let baseURL: URL?
         let model: String
+        let transport: OpenRouterClient.CompletionTransport
 
         switch settings.llmProvider {
         case .openRouter:
-            apiKey = settings.openRouterApiKey.isEmpty ? nil : settings.openRouterApiKey
+            apiKey = settings.activeLLMApiKey
             baseURL = nil
             model = "openai/gpt-4o-mini"
+            transport = settings.activeLLMTransport
+        case .openAI:
+            apiKey = settings.activeLLMApiKey
+            guard let url = settings.activeLLMBaseURL else {
+                error = "Invalid OpenAI URL: \(settings.openAIBaseURL)"
+                isCleaningUp = false
+                return records
+            }
+            baseURL = url
+            model = settings.openAIModel
+            transport = settings.activeLLMTransport
+        case .anthropic:
+            apiKey = settings.activeLLMApiKey
+            guard let url = settings.activeLLMBaseURL else {
+                error = "Invalid Anthropic URL: \(settings.anthropicBaseURL)"
+                isCleaningUp = false
+                return records
+            }
+            baseURL = url
+            model = settings.anthropicModel
+            transport = settings.activeLLMTransport
         case .ollama:
             apiKey = nil
             guard let ollamaURL = OpenRouterClient.chatCompletionsURL(from: settings.ollamaBaseURL) else {
@@ -74,6 +96,7 @@ final class BatchTextCleaner {
             }
             baseURL = ollamaURL
             model = settings.ollamaLLMModel
+            transport = settings.activeLLMTransport
         case .mlx:
             apiKey = nil
             guard let mlxURL = OpenRouterClient.chatCompletionsURL(from: settings.mlxBaseURL) else {
@@ -83,8 +106,9 @@ final class BatchTextCleaner {
             }
             baseURL = mlxURL
             model = settings.mlxModel
+            transport = settings.activeLLMTransport
         case .openAICompatible:
-            apiKey = settings.openAILLMApiKey.isEmpty ? nil : settings.openAILLMApiKey
+            apiKey = settings.activeLLMApiKey
             guard let openAIURL = OpenRouterClient.chatCompletionsURL(from: settings.openAILLMBaseURL) else {
                 error = "Invalid OpenAI Compatible URL: \(settings.openAILLMBaseURL)"
                 isCleaningUp = false
@@ -92,12 +116,13 @@ final class BatchTextCleaner {
             }
             baseURL = openAIURL
             model = settings.openAILLMModel
+            transport = settings.activeLLMTransport
         }
 
         let chunks = Self.chunkRecords(records)
         totalChunks = chunks.count
 
-        let task = Task { [weak self, client, apiKey, baseURL, model] () -> [SessionRecord] in
+        let task = Task { [weak self, client, apiKey, baseURL, model, transport] () -> [SessionRecord] in
             // Process chunks concurrently (up to 3 at a time) off the main actor.
             let results: [(index: Int, records: [SessionRecord]?)] = await withTaskGroup(
                 of: (Int, [SessionRecord]?).self,
@@ -123,7 +148,8 @@ final class BatchTextCleaner {
                             client: client,
                             apiKey: apiKey,
                             model: model,
-                            baseURL: baseURL
+                            baseURL: baseURL,
+                            transport: transport
                         )
                         return (chunkIndex, cleaned)
                     }
@@ -226,7 +252,8 @@ final class BatchTextCleaner {
         client: OpenRouterClient,
         apiKey: String?,
         model: String,
-        baseURL: URL?
+        baseURL: URL?,
+        transport: OpenRouterClient.CompletionTransport
     ) async -> [SessionRecord]? {
         let lines = records.map { record in
             let label = record.speaker.displayLabel
@@ -247,7 +274,8 @@ final class BatchTextCleaner {
                 model: model,
                 messages: messages,
                 maxTokens: 4096,
-                baseURL: baseURL
+                baseURL: baseURL,
+                transport: transport
             )
 
             return parseResponse(response, originalRecords: records)

@@ -93,10 +93,17 @@ actor LiveTranscriptCleaner {
         let apiKey: String?
         let baseURL: URL?
         let model: String
+        let transport: OpenRouterClient.CompletionTransport
 
         // Read settings on MainActor
         let provider = await MainActor.run { settings.llmProvider }
         let openRouterKey = await MainActor.run { settings.openRouterApiKey }
+        let openAIKey = await MainActor.run { settings.openAIApiKey }
+        let openAIURL = await MainActor.run { settings.openAIBaseURL }
+        let openAIModel = await MainActor.run { settings.openAIModel }
+        let anthropicKey = await MainActor.run { settings.anthropicApiKey }
+        let anthropicURL = await MainActor.run { settings.anthropicBaseURL }
+        let anthropicModel = await MainActor.run { settings.anthropicModel }
         let ollamaURL = await MainActor.run { settings.ollamaBaseURL }
         let ollamaModel = await MainActor.run { settings.ollamaLLMModel }
         let mlxURL = await MainActor.run { settings.mlxBaseURL }
@@ -110,6 +117,25 @@ actor LiveTranscriptCleaner {
             apiKey = openRouterKey.isEmpty ? nil : openRouterKey
             baseURL = nil
             model = cleanupModel
+            transport = .chatCompletions
+        case .openAI:
+            apiKey = openAIKey.isEmpty ? nil : openAIKey
+            guard let url = OpenRouterClient.chatCompletionsURL(from: openAIURL) else {
+                await markFailed(utterance.id)
+                return
+            }
+            baseURL = url
+            model = openAIModel
+            transport = .chatCompletions
+        case .anthropic:
+            apiKey = anthropicKey.isEmpty ? nil : anthropicKey
+            guard let url = OpenRouterClient.anthropicMessagesURL(from: anthropicURL) else {
+                await markFailed(utterance.id)
+                return
+            }
+            baseURL = url
+            model = anthropicModel
+            transport = .anthropicMessages
         case .ollama:
             apiKey = nil
             guard let url = OpenRouterClient.chatCompletionsURL(from: ollamaURL) else {
@@ -118,6 +144,7 @@ actor LiveTranscriptCleaner {
             }
             baseURL = url
             model = ollamaModel
+            transport = .chatCompletions
         case .mlx:
             apiKey = nil
             guard let url = OpenRouterClient.chatCompletionsURL(from: mlxURL) else {
@@ -126,6 +153,7 @@ actor LiveTranscriptCleaner {
             }
             baseURL = url
             model = mlxModelName
+            transport = .chatCompletions
         case .openAICompatible:
             apiKey = openAILLMKey.isEmpty ? nil : openAILLMKey
             guard let url = OpenRouterClient.chatCompletionsURL(from: openAILLMURL) else {
@@ -134,6 +162,7 @@ actor LiveTranscriptCleaner {
             }
             baseURL = url
             model = openAILLMModelName
+            transport = .chatCompletions
         }
 
         let messages: [OpenRouterClient.Message] = [
@@ -147,7 +176,8 @@ actor LiveTranscriptCleaner {
                 model: model,
                 messages: messages,
                 maxTokens: 512,
-                baseURL: baseURL
+                baseURL: baseURL,
+                transport: transport
             )
 
             let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
