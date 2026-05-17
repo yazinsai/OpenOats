@@ -85,7 +85,8 @@ final class SidecastEngine {
                     maxTokens: self.settings.sidecastMaxTokens,
                     temperature: self.settings.sidecastTemperature,
                     baseURL: self.llmBaseURL,
-                    webSearch: useWebSearch
+                    webSearch: useWebSearch,
+                    transport: self.settings.activeLLMTransport
                 )
                 let decoded = try self.decodeResponse(response)
 
@@ -372,6 +373,10 @@ final class SidecastEngine {
         switch settings.llmProvider {
         case .openRouter:
             return !settings.openRouterApiKey.isEmpty
+        case .openAI:
+            return !settings.openAIApiKey.isEmpty && llmBaseURL != nil
+        case .anthropic:
+            return !settings.anthropicApiKey.isEmpty && llmBaseURL != nil
         case .ollama, .mlx, .openAICompatible:
             return llmBaseURL != nil
         }
@@ -380,6 +385,10 @@ final class SidecastEngine {
     private var llmApiKey: String? {
         switch settings.llmProvider {
         case .openRouter: settings.openRouterApiKey
+        case .openAI:
+            settings.openAIApiKey.isEmpty ? nil : settings.openAIApiKey
+        case .anthropic:
+            settings.anthropicApiKey.isEmpty ? nil : settings.anthropicApiKey
         case .ollama: nil
         case .mlx: nil
         case .openAICompatible:
@@ -395,6 +404,10 @@ final class SidecastEngine {
     private var llmBaseURL: URL? {
         switch settings.llmProvider {
         case .openRouter: nil
+        case .openAI:
+            OpenRouterClient.chatCompletionsURL(from: settings.openAIBaseURL)
+        case .anthropic:
+            OpenRouterClient.anthropicMessagesURL(from: settings.anthropicBaseURL)
         case .ollama:
             OpenRouterClient.chatCompletionsURL(from: settings.ollamaBaseURL)
         case .mlx:

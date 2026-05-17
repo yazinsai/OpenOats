@@ -470,9 +470,13 @@ final class WizardViewModel {
     private func clearStaleSettings(for profile: WizardProfile, in settings: SettingsStore) {
         if !profile.isCloud {
             settings.openRouterApiKey = ""
+            settings.openAIApiKey = ""
+            settings.anthropicApiKey = ""
             settings.voyageApiKey = ""
             settings.selectedModel = "google/gemini-3-flash-preview"
             settings.realtimeModel = "google/gemini-3.1-flash-lite-preview"
+            settings.openAIModel = "gpt-4.1-mini"
+            settings.anthropicModel = "claude-sonnet-4-5-20250929"
         }
 
         if !profile.isLocal {
@@ -491,6 +495,10 @@ final class WizardViewModel {
         switch settings.llmProvider {
         case .openRouter:
             hasConfiguredLLM = !settings.openRouterApiKey.isEmpty
+        case .openAI:
+            hasConfiguredLLM = !settings.openAIApiKey.isEmpty
+        case .anthropic:
+            hasConfiguredLLM = !settings.anthropicApiKey.isEmpty
         case .ollama, .mlx, .openAICompatible:
             hasConfiguredLLM = true
         }
@@ -509,7 +517,7 @@ final class WizardViewModel {
         switch settings.llmProvider {
         case .ollama:
             privacy = .local
-        case .openRouter, .mlx, .openAICompatible:
+        case .openRouter, .openAI, .anthropic, .mlx, .openAICompatible:
             privacy = .cloud
         }
     }

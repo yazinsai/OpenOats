@@ -110,12 +110,36 @@ final class NotesEngine {
         let apiKey: String?
         let baseURL: URL?
         let model: String
+        let transport: OpenRouterClient.CompletionTransport
 
         switch settings.llmProvider {
         case .openRouter:
-            apiKey = settings.openRouterApiKey.isEmpty ? nil : settings.openRouterApiKey
+            apiKey = settings.activeLLMApiKey
             baseURL = nil
             model = settings.selectedModel
+            transport = settings.activeLLMTransport
+        case .openAI:
+            apiKey = settings.activeLLMApiKey
+            guard let openAIURL = settings.activeLLMBaseURL else {
+                error = "Invalid OpenAI URL: \(settings.openAIBaseURL)"
+                isGenerating = false
+                onFinished()
+                return
+            }
+            baseURL = openAIURL
+            model = settings.openAIModel
+            transport = settings.activeLLMTransport
+        case .anthropic:
+            apiKey = settings.activeLLMApiKey
+            guard let anthropicURL = settings.activeLLMBaseURL else {
+                error = "Invalid Anthropic URL: \(settings.anthropicBaseURL)"
+                isGenerating = false
+                onFinished()
+                return
+            }
+            baseURL = anthropicURL
+            model = settings.anthropicModel
+            transport = settings.activeLLMTransport
         case .ollama:
             apiKey = nil
             guard let ollamaURL = OpenRouterClient.chatCompletionsURL(from: settings.ollamaBaseURL) else {
@@ -126,6 +150,7 @@ final class NotesEngine {
             }
             baseURL = ollamaURL
             model = settings.ollamaLLMModel
+            transport = settings.activeLLMTransport
         case .mlx:
             apiKey = nil
             guard let mlxURL = OpenRouterClient.chatCompletionsURL(from: settings.mlxBaseURL) else {
@@ -136,8 +161,9 @@ final class NotesEngine {
             }
             baseURL = mlxURL
             model = settings.mlxModel
+            transport = settings.activeLLMTransport
         case .openAICompatible:
-            apiKey = settings.openAILLMApiKey.isEmpty ? nil : settings.openAILLMApiKey
+            apiKey = settings.activeLLMApiKey
             guard let openAIURL = OpenRouterClient.chatCompletionsURL(from: settings.openAILLMBaseURL) else {
                 error = "Invalid OpenAI Compatible URL: \(settings.openAILLMBaseURL)"
                 isGenerating = false
@@ -146,6 +172,7 @@ final class NotesEngine {
             }
             baseURL = openAIURL
             model = settings.openAILLMModel
+            transport = settings.activeLLMTransport
         }
 
         let includeCalendarContext = Self.shouldIncludeCalendarContext(
@@ -175,7 +202,8 @@ final class NotesEngine {
                     model: model,
                     messages: messages,
                     maxTokens: 4096,
-                    baseURL: baseURL
+                    baseURL: baseURL,
+                    transport: transport
                 )
                 guard let stream else {
                     self?.isGenerating = false
@@ -288,7 +316,7 @@ final class NotesEngine {
         switch provider {
         case .ollama, .mlx:
             return true
-        case .openRouter:
+        case .openRouter, .openAI, .anthropic:
             return allowCloudCalendarContext
         case .openAICompatible:
             if let baseURL, OpenRouterClient.isLocalHost(baseURL) {

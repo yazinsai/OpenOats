@@ -688,6 +688,24 @@ private struct IntelligenceSettingsTab: View {
 
                         TextField("Model", text: $settings.selectedModel, prompt: Text("e.g. google/gemini-3-flash-preview"))
                             .font(.system(size: 12, design: .monospaced))
+                    case .openAI:
+                        TextField("OpenAI URL", text: $settings.openAIBaseURL, prompt: Text("https://api.openai.com"))
+                            .font(.system(size: 12, design: .monospaced))
+
+                        SecureField("OpenAI API Key", text: $settings.openAIApiKey)
+                            .font(.system(size: 12, design: .monospaced))
+
+                        TextField("Model", text: $settings.openAIModel, prompt: Text("e.g. gpt-4.1-mini"))
+                            .font(.system(size: 12, design: .monospaced))
+                    case .anthropic:
+                        TextField("Anthropic URL", text: $settings.anthropicBaseURL, prompt: Text("https://api.anthropic.com"))
+                            .font(.system(size: 12, design: .monospaced))
+
+                        SecureField("Anthropic API Key", text: $settings.anthropicApiKey)
+                            .font(.system(size: 12, design: .monospaced))
+
+                        TextField("Model", text: $settings.anthropicModel, prompt: Text("e.g. claude-sonnet-4-5-20250929"))
+                            .font(.system(size: 12, design: .monospaced))
                     case .ollama:
                         TextField("Ollama URL", text: $settings.ollamaBaseURL, prompt: Text("http://localhost:11434"))
                             .font(.system(size: 12, design: .monospaced))
@@ -801,7 +819,7 @@ private struct IntelligenceSettingsTab: View {
                         Text("Optional Ollama model for real-time suggestions. Uses your main model if empty.")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
-                    case .mlx, .openAICompatible:
+                    case .openAI, .anthropic, .mlx, .openAICompatible:
                         Text("Real-time suggestions currently reuse the active provider model for this provider.")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)

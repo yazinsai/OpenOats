@@ -81,6 +81,86 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _openAIApiKey: String
+    var openAIApiKey: String {
+        get {
+            access(keyPath: \.openAIApiKey)
+            return loadSecretIfNeeded(key: "openAIApiKey", currentValue: _openAIApiKey) {
+                _openAIApiKey = $0
+            }
+        }
+        set {
+            withMutation(keyPath: \.openAIApiKey) {
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                _openAIApiKey = trimmed
+                markSecretLoaded("openAIApiKey")
+                secretStore.save(key: "openAIApiKey", value: trimmed)
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _openAIBaseURL: String
+    var openAIBaseURL: String {
+        get { access(keyPath: \.openAIBaseURL); return _openAIBaseURL }
+        set {
+            withMutation(keyPath: \.openAIBaseURL) {
+                _openAIBaseURL = newValue
+                defaults.set(newValue, forKey: "openAIBaseURL")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _openAIModel: String
+    var openAIModel: String {
+        get { access(keyPath: \.openAIModel); return _openAIModel }
+        set {
+            withMutation(keyPath: \.openAIModel) {
+                _openAIModel = newValue
+                defaults.set(newValue, forKey: "openAIModel")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _anthropicApiKey: String
+    var anthropicApiKey: String {
+        get {
+            access(keyPath: \.anthropicApiKey)
+            return loadSecretIfNeeded(key: "anthropicApiKey", currentValue: _anthropicApiKey) {
+                _anthropicApiKey = $0
+            }
+        }
+        set {
+            withMutation(keyPath: \.anthropicApiKey) {
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                _anthropicApiKey = trimmed
+                markSecretLoaded("anthropicApiKey")
+                secretStore.save(key: "anthropicApiKey", value: trimmed)
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _anthropicBaseURL: String
+    var anthropicBaseURL: String {
+        get { access(keyPath: \.anthropicBaseURL); return _anthropicBaseURL }
+        set {
+            withMutation(keyPath: \.anthropicBaseURL) {
+                _anthropicBaseURL = newValue
+                defaults.set(newValue, forKey: "anthropicBaseURL")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _anthropicModel: String
+    var anthropicModel: String {
+        get { access(keyPath: \.anthropicModel); return _anthropicModel }
+        set {
+            withMutation(keyPath: \.anthropicModel) {
+                _anthropicModel = newValue
+                defaults.set(newValue, forKey: "anthropicModel")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _assemblyAIApiKey: String
     var assemblyAIApiKey: String {
         get {
@@ -1207,6 +1287,12 @@ final class SettingsStore {
         // AI Settings
         self._llmProvider = LLMProvider(rawValue: defaults.string(forKey: "llmProvider") ?? "") ?? .openRouter
         self._openRouterApiKey = ""
+        self._openAIApiKey = ""
+        self._openAIBaseURL = defaults.string(forKey: "openAIBaseURL") ?? "https://api.openai.com"
+        self._openAIModel = defaults.string(forKey: "openAIModel") ?? "gpt-4.1-mini"
+        self._anthropicApiKey = ""
+        self._anthropicBaseURL = defaults.string(forKey: "anthropicBaseURL") ?? "https://api.anthropic.com"
+        self._anthropicModel = defaults.string(forKey: "anthropicModel") ?? "claude-sonnet-4-5-20250929"
         self._assemblyAIApiKey = ""
         self._elevenLabsApiKey = ""
         self._ollamaBaseURL = defaults.string(forKey: "ollamaBaseURL") ?? "http://localhost:11434"
@@ -1411,6 +1497,10 @@ final class SettingsStore {
         switch llmProvider {
         case .openRouter:
             selectedModel
+        case .openAI:
+            openAIModel
+        case .anthropic:
+            anthropicModel
         case .ollama:
             ollamaLLMModel
         case .mlx:
@@ -1429,6 +1519,10 @@ final class SettingsStore {
         switch llmProvider {
         case .openRouter:
             return !openRouterApiKey.isEmpty
+        case .openAI:
+            return !openAIApiKey.isEmpty && OpenRouterClient.chatCompletionsURL(from: openAIBaseURL) != nil
+        case .anthropic:
+            return !anthropicApiKey.isEmpty && OpenRouterClient.anthropicMessagesURL(from: anthropicBaseURL) != nil
         case .ollama:
             return OpenRouterClient.chatCompletionsURL(from: ollamaBaseURL) != nil
         case .mlx:
@@ -1448,9 +1542,47 @@ final class SettingsStore {
     var activeRealtimeModel: String {
         switch llmProvider {
         case .openRouter: return realtimeModel
+        case .openAI: return openAIModel
+        case .anthropic: return anthropicModel
         case .ollama: return realtimeOllamaModel.isEmpty ? ollamaLLMModel : realtimeOllamaModel
         case .mlx: return mlxModel
         case .openAICompatible: return openAILLMModel
+        }
+    }
+
+    var activeLLMTransport: OpenRouterClient.CompletionTransport {
+        llmProvider == .anthropic ? .anthropicMessages : .chatCompletions
+    }
+
+    var activeLLMApiKey: String? {
+        switch llmProvider {
+        case .openRouter:
+            openRouterApiKey.isEmpty ? nil : openRouterApiKey
+        case .openAI:
+            openAIApiKey.isEmpty ? nil : openAIApiKey
+        case .anthropic:
+            anthropicApiKey.isEmpty ? nil : anthropicApiKey
+        case .ollama, .mlx:
+            nil
+        case .openAICompatible:
+            openAILLMApiKey.isEmpty ? nil : openAILLMApiKey
+        }
+    }
+
+    var activeLLMBaseURL: URL? {
+        switch llmProvider {
+        case .openRouter:
+            nil
+        case .openAI:
+            OpenRouterClient.chatCompletionsURL(from: openAIBaseURL)
+        case .anthropic:
+            OpenRouterClient.anthropicMessagesURL(from: anthropicBaseURL)
+        case .ollama:
+            OpenRouterClient.chatCompletionsURL(from: ollamaBaseURL)
+        case .mlx:
+            OpenRouterClient.chatCompletionsURL(from: mlxBaseURL)
+        case .openAICompatible:
+            OpenRouterClient.chatCompletionsURL(from: openAILLMBaseURL)
         }
     }
 
@@ -1615,7 +1747,8 @@ extension SettingsStore {
 
         let keysToMigrate = [
             "kbFolderPath", "selectedModel", "transcriptionLocale", "transcriptionModel", "inputDeviceID",
-            "llmProvider", "embeddingProvider", "ollamaBaseURL", "ollamaLLMModel",
+            "llmProvider", "embeddingProvider", "openAIBaseURL", "openAIModel",
+            "anthropicBaseURL", "anthropicModel", "ollamaBaseURL", "ollamaLLMModel",
             "ollamaEmbedModel", "hideFromScreenShare",
             "isTranscriptExpanded", "hasCompletedOnboarding",
         ]
@@ -1647,7 +1780,8 @@ extension SettingsStore {
 
         let keysToMigrate = [
             "kbFolderPath", "selectedModel", "transcriptionLocale", "transcriptionModel", "inputDeviceID",
-            "llmProvider", "embeddingProvider", "ollamaBaseURL", "ollamaLLMModel",
+            "llmProvider", "embeddingProvider", "openAIBaseURL", "openAIModel",
+            "anthropicBaseURL", "anthropicModel", "ollamaBaseURL", "ollamaLLMModel",
             "ollamaEmbedModel", "hideFromScreenShare",
             "isTranscriptExpanded", "hasCompletedOnboarding",
             "hasAcknowledgedRecordingConsent",
