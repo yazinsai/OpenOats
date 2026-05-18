@@ -28,10 +28,13 @@ final class SidecastEngine {
     private let settings: AppSettings
 
     private var generationTask: Task<Void, Never>?
+    private var activeGenerationID: UUID?
     private var lastProcessedUtteranceID: UUID?
     private var lastGenerationStartedAt: Date = .distantPast
     private var recentBubbleTexts: [String] = []
     private var lastSpokenAtByPersona: [UUID: Date] = [:]
+
+    private static let liveGenerationTimeout: TimeInterval = 45
 
     init(transcriptStore: TranscriptStore, knowledgeBase: KnowledgeBase, settings: AppSettings) {
         self.transcriptStore = transcriptStore
@@ -55,6 +58,8 @@ final class SidecastEngine {
         lastGenerationStartedAt = now
 
         generationTask?.cancel()
+        let generationID = UUID()
+        activeGenerationID = generationID
         isGenerating = true
 
         let recentExchange = transcriptStore.recentExchange
@@ -86,7 +91,8 @@ final class SidecastEngine {
                     temperature: self.settings.sidecastTemperature,
                     baseURL: self.llmBaseURL,
                     webSearch: useWebSearch,
-                    transport: self.settings.activeLLMTransport
+                    transport: self.settings.activeLLMTransport,
+                    requestTimeout: Self.liveGenerationTimeout
                 )
                 let decoded = try self.decodeResponse(response)
 
@@ -99,15 +105,16 @@ final class SidecastEngine {
                         recentTexts: recentTexts,
                         lastSpokenAtByPersona: lastSpoken
                     )
+                    self.finishGeneration(generationID)
                 }
             } catch is CancellationError {
                 await MainActor.run {
-                    self.isGenerating = false
+                    self.finishGeneration(generationID)
                 }
             } catch {
                 Log.sidecast.error("Generation failed: \(error, privacy: .public)")
                 await MainActor.run {
-                    self.isGenerating = false
+                    self.finishGeneration(generationID)
                 }
             }
         }
@@ -122,10 +129,17 @@ final class SidecastEngine {
         generationTask = nil
         messages.removeAll()
         isGenerating = false
+        activeGenerationID = nil
         lastProcessedUtteranceID = nil
         lastGenerationStartedAt = .distantPast
         recentBubbleTexts.removeAll()
         lastSpokenAtByPersona.removeAll()
+    }
+
+    private func finishGeneration(_ generationID: UUID) {
+        guard activeGenerationID == generationID else { return }
+        activeGenerationID = nil
+        isGenerating = false
     }
 
     private func apply(
@@ -136,8 +150,6 @@ final class SidecastEngine {
         recentTexts: [String],
         lastSpokenAtByPersona: [UUID: Date]
     ) {
-        defer { isGenerating = false }
-
         let personaByID = Dictionary(uniqueKeysWithValues: personas.map { ($0.id, $0) })
         let topBreadcrumb = evidence.first?.displayBreadcrumb ?? ""
         let now = utterance.timestamp

@@ -216,7 +216,8 @@ actor OpenRouterClient {
         temperature: Double? = nil,
         baseURL: URL? = nil,
         webSearch: Bool = false,
-        transport: CompletionTransport = .chatCompletions
+        transport: CompletionTransport = .chatCompletions,
+        requestTimeout: TimeInterval = 300
     ) async throws -> String {
         if transport == .anthropicMessages {
             return try await completeAnthropic(
@@ -225,7 +226,8 @@ actor OpenRouterClient {
                 messages: messages,
                 maxTokens: maxTokens,
                 temperature: temperature,
-                baseURL: baseURL
+                baseURL: baseURL,
+                requestTimeout: requestTimeout
             )
         }
 
@@ -247,7 +249,7 @@ actor OpenRouterClient {
         urlRequest.httpMethod = "POST"
         // Total request timeout — covers gate / judge / structured-JSON calls that may hit
         // slow local models or reasoning models. Default 60s is too aggressive in practice.
-        urlRequest.timeoutInterval = 300
+        urlRequest.timeoutInterval = requestTimeout
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let apiKey, !apiKey.isEmpty {
             urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -343,7 +345,8 @@ actor OpenRouterClient {
         messages: [Message],
         maxTokens: Int,
         temperature: Double?,
-        baseURL: URL?
+        baseURL: URL?,
+        requestTimeout: TimeInterval
     ) async throws -> String {
         let targetURL = baseURL ?? Self.anthropicMessagesURL(from: "https://api.anthropic.com")!
         guard let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -361,7 +364,7 @@ actor OpenRouterClient {
 
         var urlRequest = URLRequest(url: targetURL)
         urlRequest.httpMethod = "POST"
-        urlRequest.timeoutInterval = 300
+        urlRequest.timeoutInterval = requestTimeout
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         urlRequest.setValue(Self.anthropicVersion, forHTTPHeaderField: "anthropic-version")
