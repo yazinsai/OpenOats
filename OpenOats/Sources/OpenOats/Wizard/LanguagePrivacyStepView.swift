@@ -143,9 +143,10 @@ struct LanguagePrivacyStepView: View {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(isSelected ? Color.accentTeal : .primary)
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .frame(maxWidth: .infinity)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(isSelected ? Color.accentTeal.opacity(0.08) : Color.clear)
