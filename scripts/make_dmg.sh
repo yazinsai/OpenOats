@@ -20,16 +20,9 @@ TEMP_DMG="dist/OpenOats_temp.dmg"
 rm -rf "$STAGING_DIR" "$TEMP_DMG"
 mkdir -p "$STAGING_DIR"
 
-# Copy app and create Applications alias (Finder alias renders with proper icon, unlike symlinks)
+# Copy app and create Applications symlink for drag-to-install
 cp -R "$APP_PATH" "$STAGING_DIR/"
-osascript -e "tell application \"Finder\" to make alias file to POSIX file \"/Applications\" at POSIX file \"$(cd "$STAGING_DIR" && pwd)\""
-# Finder creates "Applications alias" — rename to "Applications"
-if [[ -e "$STAGING_DIR/Applications alias" ]]; then
-  mv "$STAGING_DIR/Applications alias" "$STAGING_DIR/Applications"
-elif [[ ! -e "$STAGING_DIR/Applications" ]]; then
-  # Fallback to symlink if alias creation fails
-  ln -s /Applications "$STAGING_DIR/Applications"
-fi
+ln -s /Applications "$STAGING_DIR/Applications"
 
 # Create a temporary read-write DMG
 hdiutil create -volname "OpenOats" -srcfolder "$STAGING_DIR" -ov -format UDRW "$TEMP_DMG"
@@ -37,11 +30,14 @@ hdiutil create -volname "OpenOats" -srcfolder "$STAGING_DIR" -ov -format UDRW "$
 # Mount it and configure the Finder window via AppleScript
 MOUNT_OUTPUT=$(hdiutil attach "$TEMP_DMG" -readwrite -noverify)
 MOUNT_POINT=$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/.*' | head -1)
+DISK_NAME=$(basename "$MOUNT_POINT")
+sleep 1
 
 osascript <<APPLESCRIPT
 tell application "Finder"
-  tell disk "OpenOats"
+  tell disk "$DISK_NAME"
     open
+    delay 1
     set current view of container window to icon view
     set toolbar visible of container window to false
     set statusbar visible of container window to false
