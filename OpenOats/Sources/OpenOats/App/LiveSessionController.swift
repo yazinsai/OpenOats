@@ -115,6 +115,14 @@ final class LiveSessionController {
         let hasBlockingError: Bool
     }
 
+    struct AutomaticSilencePauseEvaluation: Equatable {
+        let lastAudibleActivityAt: Date?
+        let shouldPause: Bool
+    }
+
+    static let automaticSilencePauseInterval: TimeInterval = 300
+    static let audibleActivityLevelThreshold: Float = 0.01
+
     private(set) var state = LiveSessionState()
 
     private let coordinator: AppCoordinator
@@ -145,6 +153,7 @@ final class LiveSessionController {
     private var observedPeakAudioLevelSinceStart: Float = 0
     private var observedSystemHasEverCapturedFrames = false
     private var observedMicHasEverCapturedFrames = false
+    private var observedLastAudibleActivityAt: Date?
     private var pendingRecoveryDiagnostics: PendingRecoveryDiagnostics?
     private var pendingAutoNotesSessionID: String?
     private var autoGeneratingNotesSessionID: String?
@@ -349,6 +358,7 @@ final class LiveSessionController {
     func toggleRecordingPause() {
         guard let engine = coordinator.transcriptionEngine, engine.isRunning else { return }
         engine.isRecordingPaused.toggle()
+        observedLastAudibleActivityAt = Date()
     }
 
     /// Update the scratchpad text and schedule a debounced save.
@@ -1259,6 +1269,34 @@ final class LiveSessionController {
         return max(0, Int(Date().timeIntervalSince(startedAt)))
     }
 
+    static func automaticSilencePauseEvaluation(
+        isRunning: Bool,
+        isRecordingPaused: Bool,
+        audioLevel: Float,
+        now: Date,
+        lastAudibleActivityAt: Date?,
+        pauseInterval: TimeInterval = automaticSilencePauseInterval,
+        audibleThreshold: Float = audibleActivityLevelThreshold
+    ) -> AutomaticSilencePauseEvaluation {
+        guard isRunning else {
+            return AutomaticSilencePauseEvaluation(lastAudibleActivityAt: nil, shouldPause: false)
+        }
+
+        guard !isRecordingPaused else {
+            return AutomaticSilencePauseEvaluation(lastAudibleActivityAt: now, shouldPause: false)
+        }
+
+        if audioLevel >= audibleThreshold {
+            return AutomaticSilencePauseEvaluation(lastAudibleActivityAt: now, shouldPause: false)
+        }
+
+        let lastActivity = lastAudibleActivityAt ?? now
+        return AutomaticSilencePauseEvaluation(
+            lastAudibleActivityAt: lastActivity,
+            shouldPause: now.timeIntervalSince(lastActivity) >= pauseInterval
+        )
+    }
+
     private func recordEmptySessionDiagnostics(_ event: EmptySessionDiagnosticsEvent) {
         let message = Self.emptySessionDiagnosticsMessage(for: event)
         DiagnosticsSupport.record(category: "meeting", message: message)
@@ -1536,6 +1574,8 @@ final class LiveSessionController {
             set(\.recordingHealthNotice, nil)
         }
 
+        updateAutomaticSilencePause(currentState: currentState)
+
         if currentState.isRunning != observedIsRunning {
             observedIsRunning = currentState.isRunning
             onRunningStateChanged?(currentState.isRunning)
@@ -1560,5 +1600,26 @@ final class LiveSessionController {
             observedPendingExternalCommandID = pendingExternalCommandID
             handlePendingExternalCommandIfPossible(settings: settings, openNotesWindow: openNotesWindow)
         }
+    }
+
+    private func updateAutomaticSilencePause(currentState: LiveSessionState) {
+        guard let engine = coordinator.transcriptionEngine else {
+            observedLastAudibleActivityAt = nil
+            return
+        }
+
+        let evaluation = Self.automaticSilencePauseEvaluation(
+            isRunning: currentState.isRunning && engine.isRunning,
+            isRecordingPaused: engine.isRecordingPaused,
+            audioLevel: currentState.audioLevel,
+            now: Date(),
+            lastAudibleActivityAt: observedLastAudibleActivityAt
+        )
+        observedLastAudibleActivityAt = evaluation.lastAudibleActivityAt
+
+        guard evaluation.shouldPause, !engine.isRecordingPaused else { return }
+        engine.isRecordingPaused = true
+        set(\.isRecordingPaused, true)
+        DiagnosticsSupport.record(category: "meeting", message: "Recording auto-paused after 5 minutes of silence")
     }
 }
