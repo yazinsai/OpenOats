@@ -20,16 +20,9 @@ TEMP_DMG="dist/OpenOats_temp.dmg"
 rm -rf "$STAGING_DIR" "$TEMP_DMG"
 mkdir -p "$STAGING_DIR"
 
-# Copy app and create Applications alias (Finder alias renders with proper icon, unlike symlinks)
+# Copy app and create Applications symlink for drag-to-install
 cp -R "$APP_PATH" "$STAGING_DIR/"
-osascript -e "tell application \"Finder\" to make alias file to POSIX file \"/Applications\" at POSIX file \"$(cd "$STAGING_DIR" && pwd)\""
-# Finder creates "Applications alias" — rename to "Applications"
-if [[ -e "$STAGING_DIR/Applications alias" ]]; then
-  mv "$STAGING_DIR/Applications alias" "$STAGING_DIR/Applications"
-elif [[ ! -e "$STAGING_DIR/Applications" ]]; then
-  # Fallback to symlink if alias creation fails
-  ln -s /Applications "$STAGING_DIR/Applications"
-fi
+ln -s /Applications "$STAGING_DIR/Applications"
 
 # Create a temporary read-write DMG
 hdiutil create -volname "OpenOats" -srcfolder "$STAGING_DIR" -ov -format UDRW "$TEMP_DMG"
@@ -37,20 +30,28 @@ hdiutil create -volname "OpenOats" -srcfolder "$STAGING_DIR" -ov -format UDRW "$
 # Mount it and configure the Finder window via AppleScript
 MOUNT_OUTPUT=$(hdiutil attach "$TEMP_DMG" -readwrite -noverify)
 MOUNT_POINT=$(echo "$MOUNT_OUTPUT" | grep -o '/Volumes/.*' | head -1)
+DISK_NAME=$(basename "$MOUNT_POINT")
+
+# Copy background image into hidden folder on the mounted volume
+mkdir -p "$MOUNT_POINT/.background"
+cp scripts/dmg-background/background.png "$MOUNT_POINT/.background/background.png"
+cp scripts/dmg-background/background@2x.png "$MOUNT_POINT/.background/background@2x.png"
 
 osascript <<APPLESCRIPT
 tell application "Finder"
-  tell disk "OpenOats"
+  tell disk "$DISK_NAME"
     open
+    delay 1
     set current view of container window to icon view
     set toolbar visible of container window to false
     set statusbar visible of container window to false
-    set bounds of container window to {100, 100, 640, 400}
+    set bounds of container window to {100, 100, 760, 500}
     set viewOptions to the icon view options of container window
     set arrangement of viewOptions to not arranged
-    set icon size of viewOptions to 80
-    set position of item "OpenOats.app" of container window to {120, 150}
-    set position of item "Applications" of container window to {420, 150}
+    set icon size of viewOptions to 128
+    set background picture of viewOptions to file ".background:background.png"
+    set position of item "OpenOats.app" of container window to {170, 200}
+    set position of item "Applications" of container window to {490, 200}
     close
     open
     update without registering applications
