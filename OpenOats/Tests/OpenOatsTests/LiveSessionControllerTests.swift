@@ -981,6 +981,70 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertFalse(plan.shouldRunRecoveryBatch)
     }
 
+    func testAutomaticSilencePauseWaitsForFiveMinutesOfSilence() {
+        let now = Date()
+        let lastActivity = now.addingTimeInterval(-299)
+
+        let evaluation = LiveSessionController.automaticSilencePauseEvaluation(
+            isRunning: true,
+            isRecordingPaused: false,
+            audioLevel: 0,
+            now: now,
+            lastAudibleActivityAt: lastActivity
+        )
+
+        XCTAssertEqual(evaluation.lastAudibleActivityAt, lastActivity)
+        XCTAssertFalse(evaluation.shouldPause)
+    }
+
+    func testAutomaticSilencePauseTriggersAfterFiveMinutesOfSilence() {
+        let now = Date()
+        let lastActivity = now.addingTimeInterval(-300)
+
+        let evaluation = LiveSessionController.automaticSilencePauseEvaluation(
+            isRunning: true,
+            isRecordingPaused: false,
+            audioLevel: 0,
+            now: now,
+            lastAudibleActivityAt: lastActivity
+        )
+
+        XCTAssertEqual(evaluation.lastAudibleActivityAt, lastActivity)
+        XCTAssertTrue(evaluation.shouldPause)
+    }
+
+    func testAutomaticSilencePauseResetsOnAudibleActivity() {
+        let now = Date()
+        let lastActivity = now.addingTimeInterval(-180)
+
+        let evaluation = LiveSessionController.automaticSilencePauseEvaluation(
+            isRunning: true,
+            isRecordingPaused: false,
+            audioLevel: LiveSessionController.audibleActivityLevelThreshold,
+            now: now,
+            lastAudibleActivityAt: lastActivity
+        )
+
+        XCTAssertEqual(evaluation.lastAudibleActivityAt, now)
+        XCTAssertFalse(evaluation.shouldPause)
+    }
+
+    func testAutomaticSilencePauseDoesNotAccrueWhileAlreadyPaused() {
+        let now = Date()
+        let lastActivity = now.addingTimeInterval(-300)
+
+        let evaluation = LiveSessionController.automaticSilencePauseEvaluation(
+            isRunning: true,
+            isRecordingPaused: true,
+            audioLevel: 0,
+            now: now,
+            lastAudibleActivityAt: lastActivity
+        )
+
+        XCTAssertEqual(evaluation.lastAudibleActivityAt, now)
+        XCTAssertFalse(evaluation.shouldPause)
+    }
+
     func testRecordingHealthNoticeWarnsWhenNoAudioDetected() {
         let input = LiveSessionController.RecordingHealthInput(
             elapsed: 6,
