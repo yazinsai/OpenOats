@@ -2,6 +2,21 @@ import AppKit
 import Observation
 import SwiftUI
 
+private final class MenuBarStatusItemActionTarget: NSObject {
+    weak var controller: MenuBarController?
+
+    init(controller: MenuBarController) {
+        self.controller = controller
+    }
+
+    @objc func togglePopover(_ sender: Any?) {
+        let controller = controller
+        Task { @MainActor in
+            controller?.togglePopoverFromStatusItem()
+        }
+    }
+}
+
 @MainActor
 final class MenuBarController {
     private let statusItem: NSStatusItem
@@ -9,6 +24,7 @@ final class MenuBarController {
     private let coordinator: AppCoordinator
     private let settings: AppSettings
     private let onToggleMeeting: () -> Void
+    private lazy var statusItemActionTarget = MenuBarStatusItemActionTarget(controller: self)
     private var iconUpdateTask: Task<Void, Never>?
     private var hasConfiguredButton = false
 
@@ -64,9 +80,9 @@ final class MenuBarController {
         iconUpdateTask?.cancel()
     }
 
-    @objc private func togglePopover(_ sender: Any?) {
+    func togglePopoverFromStatusItem() {
         if popover.isShown {
-            popover.performClose(sender)
+            popover.performClose(nil)
         } else if let button = statusItem.button {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
@@ -101,8 +117,8 @@ final class MenuBarController {
         }
 
         if !hasConfiguredButton {
-            button.target = self
-            button.action = #selector(togglePopover(_:))
+            button.target = statusItemActionTarget
+            button.action = #selector(MenuBarStatusItemActionTarget.togglePopover(_:))
             hasConfiguredButton = true
             DiagnosticsSupport.record(category: "menu", message: "Status item button configured")
         }
