@@ -67,6 +67,7 @@ private struct GeneralSettingsTab: View {
     @State private var automaticallyChecksForUpdates = false
     @State private var showAutoDetectExplanation = false
     @State private var launchAtLoginEnabled = false
+    @State private var showAdvancedDetection = false
     @State private var showWizard = false
     @State private var diagnosticsExportMessage: String?
     @State private var diagnosticsExportHadError = false
@@ -179,7 +180,7 @@ private struct GeneralSettingsTab: View {
                 }
 
                 if settings.meetingAutoDetectEnabled {
-                    DisclosureGroup("Advanced Detection Settings") {
+                    DisclosureGroup(isExpanded: $showAdvancedDetection, content: {
                         HStack {
                             Text("Silence timeout")
                                 .font(.system(size: 12))
@@ -201,7 +202,16 @@ private struct GeneralSettingsTab: View {
                         Text("Print detection events to the system console for debugging.")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
-                    }
+                    }, label: {
+                        HStack {
+                            Text("Advanced Detection Settings")
+                            Spacer()
+                        }
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                        .onTapGesture { showAdvancedDetection.toggle() }
+                        .padding(.vertical, -10)
+                    })
                     .font(.system(size: 12))
                 }
 
