@@ -40,6 +40,7 @@ struct OllamaModelField: View {
                         .frame(width: 16, height: 16)
                 }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .fixedSize()
             }
         }
