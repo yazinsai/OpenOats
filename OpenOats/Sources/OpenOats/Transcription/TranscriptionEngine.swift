@@ -70,6 +70,12 @@ final class TranscriptionEngine {
         let message: String
     }
 
+    enum MicStartupHealthAction: Equatable {
+        case none
+        case retryCapture
+        case showNoAudioError
+    }
+
     private struct PreparedCloudStartBackend {
         let model: TranscriptionModel
         let backend: any TranscriptionBackend
@@ -238,6 +244,15 @@ final class TranscriptionEngine {
         case .scripted:
             self.needsModelDownload = false
         }
+    }
+
+    static func micStartupHealthAction(
+        hasCapturedFrames: Bool,
+        captureError: String?,
+        hasRetried: Bool
+    ) -> MicStartupHealthAction {
+        guard !hasCapturedFrames, captureError == nil else { return .none }
+        return hasRetried ? .showNoAudioError : .retryCapture
     }
 
     func refreshModelAvailability() {
@@ -525,26 +540,48 @@ final class TranscriptionEngine {
             lastError = micError
         }
 
-        // Health check: if mic produces no audio within 5 seconds, retry once
-        // without AEC before surfacing the error.
+        // Health check: if mic produces no audio within 5 seconds, retry once.
+        // This covers first-start device initialization races that users otherwise fix by stopping/restarting.
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(5))
             guard let self, self.isRunning else { return }
-            if !self.micCapture.hasCapturedFrames && self.micCapture.captureError == nil {
-                if useAEC {
-                    Log.transcription.error("No mic audio after 5s with AEC, retrying without")
-                    self.micCapture.finishStream()
-                    await self.micTask?.value
-                    self.micTask = nil
-                    self.micCapture.stop()
-                    self.startMicStream(
-                        locale: locale,
-                        vadManager: vadManager,
-                        deviceID: targetMicID,
-                        echoCancellation: false
-                    )
-                } else {
-                    Log.transcription.error("No mic audio after 5s")
+
+            switch Self.micStartupHealthAction(
+                hasCapturedFrames: self.micCapture.hasCapturedFrames,
+                captureError: self.micCapture.captureError,
+                hasRetried: false
+            ) {
+            case .none:
+                return
+            case .showNoAudioError:
+                Log.transcription.error("No mic audio after 5s")
+                self.lastError = "Microphone is not producing audio. Check your input device in System Settings."
+            case .retryCapture:
+                Log.transcription.error("No mic audio after 5s, retrying mic capture once")
+                self.micCapture.finishStream()
+                await self.micTask?.value
+                self.micTask = nil
+                self.micCapture.stop()
+                self.startMicStream(
+                    locale: locale,
+                    vadManager: vadManager,
+                    deviceID: targetMicID,
+                    echoCancellation: false
+                )
+
+                try? await Task.sleep(for: .seconds(5))
+                guard self.isRunning else { return }
+                if let micError = self.micCapture.captureError {
+                    Log.transcription.error("Mic capture error after retry: \(micError, privacy: .public)")
+                    self.lastError = micError
+                    return
+                }
+                if Self.micStartupHealthAction(
+                    hasCapturedFrames: self.micCapture.hasCapturedFrames,
+                    captureError: self.micCapture.captureError,
+                    hasRetried: true
+                ) == .showNoAudioError {
+                    Log.transcription.error("No mic audio after retry")
                     self.lastError = "Microphone is not producing audio. Check your input device in System Settings."
                 }
             }

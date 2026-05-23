@@ -56,6 +56,47 @@ final class TranscriptionEngineTests: XCTestCase {
         XCTAssertEqual(engine.currentTranscriptionModel(), .whisperBase)
     }
 
+    func testMicStartupHealthRetriesFirstSilentCapture() {
+        XCTAssertEqual(
+            TranscriptionEngine.micStartupHealthAction(
+                hasCapturedFrames: false,
+                captureError: nil,
+                hasRetried: false
+            ),
+            .retryCapture
+        )
+    }
+
+    func testMicStartupHealthSurfacesErrorAfterRetryStillSilent() {
+        XCTAssertEqual(
+            TranscriptionEngine.micStartupHealthAction(
+                hasCapturedFrames: false,
+                captureError: nil,
+                hasRetried: true
+            ),
+            .showNoAudioError
+        )
+    }
+
+    func testMicStartupHealthIgnoresCapturedFramesOrExistingErrors() {
+        XCTAssertEqual(
+            TranscriptionEngine.micStartupHealthAction(
+                hasCapturedFrames: true,
+                captureError: nil,
+                hasRetried: false
+            ),
+            .none
+        )
+        XCTAssertEqual(
+            TranscriptionEngine.micStartupHealthAction(
+                hasCapturedFrames: false,
+                captureError: "Input device failed",
+                hasRetried: false
+            ),
+            .none
+        )
+    }
+
     // MARK: - Diarization Feed Gate
 
     func testDiarizationFeedRelayStopsAfterFirstFailure() async {
