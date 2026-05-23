@@ -953,90 +953,7 @@ private struct TemplatesSettingsTab: View {
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    if isAddingTemplate || editingTemplateID != nil {
-                        VStack(alignment: .leading, spacing: 10) {
-                            // Name
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Name")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                TextField("e.g. Sprint Planning", text: $newTemplateName)
-                                    .font(.system(size: 12))
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(maxWidth: .infinity)
-                                    .focused($focusedTemplateField, equals: .name)
-                            }
-
-                            // Icon picker
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Icon")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                IconPickerGrid(selected: $newTemplateIcon)
-                            }
-
-                            // System prompt
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Notes Prompt")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                Text("Instructions for how the AI should format notes for this meeting type.")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.tertiary)
-                                ZStack(alignment: .topLeading) {
-                                    if newTemplatePrompt.isEmpty {
-                                        Text("e.g. You are a meeting notes assistant. Given a transcript, produce structured notes with sections for...")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(.quaternary)
-                                            .padding(.top, 6)
-                                            .padding(.leading, 4)
-                                            .allowsHitTesting(false)
-                                    }
-                                    TextEditor(text: $newTemplatePrompt)
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .frame(height: 100)
-                                        .frame(maxWidth: .infinity)
-                                        .scrollContentBackground(.hidden)
-                                }
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .stroke(.quaternary)
-                                )
-                            }
-
-                            HStack {
-                                Button("Cancel") {
-                                    resetNewTemplateForm()
-                                }
-                                .buttonStyle(.plain)
-                                Button("Save") {
-                                    if let editID = editingTemplateID {
-                                        let template = MeetingTemplate(
-                                            id: editID,
-                                            name: trimmedTemplateName,
-                                            icon: newTemplateIcon,
-                                            systemPrompt: trimmedTemplatePrompt,
-                                            isBuiltIn: false
-                                        )
-                                        updateTemplate(template)
-                                    } else {
-                                        let template = MeetingTemplate(
-                                            id: UUID(),
-                                            name: trimmedTemplateName,
-                                            icon: newTemplateIcon,
-                                            systemPrompt: trimmedTemplatePrompt,
-                                            isBuiltIn: false
-                                        )
-                                        addTemplate(template)
-                                    }
-                                    resetNewTemplateForm()
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(!canSaveNewTemplate)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    } else {
+                    if !isAddingTemplate && editingTemplateID == nil {
                         Button("New Template") {
                             isAddingTemplate = true
                             Task { @MainActor in
@@ -1048,6 +965,91 @@ private struct TemplatesSettingsTab: View {
                 }
             }
             .formStyle(.grouped)
+
+            if isAddingTemplate || editingTemplateID != nil {
+                VStack(alignment: .leading, spacing: 10) {
+                    // Name
+                    HStack(alignment: .center, spacing: 6) {
+                        Text("Name")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("e.g. Sprint Planning")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 20)
+                        TextField("", text: $newTemplateName)
+                            .font(.system(size: 12))
+                            .textFieldStyle(.roundedBorder)
+                            .focused($focusedTemplateField, equals: .name)
+                    }
+
+                    // Icon picker
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Icon")
+                            .font(.system(size: 13, weight: .semibold))
+                        IconPickerGrid(selected: $newTemplateIcon)
+                    }
+
+                    // System prompt
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Notes Prompt")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Instructions for how the AI should format notes for this meeting type.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                        ZStack(alignment: .topLeading) {
+                            if newTemplatePrompt.isEmpty {
+                                Text("e.g. You are a meeting notes assistant. Given a transcript, produce structured notes with sections for...")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.quaternary)
+                                    .padding(.top, 6)
+                                    .padding(.leading, 6)
+                                    .allowsHitTesting(false)
+                            }
+                            FixedLeftTextEditor(text: $newTemplatePrompt)
+                        }
+                        .frame(height: 100)
+                        .frame(maxWidth: .infinity)
+                        .clipped()
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(.quaternary)
+                        )
+                    }
+
+                    HStack {
+                        Button("Cancel") {
+                            resetNewTemplateForm()
+                        }
+                        .buttonStyle(.plain)
+                        Button("Save") {
+                            if let editID = editingTemplateID {
+                                let template = MeetingTemplate(
+                                    id: editID,
+                                    name: trimmedTemplateName,
+                                    icon: newTemplateIcon,
+                                    systemPrompt: trimmedTemplatePrompt,
+                                    isBuiltIn: false
+                                )
+                                updateTemplate(template)
+                            } else {
+                                let template = MeetingTemplate(
+                                    id: UUID(),
+                                    name: trimmedTemplateName,
+                                    icon: newTemplateIcon,
+                                    systemPrompt: trimmedTemplatePrompt,
+                                    isBuiltIn: false
+                                )
+                                addTemplate(template)
+                            }
+                            resetNewTemplateForm()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!canSaveNewTemplate)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            }
         }
         .onAppear {
             Task { @MainActor in
@@ -1379,6 +1381,52 @@ private struct GranolaImportButton: View {
                 importState = .failed(error.localizedDescription)
                 isImporting = false
             }
+        }
+    }
+}
+
+// A fixed-height, left-aligned NSTextView wrapper that doesn't expand with content.
+private struct FixedLeftTextEditor: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let tv = NSTextView()
+        tv.isEditable = true
+        tv.isSelectable = true
+        tv.isRichText = false
+        tv.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        tv.alignment = .left
+        tv.textContainerInset = NSSize(width: 4, height: 5)
+        tv.backgroundColor = .clear
+        tv.drawsBackground = false
+        tv.delegate = context.coordinator
+
+        let sv = NSScrollView()
+        sv.documentView = tv
+        sv.hasVerticalScroller = true
+        sv.autohidesScrollers = true
+        sv.drawsBackground = false
+        sv.borderType = .noBorder
+        return sv
+    }
+
+    func updateNSView(_ sv: NSScrollView, context: Context) {
+        guard let tv = sv.documentView as? NSTextView else { return }
+        if tv.string != text { tv.string = text }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 200, height: 100)
+    }
+
+    class Coordinator: NSObject, NSTextViewDelegate {
+        @Binding var text: String
+        init(text: Binding<String>) { _text = text }
+        func textDidChange(_ notification: Notification) {
+            guard let tv = notification.object as? NSTextView else { return }
+            text = tv.string
         }
     }
 }
