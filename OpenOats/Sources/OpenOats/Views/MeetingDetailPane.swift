@@ -1985,6 +1985,7 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                     .font(.system(size: 12))
             }
             .buttonStyle(OpenOatsProminentButtonStyle())
+            .controlSize(.mini)
             .disabled(state.loadedTranscript.isEmpty)
             .help("Remove filler words and fix punctuation")
 
@@ -2011,6 +2012,7 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                     .font(.system(size: 12))
             }
             .buttonStyle(OpenOatsProminentButtonStyle())
+            .controlSize(.mini)
             .help("Clean up remaining utterances")
 
             showOriginalButton(controller: controller, state: state)
