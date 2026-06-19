@@ -375,7 +375,12 @@ final class MeetingDetectionController {
             Log.meetingDetection.info("Detected: \(app?.name ?? "unknown", privacy: .public) (trigger: \(isCameraTrigger ? "camera" : "mic+app", privacy: .public))")
         }
 
-        let posted = await notificationService?.postMeetingDetected(appName: app?.name, isCameraTrigger: isCameraTrigger) ?? false
+        // Don't attribute camera-triggered detections to a background meeting app —
+        // the camera could have been activated by a different app (e.g. browser for Google Meet).
+        let posted = await notificationService?.postMeetingDetected(
+            appName: isCameraTrigger ? nil : app?.name,
+            isCameraTrigger: isCameraTrigger
+        ) ?? false
         if !posted {
             if activeSettings?.detectionLogEnabled == true {
                 Log.meetingDetection.debug("Failed to post notification (permission denied?)")
