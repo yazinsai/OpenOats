@@ -929,10 +929,10 @@ final class TranscriptionEngine {
             onPartial: { text in
                 Task { @MainActor in store.volatileYouText = text }
             },
-            onFinal: { text in
+            onFinal: { segment in
                 Task { @MainActor in
                     store.volatileYouText = ""
-                    store.append(Utterance(text: text, speaker: .you))
+                    store.append(Utterance(text: segment.text, speaker: .you))
                 }
             }
         ) else {
@@ -981,9 +981,6 @@ final class TranscriptionEngine {
             }
         }
 
-        // Track cumulative audio time for diarizer speaker attribution
-        let sysAudioTime = SyncDouble()
-
         // Tee system audio to diarization manager if enabled
         if let dm = diarizationManager {
             let diarFlushSize = 16000
@@ -998,7 +995,6 @@ final class TranscriptionEngine {
                     diarContinuation.yield(b)
                     guard let channelData = buffer.floatChannelData else { continue }
                     let frameCount = Int(buffer.frameLength)
-                    sysAudioTime.add(Double(frameCount) / buffer.format.sampleRate)
                     diarBuf.append(contentsOf: UnsafeBufferPointer(start: channelData[0], count: frameCount))
                     if diarBuf.count >= diarFlushSize {
                         let batch = diarBuf
@@ -1039,19 +1035,16 @@ final class TranscriptionEngine {
             onPartial: { text in
                 Task { @MainActor in store.volatileThemText = text }
             },
-            onFinal: { [weak self] text in
+            onFinal: { [weak self] segment in
                 Task { @MainActor in
                     store.volatileThemText = ""
                     let speaker: Speaker
                     if let dm = self?.diarizationManager {
-                        // Estimate segment time: each onFinal is ~3-5s of speech
-                        let endTime = sysAudioTime.value
-                        let startTime = max(0, endTime - 5.0)
-                        speaker = await dm.dominantSpeaker(from: startTime, to: endTime)
+                        speaker = await dm.dominantSpeaker(from: segment.startTime, to: segment.endTime)
                     } else {
                         speaker = .them
                     }
-                    store.append(Utterance(text: text, speaker: speaker))
+                    store.append(Utterance(text: segment.text, speaker: speaker))
                 }
             }
         ) else {
@@ -1069,7 +1062,7 @@ final class TranscriptionEngine {
         speaker: Speaker,
         vadManager: VadManager,
         onPartial: @escaping @Sendable (String) -> Void,
-        onFinal: @escaping @Sendable (String) -> Void
+        onFinal: @escaping @Sendable (StreamingTranscriber.FinalSegment) -> Void
     ) -> StreamingTranscriber? {
         let backend = speaker == .you ? micBackend : systemBackend
         guard let backend else {

@@ -35,6 +35,43 @@ final class TranscriptStoreTests: XCTestCase {
         XCTAssertEqual(store.utterances.count, 3)
     }
 
+    func testAppendSuppressesMicEchoAgainstCurrentRemotePartial() {
+        let store = makeStore()
+        store.volatileThemText = "We should ship the pilot next Friday after the customer review"
+
+        let accepted = store.append(
+            makeUtterance(
+                text: "We should ship the pilot next Friday after the customer review",
+                speaker: .you
+            )
+        )
+
+        XCTAssertFalse(accepted)
+        XCTAssertTrue(store.utterances.isEmpty)
+    }
+
+    func testRealtimeAssistantSkipsMicEchoAgainstCurrentRemotePartial() {
+        let store = makeStore()
+        store.volatileThemText = "Can we walk through the pricing change and rollout risk"
+        let echoedYou = makeUtterance(
+            text: "Can we walk through the pricing change and rollout risk",
+            speaker: .you
+        )
+
+        XCTAssertTrue(store.shouldSkipRealtimeAssistant(for: echoedYou))
+    }
+
+    func testRealtimeAssistantDoesNotSkipOwnDistinctSpeech() {
+        let store = makeStore()
+        store.volatileThemText = "Can we walk through the pricing change and rollout risk"
+        let ownSpeech = makeUtterance(
+            text: "I think we should pause and check the onboarding data first",
+            speaker: .you
+        )
+
+        XCTAssertFalse(store.shouldSkipRealtimeAssistant(for: ownSpeech))
+    }
+
     // MARK: - Clear
 
     func testClearRemovesAllUtterances() {

@@ -504,12 +504,14 @@ final class LiveSessionController {
 
         let sessionID = currentSessionID
 
-        // Trigger the active realtime assistant from either speaker
-        switch settings.sidebarMode {
-        case .classicSuggestions:
-            coordinator.suggestionEngine?.onUtterance(last)
-        case .sidecast:
-            coordinator.sidecastEngine?.onUtterance(last)
+        // Echoed speaker audio can briefly land as "You"; do not let it drive the sidebar.
+        if !coordinator.transcriptStore.shouldSkipRealtimeAssistant(for: last) {
+            switch settings.sidebarMode {
+            case .classicSuggestions:
+                coordinator.suggestionEngine?.onUtterance(last)
+            case .sidecast:
+                coordinator.sidecastEngine?.onUtterance(last)
+            }
         }
 
         Task {

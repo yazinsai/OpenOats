@@ -5,11 +5,6 @@ import os
 @Observable
 @MainActor
 final class TranscriptStore {
-    private let acousticEchoWindow: TimeInterval = 1.75
-    private let acousticEchoSimilarityThreshold = 0.78
-    private let acousticEchoMinimumWordCount = 4
-    private let acousticEchoMinimumCharacterCount = 20
-
     @ObservationIgnored nonisolated(unsafe) private var _utterances: [Utterance] = []
     private(set) var utterances: [Utterance] {
         get { access(keyPath: \.utterances); return _utterances }
@@ -95,6 +90,11 @@ final class TranscriptStore {
         utterancesSinceStateUpdate = 0
         recentUtteranceTimestamps.removeAll()
         recentQuestionTimestamps.removeAll()
+    }
+
+    func shouldSkipRealtimeAssistant(for utterance: Utterance) -> Bool {
+        guard utterance.speaker == .you else { return false }
+        return micEchoMatch(for: utterance) != nil
     }
 
     func updateConversationState(_ state: ConversationState) {
@@ -186,40 +186,59 @@ final class TranscriptStore {
     private func shouldSuppressAcousticEcho(_ utterance: Utterance) -> Bool {
         guard utterance.speaker == .you else { return false }
 
-        let normalizedYouText = TextSimilarity.normalizedText(utterance.text)
-        guard isEligibleForEchoCheck(normalizedYouText) else { return false }
+        guard let match = micEchoMatch(for: utterance) else { return false }
 
-        for candidate in utterances.reversed() where candidate.speaker.isRemote {
-            let timeDelta = utterance.timestamp.timeIntervalSince(candidate.timestamp)
-            guard timeDelta >= 0 else { continue }
-            guard timeDelta <= acousticEchoWindow else { break }
-
-            let normalizedThemText = TextSimilarity.normalizedText(candidate.text)
-            guard isEligibleForEchoCheck(normalizedThemText) else { continue }
-
-            let similarity = TextSimilarity.jaccard(normalizedYouText, normalizedThemText)
-            let containsOther =
-                normalizedYouText.contains(normalizedThemText) ||
-                normalizedThemText.contains(normalizedYouText)
-
-            guard similarity >= acousticEchoSimilarityThreshold || containsOther else { continue }
-
+        switch match.source {
+        case .remotePartial:
+            let simFormatted = String(format: "%.2f", match.similarity)
+            let youSnippet = String(utterance.text.prefix(80))
+            let themSnippet = String(volatileThemText.prefix(80))
+            Log.transcript.info(
+                "Dropped mic utterance as current system-audio echo sim=\(simFormatted, privacy: .public) you='\(youSnippet, privacy: .private)' them_partial='\(themSnippet, privacy: .private)'"
+            )
+        case .remoteFinal(let candidate, let timeDelta):
             let dtFormatted = String(format: "%.2f", timeDelta)
-            let simFormatted = String(format: "%.2f", similarity)
+            let simFormatted = String(format: "%.2f", match.similarity)
             let youSnippet = String(utterance.text.prefix(80))
             let themSnippet = String(candidate.text.prefix(80))
             Log.transcript.info(
                 "Dropped mic utterance as system-audio echo dt=\(dtFormatted, privacy: .public) similarity=\(simFormatted, privacy: .public) you='\(youSnippet, privacy: .private)' them='\(themSnippet, privacy: .private)'"
             )
-            return true
         }
 
-        return false
+        return true
     }
 
-    private func isEligibleForEchoCheck(_ normalizedText: String) -> Bool {
-        let wordCount = normalizedText.split(separator: " ").count
-        return wordCount >= acousticEchoMinimumWordCount ||
-            normalizedText.count >= acousticEchoMinimumCharacterCount
+    private struct MicEchoMatch {
+        enum Source {
+            case remotePartial
+            case remoteFinal(Utterance, TimeInterval)
+        }
+
+        let source: Source
+        let similarity: Double
+    }
+
+    private func micEchoMatch(for utterance: Utterance) -> MicEchoMatch? {
+        if let similarity = AcousticEchoFilter.textSimilarityIfEcho(utterance.text, volatileThemText) {
+            return MicEchoMatch(source: .remotePartial, similarity: similarity)
+        }
+
+        for candidate in utterances.reversed() where candidate.speaker.isRemote {
+            guard let match = AcousticEchoFilter.match(
+                micText: utterance.text,
+                remoteText: candidate.text,
+                micTimestamp: utterance.timestamp,
+                remoteTimestamp: candidate.timestamp,
+                direction: .micAfterRemote
+            ) else { continue }
+
+            return MicEchoMatch(
+                source: .remoteFinal(candidate, match.timeDelta),
+                similarity: match.similarity
+            )
+        }
+
+        return nil
     }
 }
