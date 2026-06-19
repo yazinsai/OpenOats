@@ -1160,10 +1160,23 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                         .foregroundStyle(.secondary)
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(selection.title)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
+                        HStack(spacing: 4) {
+                            Text(selection.title)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            if let session = selectedSession {
+                                Button {
+                                    beginRenaming(session)
+                                } label: {
+                                    Image(systemName: "pencil")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Rename meeting")
+                            }
+                        }
 
                         HStack(spacing: 8) {
                             if let sessionID = state.selectedSessionID,
@@ -1425,14 +1438,18 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
     private func startRecording(for event: CalendarEvent, selectedTemplate: MeetingTemplate?) {
         coordinator.selectedTemplate = selectedTemplate
         let prepNotes = settings.meetingPrepNotes(for: event)
-        coordinator.queueExternalCommand(
-            .startSession(
-                calendarEvent: event,
-                scratchpadSeed: prepNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : prepNotes
-            )
-        )
+        let scratchpad = prepNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : prepNotes
         NSApp.activate(ignoringOtherApps: true)
         openWindow(id: OpenOatsRootApp.mainWindowID)
+        if let controller = coordinator.liveSessionController {
+            container.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
+            controller.startSession(settings: settings, calendarEventOverride: event, initialScratchpad: scratchpad)
+        } else {
+            // Fall back to the external command queue if the live session controller isn't available yet.
+            coordinator.queueExternalCommand(
+                .startSession(calendarEvent: event, scratchpadSeed: scratchpad)
+            )
+        }
     }
 
     private func createManualTranscriptSessionAndMaybePrompt(controller: NotesController, event: CalendarEvent) {

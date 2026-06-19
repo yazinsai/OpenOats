@@ -112,6 +112,19 @@ struct ProviderSetupStepView: View {
                 .foregroundStyle(Color.accentTeal)
             }
 
+            VStack(alignment: .leading, spacing: 6) {
+                Label {
+                    Text("Transcription happens on your Mac by default. To use cloud transcription (AssemblyAI), add your key in **Settings → Transcription** after setup.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             if viewModel.intent == .fullCopilot {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Voyage AI key (optional, for knowledge retrieval)")

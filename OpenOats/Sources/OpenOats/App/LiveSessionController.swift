@@ -131,6 +131,8 @@ final class LiveSessionController {
     private var downloadTask: Task<Void, Never>?
     private var startPreflightTask: Task<Void, Never>?
     private var scratchpadSaveTask: Task<Void, Never>?
+    private var silenceMonitorTask: Task<Void, Never>?
+    private var lastUtteranceAt: Date?
     private var pendingInitialScratchpad: String?
 
     // Tracked-change sentinels
@@ -492,6 +494,7 @@ final class LiveSessionController {
 
     private func handleNewUtterance(_ last: Utterance, settings: AppSettings) {
         container.detectionController?.noteUtterance()
+        lastUtteranceAt = Date()
 
         if settings.enableLiveTranscriptCleanup, let engine = coordinator.liveTranscriptCleaner {
             Task {
@@ -675,12 +678,44 @@ final class LiveSessionController {
                 transcriptionModel: settings.transcriptionModel,
                 sessionID: handle.sessionID
             )
+
+            // Start silence monitoring for manual sessions (auto-detected sessions are
+            // already monitored by MeetingDetectionController).
+            let timeoutMinutes = settings.silenceTimeoutMinutes
+            if timeoutMinutes > 0, metadata.detectionContext == nil {
+                startSilenceMonitoring(timeoutMinutes: timeoutMinutes)
+            }
         }
+    }
+
+    private func startSilenceMonitoring(timeoutMinutes: Int) {
+        silenceMonitorTask?.cancel()
+        lastUtteranceAt = Date()
+        silenceMonitorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled, let self else { break }
+                if let last = self.lastUtteranceAt,
+                   Date().timeIntervalSince(last) >= Double(timeoutMinutes) * 60 {
+                    await MainActor.run {
+                        self.coordinator.handle(.userStopped)
+                    }
+                    break
+                }
+            }
+        }
+    }
+
+    private func stopSilenceMonitoring() {
+        silenceMonitorTask?.cancel()
+        silenceMonitorTask = nil
+        lastUtteranceAt = nil
     }
 
     func finalizeCurrentSession(settings: AppSettings?) async {
         // 0. Flush scratchpad
         scratchpadSaveTask?.cancel()
+        stopSilenceMonitoring()
         if let sessionID = _currentSessionID, !state.scratchpadText.isEmpty {
             await coordinator.sessionRepository.saveScratchpad(sessionID: sessionID, text: state.scratchpadText)
         }
