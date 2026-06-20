@@ -35,11 +35,23 @@ struct SetupSnapshot: Sendable {
     /// Whether a Voyage AI API key was found in existing settings.
     let hasVoyageKey: Bool
 
+    /// Whether an AssemblyAI API key was found in existing settings.
+    let hasAssemblyAIKey: Bool
+
+    /// Whether an ElevenLabs API key was found in existing settings.
+    let hasElevenLabsKey: Bool
+
     /// Existing OpenRouter API key value for pre-populating fields.
     let existingOpenRouterKey: String
 
     /// Existing Voyage AI API key value for pre-populating fields.
     let existingVoyageKey: String
+
+    /// Existing AssemblyAI API key value for pre-populating fields.
+    let existingAssemblyAIKey: String
+
+    /// Existing ElevenLabs API key value for pre-populating fields.
+    let existingElevenLabsKey: String
 
     /// Ollama probe result.
     let ollamaResult: Result<[String], OllamaModelFetcher.FetchError>
@@ -98,8 +110,12 @@ struct SetupSnapshot: Sendable {
         modelStatuses: [:],
         hasOpenRouterKey: false,
         hasVoyageKey: false,
+        hasAssemblyAIKey: false,
+        hasElevenLabsKey: false,
         existingOpenRouterKey: "",
         existingVoyageKey: "",
+        existingAssemblyAIKey: "",
+        existingElevenLabsKey: "",
         ollamaResult: .failure(.networkError("not probed"))
     )
 }

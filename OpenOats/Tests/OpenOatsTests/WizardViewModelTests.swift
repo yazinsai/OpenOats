@@ -7,6 +7,8 @@ final class WizardViewModelTests: XCTestCase {
         ram: UInt64 = 16 * 1024 * 1024 * 1024,
         locale: String = "en-US",
         hasOpenRouterKey: Bool = false,
+        hasAssemblyAIKey: Bool = false,
+        hasElevenLabsKey: Bool = false,
         hasVoyageKey: Bool = false,
         ollamaModels: Result<[String], OllamaModelFetcher.FetchError> = .failure(.networkError("no"))
     ) -> SetupSnapshot {
@@ -18,8 +20,12 @@ final class WizardViewModelTests: XCTestCase {
             modelStatuses: [:],
             hasOpenRouterKey: hasOpenRouterKey,
             hasVoyageKey: hasVoyageKey,
+            hasAssemblyAIKey: hasAssemblyAIKey,
+            hasElevenLabsKey: hasElevenLabsKey,
             existingOpenRouterKey: hasOpenRouterKey ? "sk-or-test" : "",
             existingVoyageKey: hasVoyageKey ? "pa-test" : "",
+            existingAssemblyAIKey: hasAssemblyAIKey ? "aai-test" : "",
+            existingElevenLabsKey: hasElevenLabsKey ? "xi-test" : "",
             ollamaResult: ollamaModels
         )
     }
@@ -127,10 +133,17 @@ final class WizardViewModelTests: XCTestCase {
 
     func testExistingKeysPrePopulated() {
         let viewModel = WizardViewModel()
-        viewModel.configure(with: makeSnapshot(hasOpenRouterKey: true, hasVoyageKey: true))
+        viewModel.configure(with: makeSnapshot(
+            hasOpenRouterKey: true,
+            hasAssemblyAIKey: true,
+            hasElevenLabsKey: true,
+            hasVoyageKey: true
+        ))
 
         XCTAssertEqual(viewModel.openRouterKeyInput, "sk-or-test")
         XCTAssertEqual(viewModel.voyageKeyInput, "pa-test")
+        XCTAssertEqual(viewModel.assemblyAIKeyInput, "aai-test")
+        XCTAssertEqual(viewModel.elevenLabsKeyInput, "xi-test")
     }
 
     func testApplySettingsWritesCloudProfile() {
@@ -139,11 +152,14 @@ final class WizardViewModelTests: XCTestCase {
         viewModel.intent = .notes
         viewModel.language = .english
         viewModel.privacy = .cloud
+        viewModel.assemblyAIKeyInput = "aai-new"
 
         viewModel.applySettings(to: store)
 
-        XCTAssertEqual(store.transcriptionModel, .parakeetV2)
+        XCTAssertEqual(store.transcriptionModel, .assemblyAI)
         XCTAssertEqual(store.transcriptionLocale, "en-US")
+        XCTAssertEqual(store.assemblyAIApiKey, "aai-new")
+        XCTAssertEqual(store.elevenLabsApiKey, "")
         XCTAssertEqual(store.llmProvider, .openRouter)
         XCTAssertEqual(store.selectedModel, "google/gemini-3-flash-preview")
         XCTAssertEqual(store.suggestionVerbosity, .balanced)
@@ -187,6 +203,8 @@ final class WizardViewModelTests: XCTestCase {
         let store = makeStore()
         store.openRouterApiKey = "old-key"
         store.voyageApiKey = "old-voyage"
+        store.assemblyAIApiKey = "old-aai"
+        store.elevenLabsApiKey = "old-xi"
 
         let viewModel = makeConfiguredVM()
         viewModel.intent = .notes
@@ -197,6 +215,8 @@ final class WizardViewModelTests: XCTestCase {
 
         XCTAssertEqual(store.openRouterApiKey, "")
         XCTAssertEqual(store.voyageApiKey, "")
+        XCTAssertEqual(store.assemblyAIApiKey, "")
+        XCTAssertEqual(store.elevenLabsApiKey, "")
     }
 
     func testReconfigurationSeedsCurrentSettings() {

@@ -389,7 +389,7 @@ final class SidecastEngine {
             return !settings.openAIApiKey.isEmpty && llmBaseURL != nil
         case .anthropic:
             return !settings.anthropicApiKey.isEmpty && llmBaseURL != nil
-        case .ollama, .mlx, .openAICompatible:
+        case .ollama, .lmStudio, .mlx, .openAICompatible:
             return llmBaseURL != nil
         }
     }
@@ -402,6 +402,8 @@ final class SidecastEngine {
         case .anthropic:
             settings.anthropicApiKey.isEmpty ? nil : settings.anthropicApiKey
         case .ollama: nil
+        case .lmStudio:
+            settings.lmStudioApiKey.isEmpty ? nil : settings.lmStudioApiKey
         case .mlx: nil
         case .openAICompatible:
             settings.openAILLMApiKey.isEmpty ? nil : settings.openAILLMApiKey
@@ -422,6 +424,8 @@ final class SidecastEngine {
             OpenRouterClient.anthropicMessagesURL(from: settings.anthropicBaseURL)
         case .ollama:
             OpenRouterClient.chatCompletionsURL(from: settings.ollamaBaseURL)
+        case .lmStudio:
+            OpenRouterClient.chatCompletionsURL(from: settings.lmStudioBaseURL)
         case .mlx:
             OpenRouterClient.chatCompletionsURL(from: settings.mlxBaseURL)
         case .openAICompatible:

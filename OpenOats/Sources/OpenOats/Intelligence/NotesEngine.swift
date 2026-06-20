@@ -151,6 +151,17 @@ final class NotesEngine {
             baseURL = ollamaURL
             model = settings.ollamaLLMModel
             transport = settings.activeLLMTransport
+        case .lmStudio:
+            apiKey = settings.activeLLMApiKey
+            guard let lmStudioURL = OpenRouterClient.chatCompletionsURL(from: settings.lmStudioBaseURL) else {
+                error = "Invalid LM Studio URL: \(settings.lmStudioBaseURL)"
+                isGenerating = false
+                onFinished()
+                return
+            }
+            baseURL = lmStudioURL
+            model = settings.lmStudioModel
+            transport = settings.activeLLMTransport
         case .mlx:
             apiKey = nil
             guard let mlxURL = OpenRouterClient.chatCompletionsURL(from: settings.mlxBaseURL) else {
@@ -314,7 +325,7 @@ final class NotesEngine {
         allowCloudCalendarContext: Bool
     ) -> Bool {
         switch provider {
-        case .ollama, .mlx:
+        case .ollama, .lmStudio, .mlx:
             return true
         case .openRouter, .openAI, .anthropic:
             return allowCloudCalendarContext

@@ -8,6 +8,36 @@ import os
 final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
     let displayName = "ElevenLabs Scribe"
 
+    struct DiarizedSegment: Equatable {
+        let speaker: Speaker
+        let text: String
+        let startTime: TimeInterval
+        let endTime: TimeInterval
+    }
+
+    struct TranscriptResult: Equatable {
+        let text: String
+        let segments: [DiarizedSegment]
+    }
+
+    private struct ScribeResponse: Decodable {
+        let text: String
+        let words: [ScribeWord]?
+    }
+
+    private struct ScribeWord: Decodable {
+        let text: String
+        let start: TimeInterval?
+        let end: TimeInterval?
+        let type: String?
+        let speakerID: String?
+
+        enum CodingKeys: String, CodingKey {
+            case text, start, end, type
+            case speakerID = "speaker_id"
+        }
+    }
+
     private let apiKey: String
     private let keyterms: [String]
     private let removeFillerWords: Bool
@@ -67,6 +97,24 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
         locale: Locale,
         previousContext: String? = nil
     ) async throws -> String {
+        let result = try await transcribe(samples, locale: locale, previousContext: previousContext, diarize: false)
+        return result.text
+    }
+
+    func transcribeDiarized(
+        _ samples: [Float],
+        locale: Locale,
+        previousContext: String? = nil
+    ) async throws -> TranscriptResult {
+        try await transcribe(samples, locale: locale, previousContext: previousContext, diarize: true)
+    }
+
+    private func transcribe(
+        _ samples: [Float],
+        locale: Locale,
+        previousContext: String?,
+        diarize: Bool
+    ) async throws -> TranscriptResult {
         guard prepared else { throw TranscriptionBackendError.notPrepared }
 
         // 1. Encode audio as WAV
@@ -80,7 +128,8 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
             wavData: wavData,
             languageCode: languageCode,
             keyterms: keyterms,
-            removeFillerWords: removeFillerWords
+            removeFillerWords: removeFillerWords,
+            diarize: diarize
         )
 
         // 3. POST to speech-to-text endpoint
@@ -93,7 +142,7 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
         request.httpBody = body
         request.timeoutInterval = 30
 
-        let text: String = try await withTransientRetry { [session] in
+        let result: TranscriptResult = try await withTransientRetry { [session] in
             let (responseData, response) = try await session.data(for: request)
 
             if let http = response as? HTTPURLResponse {
@@ -107,15 +156,11 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
                 }
             }
 
-            let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-            guard let text = json?["text"] as? String else {
-                throw CloudASRError.transcriptionFailed("Missing text field in response.")
-            }
-            return text
+            return try Self.parseTranscriptResponse(responseData)
         }
 
         Self.log.info("ElevenLabs Scribe transcription completed")
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return result
     }
 
     // MARK: - Multipart Body Builder (internal for tests)
@@ -132,11 +177,15 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
         wavData: Data,
         languageCode: String,
         keyterms: [String],
-        removeFillerWords: Bool
+        removeFillerWords: Bool,
+        diarize: Bool = false
     ) -> Data {
         var body = Data()
 
         body.appendMultipart(boundary: boundary, name: "model_id", value: "scribe_v2")
+        if diarize {
+            body.appendMultipart(boundary: boundary, name: "diarize", value: "true")
+        }
 
         if !languageCode.isEmpty {
             body.appendMultipart(boundary: boundary, name: "language_code", value: languageCode)
@@ -160,6 +209,79 @@ final class ElevenLabsScribeBackend: TranscriptionBackend, @unchecked Sendable {
 
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         return body
+    }
+
+    static func parseTranscriptResponse(_ data: Data) throws -> TranscriptResult {
+        let response = try JSONDecoder().decode(ScribeResponse.self, from: data)
+        let text = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let segments = buildDiarizedSegments(from: response.words ?? [])
+        return TranscriptResult(text: text, segments: segments)
+    }
+
+    private static func buildDiarizedSegments(from words: [ScribeWord]) -> [DiarizedSegment] {
+        var speakerIDs: [String: Speaker] = [:]
+        var nextSpeakerIndex = 1
+        var segments: [DiarizedSegment] = []
+
+        var currentSpeaker: Speaker?
+        var currentText = ""
+        var currentStart: TimeInterval?
+        var currentEnd: TimeInterval?
+
+        func flushCurrent() {
+            let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let speaker = currentSpeaker,
+                  let start = currentStart,
+                  let end = currentEnd,
+                  !text.isEmpty
+            else { return }
+            segments.append(DiarizedSegment(speaker: speaker, text: text, startTime: start, endTime: end))
+        }
+
+        for word in words {
+            guard let speakerID = word.speakerID,
+                  let start = word.start,
+                  let end = word.end,
+                  start <= end
+            else { continue }
+            let trimmedWord = word.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedWord.isEmpty else { continue }
+            let isPunctuationOnly = trimmedWord.unicodeScalars.allSatisfy {
+                CharacterSet.punctuationCharacters.contains($0)
+            }
+            guard word.type == nil || word.type == "word" || isPunctuationOnly else { continue }
+
+            let speaker = speakerIDs[speakerID] ?? {
+                let mapped = Speaker.remote(nextSpeakerIndex)
+                speakerIDs[speakerID] = mapped
+                nextSpeakerIndex += 1
+                return mapped
+            }()
+
+            if currentSpeaker != speaker {
+                flushCurrent()
+                currentSpeaker = speaker
+                currentText = ""
+                currentStart = start
+                currentEnd = end
+            }
+
+            appendWord(trimmedWord, to: &currentText)
+            currentEnd = end
+        }
+
+        flushCurrent()
+        return segments
+    }
+
+    private static func appendWord(_ word: String, to text: inout String) {
+        let trimmed = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if text.isEmpty || trimmed.unicodeScalars.allSatisfy({ CharacterSet.punctuationCharacters.contains($0) }) {
+            text += trimmed
+        } else {
+            text += " " + trimmed
+        }
     }
 
     // MARK: - Private: Keyterms Parser
