@@ -81,6 +81,8 @@ struct SidecastPreset: Decodable {
         "openai": .openAI,
         "anthropic": .anthropic,
         "ollama": .ollama,
+        "lmstudio": .lmStudio,
+        "lm-studio": .lmStudio,
         "openai-compatible": .openAICompatible,
     ]
 
@@ -97,6 +99,8 @@ struct SidecastPreset: Decodable {
                     settings.openAIApiKey = apiKey
                 case .anthropic:
                     settings.anthropicApiKey = apiKey
+                case .lmStudio:
+                    settings.lmStudioApiKey = apiKey
                 case .openAICompatible:
                     settings.openAILLMApiKey = apiKey
                 case .ollama, .mlx:
@@ -112,6 +116,8 @@ struct SidecastPreset: Decodable {
                     settings.anthropicBaseURL = baseURL
                 case .ollama:
                     settings.ollamaBaseURL = baseURL
+                case .lmStudio:
+                    settings.lmStudioBaseURL = baseURL
                 case .openAICompatible:
                     settings.openAILLMBaseURL = baseURL
                 case .openRouter, .mlx:
@@ -129,6 +135,8 @@ struct SidecastPreset: Decodable {
                     settings.anthropicModel = model
                 case .ollama:
                     settings.realtimeOllamaModel = model
+                case .lmStudio:
+                    settings.lmStudioModel = model
                 case .openAICompatible:
                     settings.openAILLMModel = model
                 case .mlx:

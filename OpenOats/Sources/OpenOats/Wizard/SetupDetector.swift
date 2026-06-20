@@ -14,6 +14,8 @@ actor SetupDetector {
         func modelStatuses() -> [TranscriptionModel: BackendStatus]
         func existingOpenRouterKey() async -> String
         func existingVoyageKey() async -> String
+        func existingAssemblyAIKey() async -> String
+        func existingElevenLabsKey() async -> String
         func fetchOllamaModels() async -> Result<[String], OllamaModelFetcher.FetchError>
     }
 
@@ -64,6 +66,14 @@ actor SetupDetector {
             await MainActor.run { settings.voyageApiKey }
         }
 
+        func existingAssemblyAIKey() async -> String {
+            await MainActor.run { settings.assemblyAIApiKey }
+        }
+
+        func existingElevenLabsKey() async -> String {
+            await MainActor.run { settings.elevenLabsApiKey }
+        }
+
         nonisolated func fetchOllamaModels() async -> Result<[String], OllamaModelFetcher.FetchError> {
             await OllamaModelFetcher.fetchModels(baseURL: "http://localhost:11434")
         }
@@ -85,12 +95,16 @@ actor SetupDetector {
 
         async let openRouterKey = deps.existingOpenRouterKey()
         async let voyageKey = deps.existingVoyageKey()
+        async let assemblyAIKey = deps.existingAssemblyAIKey()
+        async let elevenLabsKey = deps.existingElevenLabsKey()
         let ollamaResult = await withTimeoutResult(seconds: 3.0) {
             await self.deps.fetchOllamaModels()
         }
 
         let resolvedOpenRouterKey = await openRouterKey
         let resolvedVoyageKey = await voyageKey
+        let resolvedAssemblyAIKey = await assemblyAIKey
+        let resolvedElevenLabsKey = await elevenLabsKey
 
         return SetupSnapshot(
             physicalMemoryBytes: ram,
@@ -100,8 +114,12 @@ actor SetupDetector {
             modelStatuses: modelStatuses,
             hasOpenRouterKey: !resolvedOpenRouterKey.isEmpty,
             hasVoyageKey: !resolvedVoyageKey.isEmpty,
+            hasAssemblyAIKey: !resolvedAssemblyAIKey.isEmpty,
+            hasElevenLabsKey: !resolvedElevenLabsKey.isEmpty,
             existingOpenRouterKey: resolvedOpenRouterKey,
             existingVoyageKey: resolvedVoyageKey,
+            existingAssemblyAIKey: resolvedAssemblyAIKey,
+            existingElevenLabsKey: resolvedElevenLabsKey,
             ollamaResult: ollamaResult
         )
     }

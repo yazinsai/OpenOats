@@ -565,7 +565,8 @@ actor BatchAudioTranscriber {
         if let sysURL = urls.sys {
             // Optionally run diarization on the full system audio
             var batchDiarizer: DiarizationManager?
-            if enableDiarization {
+            let useElevenLabsNativeDiarization = enableDiarization && model == .elevenLabsScribe
+            if enableDiarization && !useElevenLabsNativeDiarization {
                 Log.batchTranscription.info("Running LS-EEND diarization on system audio...")
                 let dm = DiarizationManager()
                 let variant = LSEENDVariant(rawValue: diarizationVariant.rawValue) ?? .dihard3
@@ -580,6 +581,8 @@ actor BatchAudioTranscriber {
                 await dm.finalize()
                 batchDiarizer = dm
                 Log.batchTranscription.info("Diarization complete")
+            } else if useElevenLabsNativeDiarization {
+                Log.batchTranscription.info("Using ElevenLabs native diarization for system audio")
             }
 
             sysRecords = try await transcribeFile(
@@ -592,7 +595,8 @@ actor BatchAudioTranscriber {
                 locale: locale,
                 progressBase: Double(filesProcessed) / Double(totalFiles),
                 progressScale: 1.0 / Double(totalFiles),
-                diarizationManager: batchDiarizer
+                diarizationManager: batchDiarizer,
+                useElevenLabsNativeDiarization: useElevenLabsNativeDiarization
             )
             Log.batchTranscription.debug("Sys transcription: \(sysRecords.count, privacy: .public) records")
         }
@@ -658,7 +662,8 @@ actor BatchAudioTranscriber {
         locale: Locale,
         progressBase: Double,
         progressScale: Double,
-        diarizationManager: DiarizationManager? = nil
+        diarizationManager: DiarizationManager? = nil,
+        useElevenLabsNativeDiarization: Bool = false
     ) async throws -> [SessionRecord] {
         guard let audioFile = try? AVAudioFile(forReading: url) else {
             Log.batchTranscription.warning("Cannot open audio file: \(url.lastPathComponent, privacy: .public)")
@@ -702,6 +707,23 @@ actor BatchAudioTranscriber {
                 let segmentStartTime = sampleOffsetInFile / resolvedSampleRate
                 let segmentDuration = Double(segment.samples.count) / 16000.0
                 let segmentEndTime = segmentStartTime + segmentDuration
+
+                if useElevenLabsNativeDiarization,
+                   let elevenLabsBackend = backend as? ElevenLabsScribeBackend
+                {
+                    let result = try await elevenLabsBackend.transcribeDiarized(
+                        segment.samples,
+                        locale: locale,
+                        previousContext: nil
+                    )
+                    let diarizedRecords = makeRecords(
+                        from: result,
+                        fallbackSpeaker: speaker,
+                        baseTimestamp: resolvedStartDate.addingTimeInterval(segmentStartTime)
+                    )
+                    records.append(contentsOf: diarizedRecords)
+                    continue
+                }
 
                 let slices: [BatchTranscriptionSegmentLayout.Slice]
                 if let dm = diarizationManager {
@@ -753,6 +775,31 @@ actor BatchAudioTranscriber {
         }
 
         return records
+    }
+
+    private func makeRecords(
+        from result: ElevenLabsScribeBackend.TranscriptResult,
+        fallbackSpeaker: Speaker,
+        baseTimestamp: Date
+    ) -> [SessionRecord] {
+        if result.segments.isEmpty {
+            guard !result.text.isEmpty else { return [] }
+            return [
+                SessionRecord(
+                    speaker: fallbackSpeaker,
+                    text: result.text,
+                    timestamp: baseTimestamp
+                )
+            ]
+        }
+
+        return result.segments.map { segment in
+            SessionRecord(
+                speaker: segment.speaker,
+                text: segment.text,
+                timestamp: baseTimestamp.addingTimeInterval(segment.startTime)
+            )
+        }
     }
 
     // MARK: - Audio Reading

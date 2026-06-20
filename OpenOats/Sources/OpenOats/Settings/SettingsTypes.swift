@@ -297,6 +297,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
     case openAI
     case anthropic
     case ollama
+    case lmStudio
     case mlx
     case openAICompatible
 
@@ -308,6 +309,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
         case .openAI: "OpenAI"
         case .anthropic: "Anthropic"
         case .ollama: "Ollama"
+        case .lmStudio: "LM Studio"
         case .mlx: "MLX"
         case .openAICompatible: "OpenAI Compatible"
         }

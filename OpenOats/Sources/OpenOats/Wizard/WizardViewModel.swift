@@ -81,6 +81,36 @@ final class WizardViewModel {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _assemblyAIKeyInput = ""
+    var assemblyAIKeyInput: String {
+        get { access(keyPath: \.assemblyAIKeyInput); return _assemblyAIKeyInput }
+        set {
+            withMutation(keyPath: \.assemblyAIKeyInput) { _assemblyAIKeyInput = newValue }
+            if !newValue.isEmpty {
+                validateAssemblyAIKey()
+            } else {
+                assemblyAIValidationTask?.cancel()
+                assemblyAIValidation = nil
+                isValidatingAssemblyAI = false
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _elevenLabsKeyInput = ""
+    var elevenLabsKeyInput: String {
+        get { access(keyPath: \.elevenLabsKeyInput); return _elevenLabsKeyInput }
+        set {
+            withMutation(keyPath: \.elevenLabsKeyInput) { _elevenLabsKeyInput = newValue }
+            if !newValue.isEmpty {
+                validateElevenLabsKey()
+            } else {
+                elevenLabsValidationTask?.cancel()
+                elevenLabsValidation = nil
+                isValidatingElevenLabs = false
+            }
+        }
+    }
+
     // MARK: - Validation State
 
     @ObservationIgnored nonisolated(unsafe) private var _openRouterValidation: APIKeyValidator.ValidationResult?
@@ -95,6 +125,18 @@ final class WizardViewModel {
         set { withMutation(keyPath: \.voyageValidation) { _voyageValidation = newValue } }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _assemblyAIValidation: APIKeyValidator.ValidationResult?
+    var assemblyAIValidation: APIKeyValidator.ValidationResult? {
+        get { access(keyPath: \.assemblyAIValidation); return _assemblyAIValidation }
+        set { withMutation(keyPath: \.assemblyAIValidation) { _assemblyAIValidation = newValue } }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _elevenLabsValidation: APIKeyValidator.ValidationResult?
+    var elevenLabsValidation: APIKeyValidator.ValidationResult? {
+        get { access(keyPath: \.elevenLabsValidation); return _elevenLabsValidation }
+        set { withMutation(keyPath: \.elevenLabsValidation) { _elevenLabsValidation = newValue } }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _isValidatingOpenRouter = false
     var isValidatingOpenRouter: Bool {
         get { access(keyPath: \.isValidatingOpenRouter); return _isValidatingOpenRouter }
@@ -105,6 +147,18 @@ final class WizardViewModel {
     var isValidatingVoyage: Bool {
         get { access(keyPath: \.isValidatingVoyage); return _isValidatingVoyage }
         set { withMutation(keyPath: \.isValidatingVoyage) { _isValidatingVoyage = newValue } }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _isValidatingAssemblyAI = false
+    var isValidatingAssemblyAI: Bool {
+        get { access(keyPath: \.isValidatingAssemblyAI); return _isValidatingAssemblyAI }
+        set { withMutation(keyPath: \.isValidatingAssemblyAI) { _isValidatingAssemblyAI = newValue } }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _isValidatingElevenLabs = false
+    var isValidatingElevenLabs: Bool {
+        get { access(keyPath: \.isValidatingElevenLabs); return _isValidatingElevenLabs }
+        set { withMutation(keyPath: \.isValidatingElevenLabs) { _isValidatingElevenLabs = newValue } }
     }
 
     // MARK: - Ollama State
@@ -189,6 +243,8 @@ final class WizardViewModel {
 
     private var openRouterValidationTask: Task<Void, Never>?
     private var voyageValidationTask: Task<Void, Never>?
+    private var assemblyAIValidationTask: Task<Void, Never>?
+    private var elevenLabsValidationTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
@@ -208,6 +264,12 @@ final class WizardViewModel {
         }
         if !snapshot.existingVoyageKey.isEmpty {
             voyageKeyInput = snapshot.existingVoyageKey
+        }
+        if !snapshot.existingAssemblyAIKey.isEmpty {
+            assemblyAIKeyInput = snapshot.existingAssemblyAIKey
+        }
+        if !snapshot.existingElevenLabsKey.isEmpty {
+            elevenLabsKeyInput = snapshot.existingElevenLabsKey
         }
 
         if isReconfiguration, let currentSettings {
@@ -234,7 +296,12 @@ final class WizardViewModel {
             if recommendation.profile.isCloud {
                 let openRouterValid = openRouterValidation == .valid || openRouterValidation?.isNetworkError == true
                 let voyageValid = voyageKeyInput.isEmpty || voyageValidation == .valid || voyageValidation?.isNetworkError == true
-                return !openRouterKeyInput.isEmpty && openRouterValid && voyageValid
+                let asrKeyValid = cloudASRKeyValidation == .valid || cloudASRKeyValidation?.isNetworkError == true
+                return !openRouterKeyInput.isEmpty
+                    && openRouterValid
+                    && voyageValid
+                    && !cloudASRKeyInput.isEmpty
+                    && asrKeyValid
             }
             if recommendation.profile.isLocal {
                 return ollamaStatus == .readyWithModels
@@ -322,6 +389,39 @@ final class WizardViewModel {
         return .cloud
     }
 
+    var requiredCloudASRProviderName: String? {
+        switch recommendation?.transcriptionModel {
+        case .assemblyAI?:
+            return "AssemblyAI"
+        case .elevenLabsScribe?:
+            return "ElevenLabs"
+        default:
+            return nil
+        }
+    }
+
+    private var cloudASRKeyInput: String {
+        switch recommendation?.transcriptionModel {
+        case .assemblyAI?:
+            return assemblyAIKeyInput
+        case .elevenLabsScribe?:
+            return elevenLabsKeyInput
+        default:
+            return ""
+        }
+    }
+
+    private var cloudASRKeyValidation: APIKeyValidator.ValidationResult? {
+        switch recommendation?.transcriptionModel {
+        case .assemblyAI?:
+            return assemblyAIValidation
+        case .elevenLabsScribe?:
+            return elevenLabsValidation
+        default:
+            return nil
+        }
+    }
+
     // MARK: - API Key Validation
 
     private func validateOpenRouterKey() {
@@ -355,6 +455,40 @@ final class WizardViewModel {
 
             self.voyageValidation = result
             self.isValidatingVoyage = false
+        }
+    }
+
+    private func validateAssemblyAIKey() {
+        assemblyAIValidationTask?.cancel()
+        isValidatingAssemblyAI = true
+        assemblyAIValidation = nil
+
+        assemblyAIValidationTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+
+            let result = await APIKeyValidator.validateAssemblyAIKey(self.assemblyAIKeyInput)
+            guard !Task.isCancelled else { return }
+
+            self.assemblyAIValidation = result
+            self.isValidatingAssemblyAI = false
+        }
+    }
+
+    private func validateElevenLabsKey() {
+        elevenLabsValidationTask?.cancel()
+        isValidatingElevenLabs = true
+        elevenLabsValidation = nil
+
+        elevenLabsValidationTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+
+            let result = await APIKeyValidator.validateElevenLabsKey(self.elevenLabsKeyInput)
+            guard !Task.isCancelled else { return }
+
+            self.elevenLabsValidation = result
+            self.isValidatingElevenLabs = false
         }
     }
 
@@ -456,6 +590,16 @@ final class WizardViewModel {
         if intent == .fullCopilot, recommendation.profile.isCloud {
             settings.voyageApiKey = voyageKeyInput
         }
+        switch recommendation.transcriptionModel {
+        case .assemblyAI:
+            settings.assemblyAIApiKey = assemblyAIKeyInput
+            settings.elevenLabsApiKey = ""
+        case .elevenLabsScribe:
+            settings.elevenLabsApiKey = elevenLabsKeyInput
+            settings.assemblyAIApiKey = ""
+        default:
+            break
+        }
 
         settings.suggestionVerbosity = recommendation.suggestionVerbosity
         settings.sidebarMode = recommendation.sidebarMode
@@ -479,6 +623,11 @@ final class WizardViewModel {
             settings.anthropicModel = "claude-sonnet-4-5-20250929"
         }
 
+        if !profile.isCloud {
+            settings.assemblyAIApiKey = ""
+            settings.elevenLabsApiKey = ""
+        }
+
         if !profile.isLocal {
             settings.ollamaBaseURL = "http://localhost:11434"
             settings.ollamaLLMModel = "qwen3:8b"
@@ -499,7 +648,7 @@ final class WizardViewModel {
             hasConfiguredLLM = !settings.openAIApiKey.isEmpty
         case .anthropic:
             hasConfiguredLLM = !settings.anthropicApiKey.isEmpty
-        case .ollama, .mlx, .openAICompatible:
+        case .ollama, .lmStudio, .mlx, .openAICompatible:
             hasConfiguredLLM = true
         }
 
@@ -515,7 +664,7 @@ final class WizardViewModel {
         }
 
         switch settings.llmProvider {
-        case .ollama:
+        case .ollama, .lmStudio:
             privacy = .local
         case .openRouter, .openAI, .anthropic, .mlx, .openAICompatible:
             privacy = .cloud

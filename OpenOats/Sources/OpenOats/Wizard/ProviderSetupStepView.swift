@@ -112,18 +112,7 @@ struct ProviderSetupStepView: View {
                 .foregroundStyle(Color.accentTeal)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Label {
-                    Text("Transcription happens on your Mac by default. To use cloud transcription (AssemblyAI), add your key in **Settings → Transcription** after setup.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } icon: {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-            }
+            cloudASRKeyField
 
             if viewModel.intent == .fullCopilot {
                 VStack(alignment: .leading, spacing: 6) {
@@ -155,6 +144,74 @@ struct ProviderSetupStepView: View {
                     .foregroundStyle(Color.accentTeal)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var cloudASRKeyField: some View {
+        switch viewModel.recommendation?.transcriptionModel {
+        case .assemblyAI?:
+            VStack(alignment: .leading, spacing: 6) {
+                Text("AssemblyAI API key")
+                    .font(.system(size: 12, weight: .medium))
+
+                Text("Required for the recommended English cloud transcription model.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    TextField("AssemblyAI API key", text: $viewModel.assemblyAIKeyInput)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12, design: .monospaced))
+
+                    validationIndicator(
+                        isValidating: viewModel.isValidatingAssemblyAI,
+                        result: viewModel.assemblyAIValidation
+                    )
+                }
+
+                validationMessage(result: viewModel.assemblyAIValidation)
+
+                Link(
+                    "Don't have a key? Create one on AssemblyAI",
+                    destination: URL(string: "https://www.assemblyai.com/dashboard/api-keys")!
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(Color.accentTeal)
+            }
+
+        case .elevenLabsScribe?:
+            VStack(alignment: .leading, spacing: 6) {
+                Text("ElevenLabs API key")
+                    .font(.system(size: 12, weight: .medium))
+
+                Text("Required for the recommended multilingual cloud transcription model.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    TextField("ElevenLabs API key", text: $viewModel.elevenLabsKeyInput)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12, design: .monospaced))
+
+                    validationIndicator(
+                        isValidating: viewModel.isValidatingElevenLabs,
+                        result: viewModel.elevenLabsValidation
+                    )
+                }
+
+                validationMessage(result: viewModel.elevenLabsValidation)
+
+                Link(
+                    "Don't have a key? Create one on ElevenLabs",
+                    destination: URL(string: "https://elevenlabs.io/app/settings/api-keys")!
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(Color.accentTeal)
+            }
+
+        default:
+            EmptyView()
         }
     }
 

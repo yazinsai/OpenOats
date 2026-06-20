@@ -115,12 +115,12 @@ final class LiveSessionController {
         let hasBlockingError: Bool
     }
 
-    struct AutomaticSilencePauseEvaluation: Equatable {
+    struct AutomaticSilenceTimeoutEvaluation: Equatable {
         let lastAudibleActivityAt: Date?
-        let shouldPause: Bool
+        let shouldStop: Bool
     }
 
-    static let automaticSilencePauseInterval: TimeInterval = 300
+    static let automaticSilenceTimeoutInterval: TimeInterval = 300
     static let audibleActivityLevelThreshold: Float = 0.01
 
     private(set) var state = LiveSessionState()
@@ -1306,31 +1306,31 @@ final class LiveSessionController {
         return max(0, Int(Date().timeIntervalSince(startedAt)))
     }
 
-    static func automaticSilencePauseEvaluation(
+    static func automaticSilenceTimeoutEvaluation(
         isRunning: Bool,
         isRecordingPaused: Bool,
         audioLevel: Float,
         now: Date,
         lastAudibleActivityAt: Date?,
-        pauseInterval: TimeInterval = automaticSilencePauseInterval,
+        timeoutInterval: TimeInterval = automaticSilenceTimeoutInterval,
         audibleThreshold: Float = audibleActivityLevelThreshold
-    ) -> AutomaticSilencePauseEvaluation {
+    ) -> AutomaticSilenceTimeoutEvaluation {
         guard isRunning else {
-            return AutomaticSilencePauseEvaluation(lastAudibleActivityAt: nil, shouldPause: false)
+            return AutomaticSilenceTimeoutEvaluation(lastAudibleActivityAt: nil, shouldStop: false)
         }
 
         guard !isRecordingPaused else {
-            return AutomaticSilencePauseEvaluation(lastAudibleActivityAt: now, shouldPause: false)
+            return AutomaticSilenceTimeoutEvaluation(lastAudibleActivityAt: now, shouldStop: false)
         }
 
         if audioLevel >= audibleThreshold {
-            return AutomaticSilencePauseEvaluation(lastAudibleActivityAt: now, shouldPause: false)
+            return AutomaticSilenceTimeoutEvaluation(lastAudibleActivityAt: now, shouldStop: false)
         }
 
         let lastActivity = lastAudibleActivityAt ?? now
-        return AutomaticSilencePauseEvaluation(
+        return AutomaticSilenceTimeoutEvaluation(
             lastAudibleActivityAt: lastActivity,
-            shouldPause: now.timeIntervalSince(lastActivity) >= pauseInterval
+            shouldStop: now.timeIntervalSince(lastActivity) >= timeoutInterval
         )
     }
 
@@ -1611,7 +1611,7 @@ final class LiveSessionController {
             set(\.recordingHealthNotice, nil)
         }
 
-        updateAutomaticSilencePause(currentState: currentState)
+        updateAutomaticSilenceTimeout(currentState: currentState, settings: settings)
 
         if currentState.isRunning != observedIsRunning {
             observedIsRunning = currentState.isRunning
@@ -1639,13 +1639,13 @@ final class LiveSessionController {
         }
     }
 
-    private func updateAutomaticSilencePause(currentState: LiveSessionState) {
+    private func updateAutomaticSilenceTimeout(currentState: LiveSessionState, settings: AppSettings) {
         guard let engine = coordinator.transcriptionEngine else {
             observedLastAudibleActivityAt = nil
             return
         }
 
-        let evaluation = Self.automaticSilencePauseEvaluation(
+        let evaluation = Self.automaticSilenceTimeoutEvaluation(
             isRunning: currentState.isRunning && engine.isRunning,
             isRecordingPaused: engine.isRecordingPaused,
             audioLevel: currentState.audioLevel,
@@ -1654,9 +1654,9 @@ final class LiveSessionController {
         )
         observedLastAudibleActivityAt = evaluation.lastAudibleActivityAt
 
-        guard evaluation.shouldPause, !engine.isRecordingPaused else { return }
-        engine.isRecordingPaused = true
-        set(\.isRecordingPaused, true)
-        DiagnosticsSupport.record(category: "meeting", message: "Recording auto-paused after 5 minutes of silence")
+        guard evaluation.shouldStop, !engine.isRecordingPaused else { return }
+        observedLastAudibleActivityAt = nil
+        DiagnosticsSupport.record(category: "meeting", message: "Recording auto-stopped after 5 minutes of silence")
+        stopSession(settings: settings)
     }
 }
