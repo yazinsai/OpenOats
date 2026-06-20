@@ -39,6 +39,33 @@ enum APIKeyValidator {
         }
     }
 
+    /// Validate an AssemblyAI API key by hitting the transcript list endpoint.
+    static func validateAssemblyAIKey(_ key: String) async -> ValidationResult {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return .invalid(message: "API key is empty")
+        }
+
+        guard let url = URL(string: "https://api.assemblyai.com/v2/transcript?limit=1") else {
+            return .networkError(message: "Invalid URL")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(trimmed, forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 5
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return validationResult(
+                for: response,
+                authFailureMessage: "This key didn't work - double-check it on assemblyai.com"
+            )
+        } catch {
+            return .networkError(message: "Could not verify - will test when you go online")
+        }
+    }
+
     /// Validate an OpenRouter API key by hitting the models list endpoint.
     static func validateOpenRouterKey(_ key: String) async -> ValidationResult {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)

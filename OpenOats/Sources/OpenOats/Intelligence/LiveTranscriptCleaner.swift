@@ -106,6 +106,9 @@ actor LiveTranscriptCleaner {
         let anthropicModel = await MainActor.run { settings.anthropicModel }
         let ollamaURL = await MainActor.run { settings.ollamaBaseURL }
         let ollamaModel = await MainActor.run { settings.ollamaLLMModel }
+        let lmStudioURL = await MainActor.run { settings.lmStudioBaseURL }
+        let lmStudioKey = await MainActor.run { settings.lmStudioApiKey }
+        let lmStudioModelName = await MainActor.run { settings.lmStudioModel }
         let mlxURL = await MainActor.run { settings.mlxBaseURL }
         let mlxModelName = await MainActor.run { settings.mlxModel }
         let openAILLMURL = await MainActor.run { settings.openAILLMBaseURL }
@@ -144,6 +147,15 @@ actor LiveTranscriptCleaner {
             }
             baseURL = url
             model = ollamaModel
+            transport = .chatCompletions
+        case .lmStudio:
+            apiKey = lmStudioKey.isEmpty ? nil : lmStudioKey
+            guard let url = OpenRouterClient.chatCompletionsURL(from: lmStudioURL) else {
+                await markFailed(utterance.id)
+                return
+            }
+            baseURL = url
+            model = lmStudioModelName
             transport = .chatCompletions
         case .mlx:
             apiKey = nil

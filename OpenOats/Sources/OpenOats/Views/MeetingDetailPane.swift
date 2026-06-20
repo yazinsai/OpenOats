@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 enum MeetingDetailViewMode: String, CaseIterable {
     case transcript = "Transcript"
     case notes = "Notes"
+    case ask = "Ask"
 }
 
 private enum MeetingDetailPaneFormatters {
@@ -13,6 +14,17 @@ private enum MeetingDetailPaneFormatters {
         f.dateFormat = "HH:mm:ss"
         return f
     }()
+}
+
+private struct TranscriptChatMessage: Identifiable, Equatable {
+    enum Role: Equatable {
+        case user
+        case assistant
+    }
+
+    let id = UUID()
+    let role: Role
+    let text: String
 }
 
 extension SessionIndex {
@@ -59,6 +71,10 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
     @State private var newFolderPath: String = ""
     @State private var newFolderColor: NotesFolderColor = .orange
     @FocusState private var newFolderFieldFocused: Bool
+    @State private var askQuestion: String = ""
+    @State private var askMessages: [TranscriptChatMessage] = []
+    @State private var askError: String?
+    @State private var askTask: Task<Void, Never>?
 
     private enum AppleNotesSyncState {
         case idle, syncing, failed
@@ -199,6 +215,7 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
             .onChange(of: state.selectedSessionID) {
                 appleNotesSyncState = .idle
                 appleNotesLastSyncDate = state.selectedSessionID.flatMap { AppleNotesService.lastSyncDate(for: $0) }
+                resetAskConversation()
                 if renamingSessionID != state.selectedSessionID {
                     cancelRename()
                 }
@@ -213,6 +230,9 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                 if meetingFamilyBottomTab != .history {
                     cancelBulkDeleteMode()
                 }
+            }
+            .onDisappear {
+                cancelAskTask()
             }
             .onChange(of: state.meetingHistoryEntries.map(\.session.id)) {
                 let validSessionIDs = Set(state.meetingHistoryEntries.map(\.session.id))
@@ -1115,6 +1135,8 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                     .keyboardShortcut("1", modifiers: .command)
                 Button("") { detailViewMode = .notes }
                     .keyboardShortcut("2", modifiers: .command)
+                Button("") { detailViewMode = .ask }
+                    .keyboardShortcut("3", modifiers: .command)
             }
             .frame(width: 0, height: 0)
             .opacity(0)
@@ -1431,6 +1453,12 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
         )
         NSApp.activate(ignoringOtherApps: true)
         openWindow(id: OpenOatsRootApp.mainWindowID)
+        Task { @MainActor in
+            await Task.yield()
+            coordinator.liveSessionController?.handlePendingExternalCommandIfPossible(settings: settings) {
+                openWindow(id: "notes")
+            }
+        }
     }
 
     private func createManualTranscriptSessionAndMaybePrompt(controller: NotesController, event: CalendarEvent) {
@@ -1495,6 +1523,8 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
             transcriptToolbarActions(controller: controller, state: state)
         } else if detailViewMode == .notes {
             notesToolbarActions(controller: controller, state: state)
+        } else if detailViewMode == .ask {
+            askToolbarActions()
         }
 
         if state.selectedSessionID != nil,
@@ -1503,6 +1533,7 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
         }
 
         if state.selectedSessionID != nil {
+            renameSessionButton(state: state)
             sessionManagementMenu(controller: controller, state: state)
         }
 
@@ -1525,6 +1556,22 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
         .buttonStyle(.bordered)
         .disabled(copyContentIsEmpty(state: state))
         .help("Copy to clipboard")
+    }
+
+    @ViewBuilder
+    private func renameSessionButton(state: NotesState) -> some View {
+        if let session = selectedSession(in: state) {
+            Button {
+                beginRenaming(session)
+            } label: {
+                Label("Rename", systemImage: "pencil")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.bordered)
+            .fixedSize()
+            .help("Rename this meeting")
+            .accessibilityIdentifier("meetingDetail.rename")
+        }
     }
 
     @ViewBuilder
@@ -2096,6 +2143,19 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
     }
 
     @ViewBuilder
+    private func askToolbarActions() -> some View {
+        Button {
+            resetAskConversation()
+        } label: {
+            Label("Clear Chat", systemImage: "trash")
+                .font(.system(size: 12))
+        }
+        .buttonStyle(.bordered)
+        .disabled(askMessages.isEmpty && askQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && askError == nil)
+        .help("Clear transcript chat")
+    }
+
+    @ViewBuilder
     private func appleNotesSyncButton(controller: NotesController, state: NotesState) -> some View {
         Button {
             guard appleNotesSyncState != .syncing else { return }
@@ -2372,6 +2432,8 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                 transcriptView(controller: controller, state: state)
             case .notes:
                 notesTab(controller: controller, state: state, sessionID: sessionID)
+            case .ask:
+                askTab(state: state)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2409,6 +2471,161 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                 }
             }
         }
+    }
+
+    private func askTab(state: NotesState) -> some View {
+        VStack(spacing: 0) {
+            if state.loadedTranscript.isEmpty {
+                ContentUnavailableView(
+                    "No Transcript",
+                    systemImage: "message.badge",
+                    description: Text("Add or recover a transcript before asking questions.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            if askMessages.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Label("Ask this transcript", systemImage: "sparkles")
+                                        .font(.system(size: 18, weight: .semibold))
+                                    Text("Questions stay local to this meeting and use your active notes LLM provider.")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color(nsColor: .controlBackgroundColor))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .strokeBorder(.quaternary, lineWidth: 1)
+                                )
+                            }
+
+                            ForEach(askMessages) { message in
+                                askMessageBubble(message)
+                                    .id(message.id)
+                            }
+
+                            if askTask != nil {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Reading transcript...")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 4)
+                            }
+
+                            if let askError {
+                                Label(askError, systemImage: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.red)
+                                    .padding(.horizontal, 4)
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 20)
+                    }
+                    .onChange(of: askMessages.count) {
+                        guard let lastID = askMessages.last?.id else { return }
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            proxy.scrollTo(lastID, anchor: .bottom)
+                        }
+                    }
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    ZStack(alignment: .topLeading) {
+                        if askQuestion.isEmpty {
+                            Text("Ask about decisions, action items, risks, or anything said in this transcript...")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.quaternary)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 6)
+                        }
+
+                        TextEditor(text: $askQuestion)
+                            .font(.system(size: 12))
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 54, maxHeight: 90)
+                    }
+                    .padding(6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color(nsColor: .textBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(.quaternary, lineWidth: 1)
+                    )
+
+                    HStack {
+                        Text("\(state.loadedTranscript.count) utterances available")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+
+                        Button {
+                            submitAskQuestion(state: state)
+                        } label: {
+                            Label("Ask", systemImage: "paperplane.fill")
+                                .frame(minWidth: 72)
+                        }
+                        .buttonStyle(OpenOatsProminentButtonStyle())
+                        .disabled(askQuestion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || askTask != nil)
+                    }
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
+                .background(.regularMaterial)
+            }
+        }
+    }
+
+    private func askMessageBubble(_ message: TranscriptChatMessage) -> some View {
+        let isUser = message.role == .user
+
+        return HStack {
+            if isUser {
+                Spacer(minLength: 48)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(isUser ? "You" : "OpenOats")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                Text(message.text)
+                    .font(.system(size: 13))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isUser ? Color.accentColor.opacity(0.13) : Color(nsColor: .controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(isUser ? Color.accentColor.opacity(0.25) : Color.secondary.opacity(0.12), lineWidth: 1)
+            )
+            .frame(maxWidth: 620, alignment: isUser ? .trailing : .leading)
+
+            if !isUser {
+                Spacer(minLength: 48)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
     }
 
     private func notesAssetDropSurface<Content: View>(
@@ -3134,6 +3351,8 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                 return state.manualNotesDraft.isEmpty
             }
             return state.loadedNotes == nil
+        case .ask:
+            return formattedAskConversation().isEmpty
         }
     }
 
@@ -3369,10 +3588,127 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
             }.joined(separator: "\n")
         case .notes:
             text = state.loadedTranscript.isEmpty ? state.manualNotesDraft : (state.loadedNotes?.markdown ?? "")
+        case .ask:
+            text = formattedAskConversation()
         }
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func submitAskQuestion(state: NotesState) {
+        let question = askQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty, askTask == nil else { return }
+
+        let history = askMessages
+        askQuestion = ""
+        askError = nil
+        askMessages.append(TranscriptChatMessage(role: .user, text: question))
+
+        let messages = buildAskMessages(question: question, transcript: state.loadedTranscript, history: history)
+        let apiKey = settings.activeLLMApiKey
+        let model = settings.activeNotesModel
+        let baseURL = settings.activeLLMBaseURL
+        let transport = settings.activeLLMTransport
+
+        askTask = Task {
+            do {
+                let client = OpenRouterClient()
+                let answer = try await client.complete(
+                    apiKey: apiKey,
+                    model: model,
+                    messages: messages,
+                    baseURL: baseURL,
+                    transport: transport
+                )
+                await MainActor.run {
+                    askMessages.append(TranscriptChatMessage(role: .assistant, text: answer.trimmingCharacters(in: .whitespacesAndNewlines)))
+                    askTask = nil
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    askTask = nil
+                }
+            } catch {
+                await MainActor.run {
+                    askError = error.localizedDescription
+                    askTask = nil
+                }
+            }
+        }
+    }
+
+    private func buildAskMessages(
+        question: String,
+        transcript: [SessionRecord],
+        history: [TranscriptChatMessage]
+    ) -> [OpenRouterClient.Message] {
+        var messages = [
+            OpenRouterClient.Message(
+                role: "system",
+                content: """
+                You answer questions about a meeting transcript. Use only the transcript and the chat history. If the transcript does not contain the answer, say that. Be concise, cite speaker labels and rough timestamps when useful, and do not invent details.
+                """
+            ),
+            OpenRouterClient.Message(
+                role: "user",
+                content: """
+                Transcript:
+                \(truncatedTranscriptText(transcript))
+                """
+            )
+        ]
+
+        let recentHistory = history.suffix(12)
+        messages.append(contentsOf: recentHistory.map { message in
+            OpenRouterClient.Message(
+                role: message.role == .user ? "user" : "assistant",
+                content: message.text
+            )
+        })
+        messages.append(OpenRouterClient.Message(role: "user", content: question))
+
+        return messages
+    }
+
+    private func truncatedTranscriptText(_ transcript: [SessionRecord]) -> String {
+        let fullText = formattedTranscript(transcript)
+        let maxCharacters = 80_000
+        guard fullText.count > maxCharacters else { return fullText }
+
+        let halfLimit = maxCharacters / 2
+        let prefix = fullText.prefix(halfLimit)
+        let suffix = fullText.suffix(halfLimit)
+        return "\(prefix)\n\n[Transcript truncated: middle omitted]\n\n\(suffix)"
+    }
+
+    private func formattedTranscript(_ transcript: [SessionRecord]) -> String {
+        transcript.map { record in
+            let timestamp = MeetingDetailPaneFormatters.transcriptTimeFormatter.string(from: record.timestamp)
+            let text = record.cleanedText ?? record.text
+            return "[\(timestamp)] \(record.speaker.displayLabel): \(text)"
+        }
+        .joined(separator: "\n")
+    }
+
+    private func formattedAskConversation() -> String {
+        askMessages.map { message in
+            let label = message.role == .user ? "You" : "OpenOats"
+            return "\(label): \(message.text)"
+        }
+        .joined(separator: "\n\n")
+    }
+
+    private func resetAskConversation() {
+        cancelAskTask()
+        askQuestion = ""
+        askMessages = []
+        askError = nil
+    }
+
+    private func cancelAskTask() {
+        askTask?.cancel()
+        askTask = nil
     }
 
     @ViewBuilder

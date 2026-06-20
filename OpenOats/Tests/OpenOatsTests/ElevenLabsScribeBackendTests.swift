@@ -39,6 +39,59 @@ final class ElevenLabsScribeBackendTests: XCTestCase {
                        "no keyterms part when vocabulary is empty")
     }
 
+    func testDiarizeFlagIsSentOnlyWhenRequested() {
+        let diarizedBody = ElevenLabsScribeBackend.buildMultipartBody(
+            boundary: boundary,
+            wavData: Data(),
+            languageCode: "en",
+            keyterms: [],
+            removeFillerWords: false,
+            diarize: true
+        )
+        let plainBody = ElevenLabsScribeBackend.buildMultipartBody(
+            boundary: boundary,
+            wavData: Data(),
+            languageCode: "en",
+            keyterms: [],
+            removeFillerWords: false,
+            diarize: false
+        )
+
+        XCTAssertEqual(
+            extractMultipartValues(String(data: diarizedBody, encoding: .utf8) ?? "", fieldName: "diarize"),
+            ["true"]
+        )
+        XCTAssertFalse((String(data: plainBody, encoding: .utf8) ?? "").contains("name=\"diarize\""))
+    }
+
+    func testTranscriptResponseBuildsDiarizedSpeakerSegments() throws {
+        let response = """
+        {
+          "text": "Hello there. Yes.",
+          "words": [
+            { "text": "Hello", "start": 0.0, "end": 0.3, "type": "word", "speaker_id": "speaker_0" },
+            { "text": "there", "start": 0.3, "end": 0.7, "type": "word", "speaker_id": "speaker_0" },
+            { "text": ".", "start": 0.7, "end": 0.75, "type": "spacing", "speaker_id": "speaker_0" },
+            { "text": "Yes", "start": 1.0, "end": 1.4, "type": "word", "speaker_id": "speaker_1" },
+            { "text": ".", "start": 1.4, "end": 1.45, "type": "spacing", "speaker_id": "speaker_1" }
+          ]
+        }
+        """
+
+        let result = try ElevenLabsScribeBackend.parseTranscriptResponse(Data(response.utf8))
+
+        XCTAssertEqual(result.text, "Hello there. Yes.")
+        XCTAssertEqual(result.segments.count, 2)
+        XCTAssertEqual(result.segments[0].speaker, .remote(1))
+        XCTAssertEqual(result.segments[0].text, "Hello there.")
+        XCTAssertEqual(result.segments[0].startTime, 0.0)
+        XCTAssertEqual(result.segments[0].endTime, 0.75)
+        XCTAssertEqual(result.segments[1].speaker, .remote(2))
+        XCTAssertEqual(result.segments[1].text, "Yes.")
+        XCTAssertEqual(result.segments[1].startTime, 1.0)
+        XCTAssertEqual(result.segments[1].endTime, 1.45)
+    }
+
     // Extracts values for every multipart part matching `name="<fieldName>"`.
     // Assumes the appendMultipart format used by ElevenLabsScribeBackend:
     //   --<boundary>\r\n
