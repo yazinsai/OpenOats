@@ -98,17 +98,14 @@ enum RecommendationEngine {
 
     private static func transcriptionConfig(for profile: WizardProfile, ramTier: RAMTier) -> TranscriptionConfig {
         switch profile {
-        case .transcriptEN, .cloudEN, .localENLight, .localENFull:
+        case .transcriptEN, .localENLight, .localENFull:
             return TranscriptionConfig(model: .parakeetV2, locale: "en-US")
+        case .cloudEN:
+            return TranscriptionConfig(model: .assemblyAI, locale: "en-US")
         case .transcriptMulti:
             return TranscriptionConfig(model: .parakeetV3, locale: "")
         case .cloudMulti:
-            switch ramTier {
-            case .low:
-                return TranscriptionConfig(model: .whisperSmall, locale: "")
-            case .high:
-                return TranscriptionConfig(model: .whisperLargeV3Turbo, locale: "")
-            }
+            return TranscriptionConfig(model: .elevenLabsScribe, locale: "")
         case .localMultiLight:
             return TranscriptionConfig(model: .whisperSmall, locale: "")
         case .localMultiFull:

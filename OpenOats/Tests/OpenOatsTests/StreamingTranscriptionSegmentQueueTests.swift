@@ -9,13 +9,15 @@ final class StreamingTranscriptionSegmentQueueTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(10))
         }
 
-        await queue.enqueue([1, 2])
-        await queue.enqueue([3, 4])
-        await queue.enqueue([5, 6])
+        await queue.enqueue(.init(samples: [1, 2], startTime: 0, endTime: 0.125))
+        await queue.enqueue(.init(samples: [3, 4], startTime: 0.125, endTime: 0.25))
+        await queue.enqueue(.init(samples: [5, 6], startTime: 0.25, endTime: 0.375))
         await queue.finish()
 
         let processed = await recorder.processedSegments
-        XCTAssertEqual(processed, [[1, 2], [3, 4], [5, 6]])
+        XCTAssertEqual(processed.map(\.samples), [[1, 2], [3, 4], [5, 6]])
+        XCTAssertEqual(processed.map(\.startTime), [0, 0.125, 0.25])
+        XCTAssertEqual(processed.map(\.endTime), [0.125, 0.25, 0.375])
     }
 
     func testQueueSignalsProcessingLifecycle() async {
@@ -34,8 +36,8 @@ final class StreamingTranscriptionSegmentQueueTests: XCTestCase {
             }
         )
 
-        await queue.enqueue([1])
-        await queue.enqueue([2])
+        await queue.enqueue(.init(samples: [1], startTime: 0, endTime: 1))
+        await queue.enqueue(.init(samples: [2], startTime: 1, endTime: 2))
         await queue.finish()
         await fulfillment(of: [expectation], timeout: 1.0)
 
@@ -45,9 +47,9 @@ final class StreamingTranscriptionSegmentQueueTests: XCTestCase {
 }
 
 private actor SegmentQueueRecorder {
-    private(set) var processedSegments: [[Float]] = []
+    private(set) var processedSegments: [StreamingTranscriptionSegment] = []
 
-    func record(_ segment: [Float]) {
+    func record(_ segment: StreamingTranscriptionSegment) {
         processedSegments.append(segment)
     }
 }

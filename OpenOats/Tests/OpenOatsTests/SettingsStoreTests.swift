@@ -150,6 +150,29 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertFalse(store.canAutoGeneratePostMeetingNotes)
     }
 
+    func testLMStudioSettingsUseOpenAICompatibleEndpointAndOptionalKey() {
+        let store = makeStore()
+        store.llmProvider = .lmStudio
+
+        XCTAssertEqual(store.lmStudioBaseURL, "http://localhost:1234")
+        XCTAssertEqual(store.activeNotesModel, "")
+        XCTAssertEqual(store.activeRealtimeModel, "")
+        XCTAssertNil(store.activeLLMApiKey)
+        XCTAssertEqual(store.activeLLMTransport, .chatCompletions)
+        XCTAssertFalse(store.canAutoGeneratePostMeetingNotes)
+
+        store.lmStudioModel = "openai/gpt-oss-20b"
+        XCTAssertEqual(
+            store.activeLLMBaseURL?.absoluteString,
+            "http://localhost:1234/v1/chat/completions"
+        )
+        XCTAssertTrue(store.canAutoGeneratePostMeetingNotes)
+
+        store.lmStudioApiKey = "  lm-studio-test-key  \n"
+        XCTAssertEqual(store.lmStudioApiKey, "lm-studio-test-key")
+        XCTAssertEqual(store.activeLLMApiKey, "lm-studio-test-key")
+    }
+
     func testDefaultEmbeddingProvider() {
         let store = makeStore()
         XCTAssertEqual(store.embeddingProvider, .voyageAI)
@@ -789,7 +812,11 @@ final class SettingsStoreTests: XCTestCase {
         let secretStore = AppSecretStore(
             loadValue: { key in
                 tracker.loadedKeys.append(key)
-                return key == "openRouterApiKey" ? "sk-existing" : nil
+                switch key {
+                case "openRouterApiKey": return "sk-existing"
+                case "lmStudioApiKey": return "lm-existing"
+                default: return nil
+                }
             },
             saveValue: { key, value in
                 tracker.savedValues[key] = value
@@ -812,6 +839,14 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.openRouterApiKey, "sk-updated")
         XCTAssertEqual(tracker.loadedKeys, ["openRouterApiKey"])
         XCTAssertEqual(tracker.savedValues["openRouterApiKey"], "sk-updated")
+
+        XCTAssertEqual(store.lmStudioApiKey, "lm-existing")
+        XCTAssertEqual(tracker.loadedKeys, ["openRouterApiKey", "lmStudioApiKey"])
+
+        store.lmStudioApiKey = " lm-updated "
+        XCTAssertEqual(store.lmStudioApiKey, "lm-updated")
+        XCTAssertEqual(tracker.loadedKeys, ["openRouterApiKey", "lmStudioApiKey"])
+        XCTAssertEqual(tracker.savedValues["lmStudioApiKey"], "lm-updated")
     }
 
     // MARK: - Cloud ASR API Keys

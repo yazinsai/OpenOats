@@ -11,6 +11,8 @@ final class SetupDetectorTests: XCTestCase {
         var modelStatusMap: [TranscriptionModel: BackendStatus] = [:]
         var openRouterKey = ""
         var voyageKey = ""
+        var assemblyAIKey = ""
+        var elevenLabsKey = ""
         var ollamaFetchResult: Result<[String], OllamaModelFetcher.FetchError> = .failure(.networkError("not probed"))
 
         func availableInputDevices() -> [(id: AudioDeviceID, name: String)] {
@@ -31,6 +33,14 @@ final class SetupDetectorTests: XCTestCase {
 
         func existingVoyageKey() async -> String {
             voyageKey
+        }
+
+        func existingAssemblyAIKey() async -> String {
+            assemblyAIKey
+        }
+
+        func existingElevenLabsKey() async -> String {
+            elevenLabsKey
         }
 
         func fetchOllamaModels() async -> Result<[String], OllamaModelFetcher.FetchError> {
@@ -64,14 +74,20 @@ final class SetupDetectorTests: XCTestCase {
         var deps = MockDependencies()
         deps.openRouterKey = "sk-or-test"
         deps.voyageKey = "pa-test"
+        deps.assemblyAIKey = "aai-test"
+        deps.elevenLabsKey = "xi-test"
 
         let detector = SetupDetector(dependencies: deps)
         let snapshot = await detector.detect()
 
         XCTAssertTrue(snapshot.hasOpenRouterKey)
         XCTAssertTrue(snapshot.hasVoyageKey)
+        XCTAssertTrue(snapshot.hasAssemblyAIKey)
+        XCTAssertTrue(snapshot.hasElevenLabsKey)
         XCTAssertEqual(snapshot.existingOpenRouterKey, "sk-or-test")
         XCTAssertEqual(snapshot.existingVoyageKey, "pa-test")
+        XCTAssertEqual(snapshot.existingAssemblyAIKey, "aai-test")
+        XCTAssertEqual(snapshot.existingElevenLabsKey, "xi-test")
     }
 
     func testDetectReturnsOllamaSuccess() async {

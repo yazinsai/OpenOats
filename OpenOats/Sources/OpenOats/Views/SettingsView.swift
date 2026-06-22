@@ -721,6 +721,15 @@ private struct IntelligenceSettingsTab: View {
                             .font(.system(size: 12, design: .monospaced))
 
                         OllamaModelField(modelName: $settings.ollamaLLMModel, baseURL: settings.ollamaBaseURL, placeholder: "e.g. qwen3:8b")
+                    case .lmStudio:
+                        TextField("LM Studio URL", text: $settings.lmStudioBaseURL, prompt: Text("http://localhost:1234"))
+                            .font(.system(size: 12, design: .monospaced))
+
+                        SecureField("API Key (optional)", text: $settings.lmStudioApiKey)
+                            .font(.system(size: 12, design: .monospaced))
+
+                        TextField("Model", text: $settings.lmStudioModel, prompt: Text("e.g. qwen3-8b"))
+                            .font(.system(size: 12, design: .monospaced))
                     case .mlx:
                         TextField("MLX Server URL", text: $settings.mlxBaseURL, prompt: Text("http://localhost:8080"))
                             .font(.system(size: 12, design: .monospaced))
@@ -829,7 +838,7 @@ private struct IntelligenceSettingsTab: View {
                         Text("Optional Ollama model for real-time suggestions. Uses your main model if empty.")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
-                    case .openAI, .anthropic, .mlx, .openAICompatible:
+                    case .openAI, .anthropic, .lmStudio, .mlx, .openAICompatible:
                         Text("Real-time suggestions currently reuse the active provider model for this provider.")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)

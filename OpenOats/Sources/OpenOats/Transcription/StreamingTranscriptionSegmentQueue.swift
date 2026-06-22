@@ -1,5 +1,17 @@
 import Foundation
 
+struct StreamingTranscriptionSegment: Equatable, Sendable {
+    let samples: [Float]
+    let startTime: TimeInterval
+    let endTime: TimeInterval
+
+    init(samples: [Float], startTime: TimeInterval, endTime: TimeInterval) {
+        self.samples = samples
+        self.startTime = startTime
+        self.endTime = endTime
+    }
+}
+
 /// Serializes asynchronous segment processing without blocking the capture loop.
 final class StreamingTranscriptionSegmentQueue: @unchecked Sendable {
     private actor State {
@@ -22,15 +34,15 @@ final class StreamingTranscriptionSegmentQueue: @unchecked Sendable {
     }
 
     private let state = State()
-    private let continuation: AsyncStream<[Float]>.Continuation
+    private let continuation: AsyncStream<StreamingTranscriptionSegment>.Continuation
     private let workerTask: Task<Void, Never>
     private let onProcessingChanged: (@Sendable (Bool) -> Void)?
 
     init(
         onProcessingChanged: (@Sendable (Bool) -> Void)? = nil,
-        process: @escaping @Sendable ([Float]) async -> Void
+        process: @escaping @Sendable (StreamingTranscriptionSegment) async -> Void
     ) {
-        let (stream, continuation) = AsyncStream<[Float]>.makeStream()
+        let (stream, continuation) = AsyncStream<StreamingTranscriptionSegment>.makeStream()
         let state = self.state
         self.continuation = continuation
         self.onProcessingChanged = onProcessingChanged
@@ -45,11 +57,11 @@ final class StreamingTranscriptionSegmentQueue: @unchecked Sendable {
         }
     }
 
-    func enqueue(_ samples: [Float]) async {
+    func enqueue(_ segment: StreamingTranscriptionSegment) async {
         if let onProcessingChanged, await state.didEnqueue() {
             onProcessingChanged(true)
         }
-        continuation.yield(samples)
+        continuation.yield(segment)
     }
 
     func finish() async {

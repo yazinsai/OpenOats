@@ -6,6 +6,8 @@ final class RecommendationEngineTests: XCTestCase {
         ram: UInt64 = 16 * 1024 * 1024 * 1024,
         locale: String = "en-US",
         hasOpenRouterKey: Bool = false,
+        hasAssemblyAIKey: Bool = false,
+        hasElevenLabsKey: Bool = false,
         hasVoyageKey: Bool = false,
         ollamaModels: Result<[String], OllamaModelFetcher.FetchError> = .failure(.networkError("not probed"))
     ) -> SetupSnapshot {
@@ -17,8 +19,12 @@ final class RecommendationEngineTests: XCTestCase {
             modelStatuses: [:],
             hasOpenRouterKey: hasOpenRouterKey,
             hasVoyageKey: hasVoyageKey,
+            hasAssemblyAIKey: hasAssemblyAIKey,
+            hasElevenLabsKey: hasElevenLabsKey,
             existingOpenRouterKey: hasOpenRouterKey ? "sk-test" : "",
             existingVoyageKey: hasVoyageKey ? "pa-test" : "",
+            existingAssemblyAIKey: hasAssemblyAIKey ? "aai-test" : "",
+            existingElevenLabsKey: hasElevenLabsKey ? "xi-test" : "",
             ollamaResult: ollamaModels
         )
     }
@@ -65,7 +71,7 @@ final class RecommendationEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(recommendation.profile, .cloudEN)
-        XCTAssertEqual(recommendation.transcriptionModel, .parakeetV2)
+        XCTAssertEqual(recommendation.transcriptionModel, .assemblyAI)
         XCTAssertEqual(recommendation.llmProvider, .openRouter)
         XCTAssertEqual(recommendation.selectedModel, "google/gemini-3-flash-preview")
         XCTAssertEqual(recommendation.realtimeModel, "google/gemini-3.1-flash-lite-preview")
@@ -95,7 +101,7 @@ final class RecommendationEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(recommendation.profile, .cloudMulti)
-        XCTAssertEqual(recommendation.transcriptionModel, .whisperSmall)
+        XCTAssertEqual(recommendation.transcriptionModel, .elevenLabsScribe)
     }
 
     func testCloudMultiHighRAM() {
@@ -107,7 +113,7 @@ final class RecommendationEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(recommendation.profile, .cloudMulti)
-        XCTAssertEqual(recommendation.transcriptionModel, .whisperLargeV3Turbo)
+        XCTAssertEqual(recommendation.transcriptionModel, .elevenLabsScribe)
     }
 
     func testLocalEnglishLowRAM() {
@@ -282,6 +288,6 @@ final class RecommendationEngineTests: XCTestCase {
             snapshot: makeSnapshot()
         )
 
-        XCTAssertTrue(recommendation.detailLines.contains(where: { $0.contains("Parakeet TDT v2") }))
+        XCTAssertTrue(recommendation.detailLines.contains(where: { $0.contains(recommendation.transcriptionModel.displayName) }))
     }
 }

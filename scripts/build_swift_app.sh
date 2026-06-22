@@ -77,17 +77,18 @@ else
 fi
 
 # Copy SPM resource bundles (needed by swift-transformers for tokenizer fallback configs)
-ARCH=$(uname -m)
-BUNDLE_DIR="$SWIFT_DIR/.build/${ARCH}-apple-macosx/release"
 COPIED_BUNDLES=0
-for bundle in "$BUNDLE_DIR"/*.bundle; do
-  if [[ -d "$bundle" ]]; then
-    cp -R "$bundle" "$APP_DIR/Contents/Resources/"
-    COPIED_BUNDLES=$((COPIED_BUNDLES + 1))
-  fi
-done
+while IFS= read -r -d '' bundle; do
+  bundle_name="$(basename "$bundle")"
+  destination="$APP_DIR/Contents/Resources/$bundle_name"
+  rm -rf "$destination"
+  cp -R "$bundle" "$destination"
+  COPIED_BUNDLES=$((COPIED_BUNDLES + 1))
+done < <(find "$SWIFT_DIR/.build" -path "*/release/*.bundle" -type d -print0)
 if [[ $COPIED_BUNDLES -gt 0 ]]; then
   echo "Copied $COPIED_BUNDLES SPM resource bundle(s)"
+else
+  echo "Warning: no SPM resource bundles found under $SWIFT_DIR/.build"
 fi
 
 # Add PkgInfo

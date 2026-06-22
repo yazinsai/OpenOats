@@ -227,7 +227,7 @@ final class SuggestionEngine {
             guard !settings.openAIApiKey.isEmpty, llmBaseURL(forRealtime: true) != nil else { return }
         case .anthropic:
             guard !settings.anthropicApiKey.isEmpty, llmBaseURL(forRealtime: true) != nil else { return }
-        case .ollama, .mlx, .openAICompatible:
+        case .ollama, .lmStudio, .mlx, .openAICompatible:
             guard llmBaseURL(forRealtime: true) != nil else { return }
         }
 
@@ -505,6 +505,7 @@ final class SuggestionEngine {
         case .openAI: settings.openAIModel
         case .anthropic: settings.anthropicModel
         case .ollama: settings.ollamaLLMModel
+        case .lmStudio: settings.lmStudioModel
         case .mlx: settings.mlxModel
         case .openAICompatible: settings.openAILLMModel
         }
@@ -518,6 +519,8 @@ final class SuggestionEngine {
         case .anthropic:
             settings.anthropicApiKey.isEmpty ? nil : settings.anthropicApiKey
         case .ollama: nil
+        case .lmStudio:
+            settings.lmStudioApiKey.isEmpty ? nil : settings.lmStudioApiKey
         case .mlx: nil
         case .openAICompatible:
             settings.openAILLMApiKey.isEmpty ? nil : settings.openAILLMApiKey
@@ -533,6 +536,8 @@ final class SuggestionEngine {
             return OpenRouterClient.anthropicMessagesURL(from: settings.anthropicBaseURL)
         case .ollama:
             return OpenRouterClient.chatCompletionsURL(from: settings.ollamaBaseURL)
+        case .lmStudio:
+            return OpenRouterClient.chatCompletionsURL(from: settings.lmStudioBaseURL)
         case .mlx:
             return OpenRouterClient.chatCompletionsURL(from: settings.mlxBaseURL)
         case .openAICompatible:

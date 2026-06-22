@@ -252,6 +252,46 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _lmStudioBaseURL: String
+    var lmStudioBaseURL: String {
+        get { access(keyPath: \.lmStudioBaseURL); return _lmStudioBaseURL }
+        set {
+            withMutation(keyPath: \.lmStudioBaseURL) {
+                _lmStudioBaseURL = newValue
+                defaults.set(newValue, forKey: "lmStudioBaseURL")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _lmStudioApiKey: String
+    var lmStudioApiKey: String {
+        get {
+            access(keyPath: \.lmStudioApiKey)
+            return loadSecretIfNeeded(key: "lmStudioApiKey", currentValue: _lmStudioApiKey) {
+                _lmStudioApiKey = $0
+            }
+        }
+        set {
+            withMutation(keyPath: \.lmStudioApiKey) {
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                _lmStudioApiKey = trimmed
+                markSecretLoaded("lmStudioApiKey")
+                secretStore.save(key: "lmStudioApiKey", value: trimmed)
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _lmStudioModel: String
+    var lmStudioModel: String {
+        get { access(keyPath: \.lmStudioModel); return _lmStudioModel }
+        set {
+            withMutation(keyPath: \.lmStudioModel) {
+                _lmStudioModel = newValue
+                defaults.set(newValue, forKey: "lmStudioModel")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _openAILLMBaseURL: String
     var openAILLMBaseURL: String {
         get { access(keyPath: \.openAILLMBaseURL); return _openAILLMBaseURL }
@@ -1300,6 +1340,9 @@ final class SettingsStore {
         self._ollamaEmbedModel = defaults.string(forKey: "ollamaEmbedModel") ?? "nomic-embed-text"
         self._mlxBaseURL = defaults.string(forKey: "mlxBaseURL") ?? "http://localhost:8080"
         self._mlxModel = defaults.string(forKey: "mlxModel") ?? "mlx-community/Llama-3.2-3B-Instruct-4bit"
+        self._lmStudioBaseURL = defaults.string(forKey: "lmStudioBaseURL") ?? "http://localhost:1234"
+        self._lmStudioApiKey = ""
+        self._lmStudioModel = defaults.string(forKey: "lmStudioModel") ?? ""
         self._openAILLMBaseURL = defaults.string(forKey: "openAILLMBaseURL") ?? "http://localhost:4000"
         self._openAILLMApiKey = ""
         self._openAILLMModel = defaults.string(forKey: "openAILLMModel") ?? ""
@@ -1503,6 +1546,8 @@ final class SettingsStore {
             anthropicModel
         case .ollama:
             ollamaLLMModel
+        case .lmStudio:
+            lmStudioModel
         case .mlx:
             mlxModel
         case .openAICompatible:
@@ -1525,6 +1570,8 @@ final class SettingsStore {
             return !anthropicApiKey.isEmpty && OpenRouterClient.anthropicMessagesURL(from: anthropicBaseURL) != nil
         case .ollama:
             return OpenRouterClient.chatCompletionsURL(from: ollamaBaseURL) != nil
+        case .lmStudio:
+            return OpenRouterClient.chatCompletionsURL(from: lmStudioBaseURL) != nil
         case .mlx:
             return OpenRouterClient.chatCompletionsURL(from: mlxBaseURL) != nil
         case .openAICompatible:
@@ -1545,6 +1592,7 @@ final class SettingsStore {
         case .openAI: return openAIModel
         case .anthropic: return anthropicModel
         case .ollama: return realtimeOllamaModel.isEmpty ? ollamaLLMModel : realtimeOllamaModel
+        case .lmStudio: return lmStudioModel
         case .mlx: return mlxModel
         case .openAICompatible: return openAILLMModel
         }
@@ -1564,6 +1612,8 @@ final class SettingsStore {
             anthropicApiKey.isEmpty ? nil : anthropicApiKey
         case .ollama, .mlx:
             nil
+        case .lmStudio:
+            lmStudioApiKey.isEmpty ? nil : lmStudioApiKey
         case .openAICompatible:
             openAILLMApiKey.isEmpty ? nil : openAILLMApiKey
         }
@@ -1579,6 +1629,8 @@ final class SettingsStore {
             OpenRouterClient.anthropicMessagesURL(from: anthropicBaseURL)
         case .ollama:
             OpenRouterClient.chatCompletionsURL(from: ollamaBaseURL)
+        case .lmStudio:
+            OpenRouterClient.chatCompletionsURL(from: lmStudioBaseURL)
         case .mlx:
             OpenRouterClient.chatCompletionsURL(from: mlxBaseURL)
         case .openAICompatible:
@@ -1749,6 +1801,7 @@ extension SettingsStore {
             "kbFolderPath", "selectedModel", "transcriptionLocale", "transcriptionModel", "inputDeviceID",
             "llmProvider", "embeddingProvider", "openAIBaseURL", "openAIModel",
             "anthropicBaseURL", "anthropicModel", "ollamaBaseURL", "ollamaLLMModel",
+            "lmStudioBaseURL", "lmStudioModel",
             "ollamaEmbedModel", "hideFromScreenShare",
             "isTranscriptExpanded", "hasCompletedOnboarding",
         ]
@@ -1759,7 +1812,7 @@ extension SettingsStore {
         }
 
         let oldService = "com.onthespot.app"
-        let keychainKeys = ["openRouterApiKey", "voyageApiKey"]
+        let keychainKeys = ["openRouterApiKey", "lmStudioApiKey", "voyageApiKey"]
         for key in keychainKeys {
             if let oldValue = Self.loadKeychain(service: oldService, key: key) {
                 KeychainHelper.saveIfMissing(key: key, value: oldValue)
@@ -1782,6 +1835,7 @@ extension SettingsStore {
             "kbFolderPath", "selectedModel", "transcriptionLocale", "transcriptionModel", "inputDeviceID",
             "llmProvider", "embeddingProvider", "openAIBaseURL", "openAIModel",
             "anthropicBaseURL", "anthropicModel", "ollamaBaseURL", "ollamaLLMModel",
+            "lmStudioBaseURL", "lmStudioModel",
             "ollamaEmbedModel", "hideFromScreenShare",
             "isTranscriptExpanded", "hasCompletedOnboarding",
             "hasAcknowledgedRecordingConsent",
@@ -1793,7 +1847,7 @@ extension SettingsStore {
         }
 
         let oldService = "com.opengranola.app"
-        let keychainKeys = ["openRouterApiKey", "voyageApiKey"]
+        let keychainKeys = ["openRouterApiKey", "lmStudioApiKey", "voyageApiKey"]
         for key in keychainKeys {
             if let oldValue = Self.loadKeychain(service: oldService, key: key) {
                 KeychainHelper.saveIfMissing(key: key, value: oldValue)

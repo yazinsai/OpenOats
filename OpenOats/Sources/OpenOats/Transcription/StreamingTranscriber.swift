@@ -5,6 +5,12 @@ import os
 /// Consumes an audio buffer stream, detects speech via Silero VAD,
 /// and transcribes completed speech segments via the TranscriptionBackend protocol.
 final class StreamingTranscriber: @unchecked Sendable {
+    struct FinalSegment: Sendable, Equatable {
+        let text: String
+        let startTime: TimeInterval
+        let endTime: TimeInterval
+    }
+
     struct CloudSegmentStatus: Sendable, Equatable {
         enum Kind: String, Sendable, Equatable {
             case success
@@ -38,7 +44,7 @@ final class StreamingTranscriber: @unchecked Sendable {
     private let sessionID: String?
     private let transcriptionModel: String
     private let onPartial: @Sendable (String) -> Void
-    private let onFinal: @Sendable (String) -> Void
+    private let onFinal: @Sendable (FinalSegment) -> Void
     private let onCloudSegmentStatus: (@Sendable (CloudSegmentStatus) -> Void)?
     private let onCloudProcessingChanged: (@Sendable (Bool) -> Void)?
 
@@ -86,7 +92,7 @@ final class StreamingTranscriber: @unchecked Sendable {
         flushInterval: Int,
         skipPartials: Bool = false,
         onPartial: @escaping @Sendable (String) -> Void,
-        onFinal: @escaping @Sendable (String) -> Void,
+        onFinal: @escaping @Sendable (FinalSegment) -> Void,
         onCloudSegmentStatus: (@Sendable (CloudSegmentStatus) -> Void)? = nil,
         onCloudProcessingChanged: (@Sendable (Bool) -> Void)? = nil
     ) {
@@ -126,6 +132,8 @@ final class StreamingTranscriber: @unchecked Sendable {
         var bufferCount = 0
         var lastPartialTime: Date = .distantPast
         var isRunningPartial = false
+        var processedSampleCount = 0
+        var speechStartSample: Int?
 
         for await buffer in stream {
             guard !Task.isCancelled else { break }
@@ -148,6 +156,7 @@ final class StreamingTranscriber: @unchecked Sendable {
             vadBuffer.append(contentsOf: samples)
 
             while vadBuffer.count - vadReadIndex >= Self.vadChunkSize {
+                let chunkStartSample = processedSampleCount
                 let chunk = Array(vadBuffer[vadReadIndex..<(vadReadIndex + Self.vadChunkSize)])
                 vadReadIndex += Self.vadChunkSize
 
@@ -176,7 +185,9 @@ final class StreamingTranscriber: @unchecked Sendable {
                             if !wasSpeaking {
                                 isSpeaking = true
                                 startedSpeech = true
-                                speechSamples = recentChunks.suffix(Self.prerollChunkCount).flatMap { $0 }
+                                let prerollChunks = recentChunks.suffix(Self.prerollChunkCount)
+                                speechSamples = prerollChunks.flatMap { $0 }
+                                speechStartSample = max(0, chunkStartSample - speechSamples.count)
                                 Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] speech start")
                             }
 
@@ -200,12 +211,17 @@ final class StreamingTranscriber: @unchecked Sendable {
                         isRunningPartial = false
                         Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] speech end, samples=\(speechSamples.count, privacy: .public)")
                         if speechSamples.count > Self.minimumSpeechSamples {
-                            let segment = speechSamples
+                            let segment = makeSegment(
+                                samples: speechSamples,
+                                startSample: speechStartSample
+                            )
                             speechSamples.removeAll(keepingCapacity: true)
+                            speechStartSample = nil
                             onPartial("")  // Clear partial display
                             await submitSegment(segment, using: segmentQueue)
                         } else {
                             speechSamples.removeAll(keepingCapacity: true)
+                            speechStartSample = nil
                             onPartial("")  // Clear partial display
                         }
                     } else if isSpeaking {
@@ -233,8 +249,12 @@ final class StreamingTranscriber: @unchecked Sendable {
 
                         // Flush on long continuous speech (see flushInterval)
                         if speechSamples.count >= flushInterval {
-                            let segment = speechSamples
+                            let segment = makeSegment(
+                                samples: speechSamples,
+                                startSample: speechStartSample
+                            )
                             speechSamples.removeAll(keepingCapacity: true)
+                            speechStartSample = Int((segment.endTime * 16_000).rounded())
                             onPartial("")  // Clear partial display
                             await submitSegment(segment, using: segmentQueue)
                         }
@@ -242,12 +262,17 @@ final class StreamingTranscriber: @unchecked Sendable {
                 } catch {
                     Log.streaming.error("VAD error: \(error, privacy: .public)")
                 }
+
+                processedSampleCount += Self.vadChunkSize
             }
         }
 
         if speechSamples.count > Self.minimumSpeechSamples {
             onPartial("")  // Clear partial display
-            await submitSegment(speechSamples, using: segmentQueue)
+            await submitSegment(
+                makeSegment(samples: speechSamples, startSample: speechStartSample),
+                using: segmentQueue
+            )
         }
 
         if let segmentQueue {
@@ -272,18 +297,19 @@ final class StreamingTranscriber: @unchecked Sendable {
     }
 
     private func submitSegment(
-        _ samples: [Float],
+        _ segment: StreamingTranscriptionSegment,
         using queue: StreamingTranscriptionSegmentQueue?
     ) async {
         if let queue {
-            await queue.enqueue(samples)
+            await queue.enqueue(segment)
         } else {
-            await transcribeSegment(samples)
+            await transcribeSegment(segment)
         }
     }
 
-    private func transcribeSegment(_ samples: [Float]) async {
+    private func transcribeSegment(_ segment: StreamingTranscriptionSegment) async {
         let startedAt = Date()
+        let samples = segment.samples
         do {
             try Task.checkCancellation()
             let text = try await backend.transcribe(samples, locale: locale, previousContext: previousContext)
@@ -320,7 +346,13 @@ final class StreamingTranscriber: @unchecked Sendable {
             // Store trailing words for cross-segment context
             let words = text.split(separator: " ")
             previousContext = words.suffix(Self.contextWordCount).joined(separator: " ")
-            onFinal(text)
+            onFinal(
+                FinalSegment(
+                    text: text,
+                    startTime: segment.startTime,
+                    endTime: segment.endTime
+                )
+            )
         } catch {
             onCloudSegmentStatus?(CloudSegmentStatus(kind: .error, presentation: CloudTranscriptCopy.presentation(for: error)))
             recordCloudSegmentDiagnostics(
@@ -333,6 +365,20 @@ final class StreamingTranscriber: @unchecked Sendable {
             )
             Log.streaming.error("ASR error: \(error, privacy: .public)")
         }
+    }
+
+    private func makeSegment(
+        samples: [Float],
+        startSample: Int?
+    ) -> StreamingTranscriptionSegment {
+        let resolvedStartSample = max(0, startSample ?? 0)
+        let startTime = Double(resolvedStartSample) / 16_000.0
+        let endTime = startTime + Double(samples.count) / 16_000.0
+        return StreamingTranscriptionSegment(
+            samples: samples,
+            startTime: startTime,
+            endTime: endTime
+        )
     }
 
     private func recordCloudSegmentDiagnostics(
