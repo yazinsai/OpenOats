@@ -61,93 +61,114 @@ final class SystemAudioCapture: @unchecked Sendable {
             resolvedDeviceID = try Self.defaultOutputDeviceID()
         }
         let outputUID = try Self.deviceUID(for: resolvedDeviceID)
-        let tapUUID = UUID()
 
-        let tapDescription = CATapDescription()
-        tapDescription.name = "OpenOats System Audio"
-        tapDescription.uuid = tapUUID
-        tapDescription.processes = Self.currentProcessObjectID().map { [$0] } ?? []
-        tapDescription.isPrivate = true
-        tapDescription.muteBehavior = .unmuted
-        tapDescription.isMixdown = true
-        tapDescription.isMono = true
-        tapDescription.isExclusive = true
-        tapDescription.deviceUID = outputUID
+        // Outer retry: recreate the tap from scratch if the format query keeps failing.
+        // Some external USB/Bluetooth devices need more than one full tap creation cycle
+        // before CoreAudio settles on a stable tap object.
+        var lastError: Error = CaptureError.tapFormatUnavailable(kAudioHardwareBadObjectError)
+        for attempt in 0..<3 {
+            if attempt > 0 {
+                usleep(200_000)
+            }
 
-        var tapID = AudioObjectID(kAudioObjectUnknown)
-        var status = AudioHardwareCreateProcessTap(tapDescription, &tapID)
-        guard status == noErr else {
-            _sysContinuation.withLock { $0?.finish(); $0 = nil }
-            throw CaptureError.tapCreationFailed(status)
-        }
+            let tapUUID = UUID()
+            let tapDescription = CATapDescription()
+            tapDescription.name = "OpenOats System Audio"
+            tapDescription.uuid = tapUUID
+            tapDescription.processes = Self.currentProcessObjectID().map { [$0] } ?? []
+            tapDescription.isPrivate = true
+            tapDescription.muteBehavior = .unmuted
+            tapDescription.isMixdown = true
+            tapDescription.isMono = true
+            tapDescription.isExclusive = true
+            tapDescription.deviceUID = outputUID
 
-        let aggregateUID = UUID().uuidString
-        let aggregateDescription: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "OpenOats System Audio",
-            kAudioAggregateDeviceUIDKey: aggregateUID,
-            kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceTapListKey: [
-                [
-                    kAudioSubTapUIDKey: tapUUID.uuidString,
-                    kAudioSubTapDriftCompensationKey: true
+            var tapID = AudioObjectID(kAudioObjectUnknown)
+            var status = AudioHardwareCreateProcessTap(tapDescription, &tapID)
+            guard status == noErr else {
+                _sysContinuation.withLock { $0?.finish(); $0 = nil }
+                throw CaptureError.tapCreationFailed(status)
+            }
+
+            let aggregateUID = UUID().uuidString
+            let aggregateDescription: [String: Any] = [
+                kAudioAggregateDeviceNameKey: "OpenOats System Audio",
+                kAudioAggregateDeviceUIDKey: aggregateUID,
+                kAudioAggregateDeviceIsPrivateKey: true,
+                kAudioAggregateDeviceTapAutoStartKey: true,
+                kAudioAggregateDeviceTapListKey: [
+                    [
+                        kAudioSubTapUIDKey: tapUUID.uuidString,
+                        kAudioSubTapDriftCompensationKey: true
+                    ]
                 ]
             ]
-        ]
 
-        var aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
-        status = AudioHardwareCreateAggregateDevice(
-            aggregateDescription as CFDictionary,
-            &aggregateDeviceID
-        )
-        guard status == noErr else {
-            _ = AudioHardwareDestroyProcessTap(tapID)
-            _sysContinuation.withLock { $0?.finish(); $0 = nil }
-            throw CaptureError.aggregateDeviceCreationFailed(status)
+            var aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
+            status = AudioHardwareCreateAggregateDevice(
+                aggregateDescription as CFDictionary,
+                &aggregateDeviceID
+            )
+            guard status == noErr else {
+                _ = AudioHardwareDestroyProcessTap(tapID)
+                _sysContinuation.withLock { $0?.finish(); $0 = nil }
+                throw CaptureError.aggregateDeviceCreationFailed(status)
+            }
+
+            let streamDescription: AudioStreamBasicDescription
+            do {
+                streamDescription = try Self.tapStreamDescription(for: tapID)
+            } catch CaptureError.tapFormatUnavailable(let s) {
+                _ = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
+                _ = AudioHardwareDestroyProcessTap(tapID)
+                lastError = CaptureError.tapFormatUnavailable(s)
+                continue
+            }
+
+            var mutableStreamDescription = streamDescription
+            guard let format = AVAudioFormat(streamDescription: &mutableStreamDescription) else {
+                _ = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
+                _ = AudioHardwareDestroyProcessTap(tapID)
+                _sysContinuation.withLock { $0?.finish(); $0 = nil }
+                throw CaptureError.invalidTapFormat
+            }
+
+            var ioProcID: AudioDeviceIOProcID?
+            status = AudioDeviceCreateIOProcIDWithBlock(
+                &ioProcID,
+                aggregateDeviceID,
+                callbackQueue
+            ) { [weak self] _, inInputData, _, _, _ in
+                self?.handleInputData(inInputData, format: format)
+            }
+            guard status == noErr, let ioProcID else {
+                _ = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
+                _ = AudioHardwareDestroyProcessTap(tapID)
+                _sysContinuation.withLock { $0?.finish(); $0 = nil }
+                throw CaptureError.ioProcCreationFailed(status)
+            }
+
+            status = AudioDeviceStart(aggregateDeviceID, ioProcID)
+            guard status == noErr else {
+                _ = AudioDeviceDestroyIOProcID(aggregateDeviceID, ioProcID)
+                _ = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
+                _ = AudioHardwareDestroyProcessTap(tapID)
+                _sysContinuation.withLock { $0?.finish(); $0 = nil }
+                throw CaptureError.startFailed(status)
+            }
+
+            let activeTapID = tapID
+            let activeAggregateDeviceID = aggregateDeviceID
+            let activeIOProcID = ioProcID
+            _tapID.withLock { $0 = activeTapID }
+            _aggregateDeviceID.withLock { $0 = activeAggregateDeviceID }
+            _ioProcID.withLock { $0 = activeIOProcID }
+
+            return CaptureStreams(systemAudio: sysStream)
         }
 
-        let streamDescription = try Self.tapStreamDescription(for: tapID)
-        var mutableStreamDescription = streamDescription
-        guard let format = AVAudioFormat(streamDescription: &mutableStreamDescription) else {
-            _ = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
-            _ = AudioHardwareDestroyProcessTap(tapID)
-            _sysContinuation.withLock { $0?.finish(); $0 = nil }
-            throw CaptureError.invalidTapFormat
-        }
-
-        var ioProcID: AudioDeviceIOProcID?
-        status = AudioDeviceCreateIOProcIDWithBlock(
-            &ioProcID,
-            aggregateDeviceID,
-            callbackQueue
-        ) { [weak self] _, inInputData, _, _, _ in
-            self?.handleInputData(inInputData, format: format)
-        }
-        guard status == noErr, let ioProcID else {
-            _ = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
-            _ = AudioHardwareDestroyProcessTap(tapID)
-            _sysContinuation.withLock { $0?.finish(); $0 = nil }
-            throw CaptureError.ioProcCreationFailed(status)
-        }
-
-        status = AudioDeviceStart(aggregateDeviceID, ioProcID)
-        guard status == noErr else {
-            _ = AudioDeviceDestroyIOProcID(aggregateDeviceID, ioProcID)
-            _ = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
-            _ = AudioHardwareDestroyProcessTap(tapID)
-            _sysContinuation.withLock { $0?.finish(); $0 = nil }
-            throw CaptureError.startFailed(status)
-        }
-
-        let activeTapID = tapID
-        let activeAggregateDeviceID = aggregateDeviceID
-        let activeIOProcID = ioProcID
-
-        _tapID.withLock { $0 = activeTapID }
-        _aggregateDeviceID.withLock { $0 = activeAggregateDeviceID }
-        _ioProcID.withLock { $0 = activeIOProcID }
-
-        return CaptureStreams(systemAudio: sysStream)
+        _sysContinuation.withLock { $0?.finish(); $0 = nil }
+        throw lastError
     }
 
     /// Finish the async stream so consumers exit their for-await loop.
@@ -365,11 +386,11 @@ final class SystemAudioCapture: @unchecked Sendable {
         var streamDescription = AudioStreamBasicDescription()
         var dataSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
 
-        // Retry on kAudioHardwareBadObjectError — Sequoia 15.7.x has a race where
-        // the tap's AudioObjectID isn't resolvable for a few tens of milliseconds
-        // after AudioHardwareCreateProcessTap returns.
+        // Retry on kAudioHardwareBadObjectError — some hardware (external USB/Bluetooth
+        // devices on M1/M2) needs up to ~3 s after AudioHardwareCreateProcessTap returns
+        // before the tap object is fully resolvable.
         var status: OSStatus = noErr
-        for _ in 0..<10 {
+        for _ in 0..<40 {
             status = AudioObjectGetPropertyData(
                 tapID,
                 &address,
@@ -380,7 +401,7 @@ final class SystemAudioCapture: @unchecked Sendable {
             )
             if status == noErr { return streamDescription }
             if status != kAudioHardwareBadObjectError { break }
-            usleep(50_000)
+            usleep(75_000)
         }
         throw CaptureError.tapFormatUnavailable(status)
     }
