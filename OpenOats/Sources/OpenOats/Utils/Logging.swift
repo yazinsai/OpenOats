@@ -3,6 +3,7 @@ import os
 
 enum Log {
     static let mic = Logger(subsystem: subsystem, category: "MicCapture")
+    static let systemAudio = Logger(subsystem: subsystem, category: "SystemAudioCapture")
     static let recorder = Logger(subsystem: subsystem, category: "AudioRecorder")
     static let transcription = Logger(subsystem: subsystem, category: "TranscriptionEngine")
     static let streaming = Logger(subsystem: subsystem, category: "StreamingTranscriber")

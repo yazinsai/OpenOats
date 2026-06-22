@@ -68,7 +68,10 @@ final class SystemAudioCapture: @unchecked Sendable {
         var lastError: Error = CaptureError.tapFormatUnavailable(kAudioHardwareBadObjectError)
         for attempt in 0..<3 {
             if attempt > 0 {
+                // Honour cancellation before sleeping between attempts.
+                try Task.checkCancellation()
                 usleep(200_000)
+                try Task.checkCancellation()
             }
 
             let tapUUID = UUID()
@@ -89,6 +92,10 @@ final class SystemAudioCapture: @unchecked Sendable {
                 _sysContinuation.withLock { $0?.finish(); $0 = nil }
                 throw CaptureError.tapCreationFailed(status)
             }
+            // Register immediately so a concurrent stop() can clean up this tap
+            // even if we're still sleeping inside the format-query retry loop.
+            let registeredTapID = tapID
+            _tapID.withLock { $0 = registeredTapID }
 
             let aggregateUID = UUID().uuidString
             let aggregateDescription: [String: Any] = [
@@ -110,23 +117,33 @@ final class SystemAudioCapture: @unchecked Sendable {
                 &aggregateDeviceID
             )
             guard status == noErr else {
+                _tapID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
                 _ = AudioHardwareDestroyProcessTap(tapID)
                 _sysContinuation.withLock { $0?.finish(); $0 = nil }
                 throw CaptureError.aggregateDeviceCreationFailed(status)
             }
+            let registeredAggDeviceID = aggregateDeviceID
+            _aggregateDeviceID.withLock { $0 = registeredAggDeviceID }
 
             let streamDescription: AudioStreamBasicDescription
             do {
-                streamDescription = try Self.tapStreamDescription(for: tapID)
-            } catch CaptureError.tapFormatUnavailable(let s) {
-                _ = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
-                _ = AudioHardwareDestroyProcessTap(tapID)
+                streamDescription = try await Self.tapStreamDescription(for: tapID)
+            } catch CaptureError.tapFormatUnavailable(let s) where s == kAudioHardwareBadObjectError {
+                // Transient race: tap object not yet resolvable. Destroy and retry.
+                _aggregateDeviceID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
+                _tapID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
+                let da = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
+                let dt = AudioHardwareDestroyProcessTap(tapID)
+                if da != noErr { Log.systemAudio.warning("Retry cleanup: DestroyAggregateDevice OSStatus \(da, privacy: .public)") }
+                if dt != noErr { Log.systemAudio.warning("Retry cleanup: DestroyProcessTap OSStatus \(dt, privacy: .public)") }
                 lastError = CaptureError.tapFormatUnavailable(s)
                 continue
             }
 
             var mutableStreamDescription = streamDescription
             guard let format = AVAudioFormat(streamDescription: &mutableStreamDescription) else {
+                _aggregateDeviceID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
+                _tapID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
                 _ = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
                 _ = AudioHardwareDestroyProcessTap(tapID)
                 _sysContinuation.withLock { $0?.finish(); $0 = nil }
@@ -141,7 +158,20 @@ final class SystemAudioCapture: @unchecked Sendable {
             ) { [weak self] _, inInputData, _, _, _ in
                 self?.handleInputData(inInputData, format: format)
             }
+            if status == kAudioHardwareBadObjectError {
+                // Transient race on aggregate device registration — retry from scratch.
+                _aggregateDeviceID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
+                _tapID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
+                let ds = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
+                let dt = AudioHardwareDestroyProcessTap(tapID)
+                if ds != noErr { Log.systemAudio.warning("Retry cleanup (IOProc): DestroyAggregateDevice OSStatus \(ds, privacy: .public)") }
+                if dt != noErr { Log.systemAudio.warning("Retry cleanup (IOProc): DestroyProcessTap OSStatus \(dt, privacy: .public)") }
+                lastError = CaptureError.ioProcCreationFailed(status)
+                continue
+            }
             guard status == noErr, let ioProcID else {
+                _aggregateDeviceID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
+                _tapID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
                 _ = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
                 _ = AudioHardwareDestroyProcessTap(tapID)
                 _sysContinuation.withLock { $0?.finish(); $0 = nil }
@@ -149,7 +179,22 @@ final class SystemAudioCapture: @unchecked Sendable {
             }
 
             status = AudioDeviceStart(aggregateDeviceID, ioProcID)
+            if status == kAudioHardwareBadObjectError {
+                // Transient race on device start — retry from scratch.
+                _aggregateDeviceID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
+                _tapID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
+                let ds = AudioDeviceDestroyIOProcID(aggregateDeviceID, ioProcID)
+                let da = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
+                let dt = AudioHardwareDestroyProcessTap(tapID)
+                if ds != noErr { Log.systemAudio.warning("Retry cleanup (Start): DestroyIOProcID OSStatus \(ds, privacy: .public)") }
+                if da != noErr { Log.systemAudio.warning("Retry cleanup (Start): DestroyAggregateDevice OSStatus \(da, privacy: .public)") }
+                if dt != noErr { Log.systemAudio.warning("Retry cleanup (Start): DestroyProcessTap OSStatus \(dt, privacy: .public)") }
+                lastError = CaptureError.startFailed(status)
+                continue
+            }
             guard status == noErr else {
+                _aggregateDeviceID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
+                _tapID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
                 _ = AudioDeviceDestroyIOProcID(aggregateDeviceID, ioProcID)
                 _ = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
                 _ = AudioHardwareDestroyProcessTap(tapID)
@@ -157,12 +202,8 @@ final class SystemAudioCapture: @unchecked Sendable {
                 throw CaptureError.startFailed(status)
             }
 
-            let activeTapID = tapID
-            let activeAggregateDeviceID = aggregateDeviceID
-            let activeIOProcID = ioProcID
-            _tapID.withLock { $0 = activeTapID }
-            _aggregateDeviceID.withLock { $0 = activeAggregateDeviceID }
-            _ioProcID.withLock { $0 = activeIOProcID }
+            // tapID and aggregateDeviceID are already registered in their locks.
+            _ioProcID.withLock { $0 = ioProcID }
 
             return CaptureStreams(systemAudio: sysStream)
         }
@@ -381,7 +422,7 @@ final class SystemAudioCapture: @unchecked Sendable {
         return uid.takeUnretainedValue() as String
     }
 
-    private static func tapStreamDescription(for tapID: AudioObjectID) throws -> AudioStreamBasicDescription {
+    private static func tapStreamDescription(for tapID: AudioObjectID) async throws -> AudioStreamBasicDescription {
         var address = propertyAddress(selector: kAudioTapPropertyFormat)
         var streamDescription = AudioStreamBasicDescription()
         var dataSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
@@ -391,6 +432,7 @@ final class SystemAudioCapture: @unchecked Sendable {
         // before the tap object is fully resolvable.
         var status: OSStatus = noErr
         for _ in 0..<40 {
+            try Task.checkCancellation()
             status = AudioObjectGetPropertyData(
                 tapID,
                 &address,
@@ -401,7 +443,7 @@ final class SystemAudioCapture: @unchecked Sendable {
             )
             if status == noErr { return streamDescription }
             if status != kAudioHardwareBadObjectError { break }
-            usleep(75_000)
+            try await Task.sleep(nanoseconds: 75_000_000)
         }
         throw CaptureError.tapFormatUnavailable(status)
     }
