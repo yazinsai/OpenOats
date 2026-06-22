@@ -128,16 +128,21 @@ final class SystemAudioCapture: @unchecked Sendable {
             let streamDescription: AudioStreamBasicDescription
             do {
                 streamDescription = try await Self.tapStreamDescription(for: tapID)
-            } catch CaptureError.tapFormatUnavailable(let s) where s == kAudioHardwareBadObjectError {
-                // Transient race: tap object not yet resolvable. Destroy and retry.
+            } catch {
                 _aggregateDeviceID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
                 _tapID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
                 let da = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
                 let dt = AudioHardwareDestroyProcessTap(tapID)
-                if da != noErr { Log.systemAudio.warning("Retry cleanup: DestroyAggregateDevice OSStatus \(da, privacy: .public)") }
-                if dt != noErr { Log.systemAudio.warning("Retry cleanup: DestroyProcessTap OSStatus \(dt, privacy: .public)") }
-                lastError = CaptureError.tapFormatUnavailable(s)
-                continue
+                if da != noErr { Log.systemAudio.warning("Tap format cleanup: DestroyAggregateDevice OSStatus \(da, privacy: .public)") }
+                if dt != noErr { Log.systemAudio.warning("Tap format cleanup: DestroyProcessTap OSStatus \(dt, privacy: .public)") }
+                // Retry only for the transient kAudioHardwareBadObjectError race.
+                if case CaptureError.tapFormatUnavailable(kAudioHardwareBadObjectError) = error {
+                    lastError = error
+                    continue
+                }
+                // CancellationError or any other terminal failure — finish stream and propagate.
+                _sysContinuation.withLock { $0?.finish(); $0 = nil }
+                throw error
             }
 
             var mutableStreamDescription = streamDescription
