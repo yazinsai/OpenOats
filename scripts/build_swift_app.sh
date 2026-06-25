@@ -11,6 +11,9 @@ set -euo pipefail
 # For smoke checks without code signing or installation:
 #   SKIP_SIGN=1 SKIP_INSTALL=1 ./scripts/build_swift_app.sh
 #
+# The bundle version is derived from the latest git tag; override explicitly with:
+#   APP_VERSION=1.82.0 ./scripts/build_swift_app.sh
+#
 # For notarization:
 #   APPLE_ID="name@example.com"
 #   APPLE_TEAM_ID="TEAMID123"
@@ -58,6 +61,23 @@ fi
 
 # Copy Info.plist
 cp "$SWIFT_DIR/Sources/OpenOats/Info.plist" "$APP_DIR/Contents/Info.plist"
+
+# Stamp the bundle version into the built app. The source Info.plist carries a
+# placeholder version; release builds overwrite it from the tag in CI
+# (release-dmg.yml). Mirror that for local builds by deriving the version from the
+# latest git tag (override with APP_VERSION=...). Without this, local builds report
+# the stale placeholder and Sparkle prompts to update on every launch.
+if [[ -z "${APP_VERSION:-}" ]]; then
+  TAG="$(git -C "$ROOT_DIR" describe --tags --abbrev=0 2>/dev/null || true)"
+  APP_VERSION="${TAG#v}"
+fi
+if [[ -n "$APP_VERSION" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$APP_DIR/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_VERSION" "$APP_DIR/Contents/Info.plist"
+  echo "Set bundle version to $APP_VERSION"
+else
+  echo "Warning: no git tag found and APP_VERSION unset; bundle keeps placeholder version"
+fi
 
 # Copy app icon
 ICON_PATH="$SWIFT_DIR/Sources/OpenOats/Assets/AppIcon.icns"
