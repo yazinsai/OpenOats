@@ -7,7 +7,10 @@ import os
 
 /// Captures microphone audio via AVAudioEngine and streams PCM buffers.
 final class MicCapture: @unchecked Sendable {
+    private static let maxRetiredEngineCount = 8
+
     private var engine = AVAudioEngine()
+    private var retiredEngines: [AVAudioEngine] = []
     private var hasTapInstalled = false
     private let _audioLevel = AudioLevel()
     private let _hasCapturedFrames = SyncBool()
@@ -50,7 +53,10 @@ final class MicCapture: @unchecked Sendable {
     func bufferStream(deviceID: AudioDeviceID? = nil, echoCancellation: Bool = false) -> AsyncStream<AVAudioPCMBuffer> {
         // Defensive cleanup of any prior state
         _streamContinuation.withLock { $0?.finish(); $0 = nil }
-        engine.inputNode.removeTap(onBus: 0)
+        if hasTapInstalled {
+            engine.inputNode.removeTap(onBus: 0)
+            hasTapInstalled = false
+        }
         engine.stop()
 
         let level = _audioLevel
@@ -206,14 +212,29 @@ final class MicCapture: @unchecked Sendable {
     }
 
     private func makeFreshEngine() -> AVAudioEngine {
+        let oldEngine = engine
         if hasTapInstalled {
-            engine.inputNode.removeTap(onBus: 0)
+            oldEngine.inputNode.removeTap(onBus: 0)
             hasTapInstalled = false
         }
-        engine.stop()
+        oldEngine.stop()
+        oldEngine.reset()
+        retainRetiredEngine(oldEngine)
+
         let freshEngine = AVAudioEngine()
         engine = freshEngine
         return freshEngine
+    }
+
+    private func retainRetiredEngine(_ oldEngine: AVAudioEngine) {
+        retiredEngines.append(oldEngine)
+
+        // AVAudioEngine teardown can race with AVAudioIOUnit property callbacks when
+        // macOS is changing routes (common with AirPods). Keep recently stopped
+        // engines alive for a few swaps so AVFAudio's internal queues can drain.
+        if retiredEngines.count > Self.maxRetiredEngineCount {
+            retiredEngines.removeFirst(retiredEngines.count - Self.maxRetiredEngineCount)
+        }
     }
 
     private static func normalizedRMS(from buffer: AVAudioPCMBuffer) -> Float {
