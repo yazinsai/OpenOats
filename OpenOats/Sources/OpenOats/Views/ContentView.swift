@@ -327,6 +327,13 @@ struct ContentView: View {
 
             overlayManager.defaults = container.defaults
             miniBarManager.defaults = container.defaults
+
+            // Setup calendar integration before the first await so the home timeline
+            // never transiently shows "Waiting for calendar access" on users who already
+            // granted permission. updateCalendarIntegration is synchronous and safe to
+            // call here.
+            container.updateCalendarIntegration(enabled: settings.calendarIntegrationEnabled)
+
             await container.seedIfNeeded(coordinator: coordinator)
             await coordinator.loadHistory()
             controller.handlePendingExternalCommandIfPossible(settings: settings) {
@@ -334,9 +341,6 @@ struct ContentView: View {
             }
 
             await controller.performInitialSetup()
-
-            // Setup calendar integration if enabled
-            container.updateCalendarIntegration(enabled: settings.calendarIntegrationEnabled)
 
             // Setup meeting detection if enabled
             if settings.meetingAutoDetectEnabled {
