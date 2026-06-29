@@ -1377,7 +1377,7 @@ final class SettingsStore {
         self._sidecastTemperature = defaults.object(forKey: "sidecastTemperature") != nil
             ? defaults.double(forKey: "sidecastTemperature") : 1.0
         self._sidecastMaxTokens = defaults.object(forKey: "sidecastMaxTokens") != nil
-            ? defaults.integer(forKey: "sidecastMaxTokens") : 700
+            ? defaults.integer(forKey: "sidecastMaxTokens") : 1500
         self._sidecastSystemPrompt = defaults.string(forKey: "sidecastSystemPrompt") ?? ""
         self._sidecastMinValueThreshold = defaults.object(forKey: "sidecastMinValueThreshold") != nil
             ? defaults.double(forKey: "sidecastMinValueThreshold") : 0.5
