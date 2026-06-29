@@ -73,6 +73,24 @@ private struct GeneralSettingsTab: View {
     @State private var diagnosticsExportHadError = false
     @State private var diagnosticsExportInFlight = false
 
+    /// Bridges the canonical seconds setting to the value shown in the field,
+    /// converting to/from the user's chosen display unit (seconds vs minutes).
+    private var silenceTimeoutDisplayValue: Binding<Int> {
+        Binding(
+            get: {
+                settings.silenceTimeoutUnitIsSeconds
+                    ? settings.silenceTimeoutSeconds
+                    : settings.silenceTimeoutSeconds / 60
+            },
+            set: { newValue in
+                let clamped = max(0, newValue)
+                settings.silenceTimeoutSeconds = settings.silenceTimeoutUnitIsSeconds
+                    ? clamped
+                    : clamped * 60
+            }
+        )
+    }
+
     var body: some View {
         ScrollView {
             Form {
@@ -181,22 +199,6 @@ private struct GeneralSettingsTab: View {
 
                 if settings.meetingAutoDetectEnabled {
                     DisclosureGroup(isExpanded: $showAdvancedDetection, content: {
-                        HStack {
-                            Text("Silence timeout")
-                                .font(.system(size: 12))
-                            Spacer()
-                            TextField("", value: $settings.silenceTimeoutMinutes, format: .number)
-                                .font(.system(size: 12, design: .monospaced))
-                                .frame(width: 50)
-                                .multilineTextAlignment(.trailing)
-                            Text("min")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                        }
-                        Text("Auto-detected sessions stop after this many minutes of silence.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-
                         Toggle("Detection log", isOn: $settings.detectionLogEnabled)
                             .font(.system(size: 12))
                         Text("Print detection events to the system console for debugging.")
@@ -213,6 +215,28 @@ private struct GeneralSettingsTab: View {
                         .padding(.vertical, -10)
                     })
                     .font(.system(size: 12))
+                }
+
+                Section("Auto-Stop on Silence") {
+                    HStack {
+                        Text("Silence timeout")
+                            .font(.system(size: 12))
+                        Spacer()
+                        TextField("", value: silenceTimeoutDisplayValue, format: .number)
+                            .font(.system(size: 12, design: .monospaced))
+                            .frame(width: 50)
+                            .multilineTextAlignment(.trailing)
+                        Picker("", selection: $settings.silenceTimeoutUnitIsSeconds) {
+                            Text("sec").tag(true)
+                            Text("min").tag(false)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(width: 110)
+                    }
+                    Text("Recordings automatically stop after this much silence — applies to both manual and auto-detected sessions. Set to 0 to disable.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
 
                 if !settings.ignoredAppBundleIDs.isEmpty {

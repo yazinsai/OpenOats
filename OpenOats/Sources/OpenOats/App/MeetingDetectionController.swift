@@ -259,16 +259,19 @@ final class MeetingDetectionController {
 
         silenceCheckTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
+                let timeoutSeconds = self?.activeSettings?.silenceTimeoutSeconds ?? 900
+                guard timeoutSeconds > 0 else { return }
+                // Poll frequently enough to honor sub-minute timeouts.
+                let pollInterval = max(1, min(timeoutSeconds, 15))
+                try? await Task.sleep(for: .seconds(pollInterval))
                 guard !Task.isCancelled else { break }
                 guard let self else { break }
 
-                let timeoutMinutes = self.activeSettings?.silenceTimeoutMinutes ?? 15
                 if let lastUtterance = self.lastUtteranceAt {
                     let elapsed = Date().timeIntervalSince(lastUtterance)
-                    if elapsed >= Double(timeoutMinutes) * 60.0 {
+                    if elapsed >= Double(timeoutSeconds) {
                         if self.activeSettings?.detectionLogEnabled == true {
-                            Log.meetingDetection.info("Silence timeout (\(timeoutMinutes, privacy: .public)m), stopping")
+                            Log.meetingDetection.info("Silence timeout (\(timeoutSeconds, privacy: .public)s), stopping")
                         }
                         self.eventContinuation.yield(.silenceTimeout)
                         break
