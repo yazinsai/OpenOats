@@ -115,13 +115,63 @@ final class LiveSessionController {
         let hasBlockingError: Bool
     }
 
+    /// Persisted state for adaptive silence detection, threaded between
+    /// successive evaluations of the polling loop.
+    struct SilenceTracking: Equatable {
+        var lastAudibleActivityAt: Date?
+        /// Running estimate of the ambient (combined mic + system) audio level.
+        var noiseFloor: Float
+        /// Timestamp of the last sample folded into the floor estimate.
+        var lastSampleAt: Date?
+
+        static let initial = SilenceTracking(lastAudibleActivityAt: nil, noiseFloor: 0, lastSampleAt: nil)
+    }
+
     struct AutomaticSilenceTimeoutEvaluation: Equatable {
-        let lastAudibleActivityAt: Date?
+        let tracking: SilenceTracking
         let shouldStop: Bool
     }
 
     static let automaticSilenceTimeoutInterval: TimeInterval = 300
+
+    /// Effective silence timeout in seconds, applied to every session (manual
+    /// and auto-detected). Resolution order:
+    /// 1. `OPENOATS_SILENCE_TIMEOUT_SECONDS` env override (for testing),
+    /// 2. the user's `silenceTimeoutSeconds` setting (0 disables auto-stop),
+    /// 3. the built-in default.
+    static func effectiveAutomaticSilenceTimeoutInterval(settings: AppSettings?) -> TimeInterval {
+        if let raw = ProcessInfo.processInfo.environment["OPENOATS_SILENCE_TIMEOUT_SECONDS"],
+           let seconds = TimeInterval(raw), seconds > 0 {
+            return seconds
+        }
+        if let configured = settings?.silenceTimeoutSeconds {
+            return TimeInterval(configured)   // 0 == disabled
+        }
+        return automaticSilenceTimeoutInterval
+    }
+
+    /// Absolute lower bound on what counts as "audible". The adaptive floor
+    /// does the real work; this only guards against the dynamic threshold
+    /// collapsing toward zero on a near-silent input. ~ -68 dBFS combined.
     static let audibleActivityLevelThreshold: Float = 0.01
+
+    /// A sample counts as audible activity when it exceeds the estimated
+    /// noise floor by this factor (≈ 8 dB of headroom above ambient). Speech
+    /// typically sits 15–40 dB above the floor, so it clears this comfortably
+    /// while steady mic/room/electrical noise does not.
+    static let audibleActivityMargin: Float = 2.5
+
+    /// Time constant for the noise floor falling toward quieter input. Short,
+    /// so the estimate calibrates to ambient within seconds of going quiet.
+    static let noiseFloorFallTimeConstant: TimeInterval = 5
+
+    /// Time constant for the noise floor rising toward louder input. Long, so
+    /// transient speech bursts barely inflate the floor (asymmetric tracking).
+    static let noiseFloorRiseTimeConstant: TimeInterval = 60
+
+    /// Clamp on the per-sample time delta so a long gap between samples (app
+    /// suspended, debugger paused) can't collapse the floor in a single step.
+    static let noiseFloorMaxSampleInterval: TimeInterval = 5
 
     private(set) var state = LiveSessionState()
 
@@ -131,8 +181,6 @@ final class LiveSessionController {
     private var downloadTask: Task<Void, Never>?
     private var startPreflightTask: Task<Void, Never>?
     private var scratchpadSaveTask: Task<Void, Never>?
-    private var silenceMonitorTask: Task<Void, Never>?
-    private var lastUtteranceAt: Date?
     private var pendingInitialScratchpad: String?
 
     // Tracked-change sentinels
@@ -155,7 +203,7 @@ final class LiveSessionController {
     private var observedPeakAudioLevelSinceStart: Float = 0
     private var observedSystemHasEverCapturedFrames = false
     private var observedMicHasEverCapturedFrames = false
-    private var observedLastAudibleActivityAt: Date?
+    private var observedSilenceTracking: SilenceTracking = .initial
     private var pendingRecoveryDiagnostics: PendingRecoveryDiagnostics?
     private var pendingAutoNotesSessionID: String?
     private var autoGeneratingNotesSessionID: String?
@@ -360,7 +408,7 @@ final class LiveSessionController {
     func toggleRecordingPause() {
         guard let engine = coordinator.transcriptionEngine, engine.isRunning else { return }
         engine.isRecordingPaused.toggle()
-        observedLastAudibleActivityAt = Date()
+        observedSilenceTracking.lastAudibleActivityAt = Date()
     }
 
     /// Update the scratchpad text and schedule a debounced save.
@@ -494,7 +542,6 @@ final class LiveSessionController {
 
     private func handleNewUtterance(_ last: Utterance, settings: AppSettings) {
         container.detectionController?.noteUtterance()
-        lastUtteranceAt = Date()
 
         if settings.enableLiveTranscriptCleanup, let engine = coordinator.liveTranscriptCleaner {
             Task {
@@ -681,43 +728,15 @@ final class LiveSessionController {
                 sessionID: handle.sessionID
             )
 
-            // Start silence monitoring for manual sessions (auto-detected sessions are
-            // already monitored by MeetingDetectionController).
-            let timeoutMinutes = settings.silenceTimeoutMinutes
-            if timeoutMinutes > 0, metadata.detectionContext == nil {
-                startSilenceMonitoring(timeoutMinutes: timeoutMinutes)
-            }
+            // Silence-based auto-stop (manual and auto-detected) is handled by the
+            // adaptive audio-level evaluation in the polling loop; see
+            // updateAutomaticSilenceTimeout(_:settings:).
         }
-    }
-
-    private func startSilenceMonitoring(timeoutMinutes: Int) {
-        silenceMonitorTask?.cancel()
-        lastUtteranceAt = Date()
-        silenceMonitorTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
-                guard !Task.isCancelled, let self else { break }
-                if let last = self.lastUtteranceAt,
-                   Date().timeIntervalSince(last) >= Double(timeoutMinutes) * 60 {
-                    await MainActor.run {
-                        self.coordinator.handle(.userStopped)
-                    }
-                    break
-                }
-            }
-        }
-    }
-
-    private func stopSilenceMonitoring() {
-        silenceMonitorTask?.cancel()
-        silenceMonitorTask = nil
-        lastUtteranceAt = nil
     }
 
     func finalizeCurrentSession(settings: AppSettings?) async {
         // 0. Flush scratchpad
         scratchpadSaveTask?.cancel()
-        stopSilenceMonitoring()
         if let sessionID = _currentSessionID, !state.scratchpadText.isEmpty {
             await coordinator.sessionRepository.saveScratchpad(sessionID: sessionID, text: state.scratchpadText)
         }
@@ -1306,30 +1325,79 @@ final class LiveSessionController {
         return max(0, Int(Date().timeIntervalSince(startedAt)))
     }
 
+    /// Advance the ambient noise floor estimate toward `level` over `dt`
+    /// seconds, falling fast and rising slowly so brief sounds don't inflate it.
+    static func updatedNoiseFloor(current: Float, level: Float, dt: TimeInterval) -> Float {
+        guard dt > 0 else { return current }
+        let tau = level < current ? noiseFloorFallTimeConstant : noiseFloorRiseTimeConstant
+        let alpha = Float(1 - exp(-dt / tau))
+        return current + (level - current) * alpha
+    }
+
+    /// Decide whether a recording should auto-stop after a sustained quiet
+    /// period. Rather than comparing the level to a fixed threshold (which
+    /// fails because a live mic's noise floor sits well above any fixed
+    /// "silence" value), this tracks the ambient floor for *this* mic and
+    /// treats audio as activity only when it rises clearly above that floor.
     static func automaticSilenceTimeoutEvaluation(
         isRunning: Bool,
         isRecordingPaused: Bool,
         audioLevel: Float,
         now: Date,
-        lastAudibleActivityAt: Date?,
+        tracking: SilenceTracking,
         timeoutInterval: TimeInterval = automaticSilenceTimeoutInterval,
-        audibleThreshold: Float = audibleActivityLevelThreshold
+        absoluteAudibleThreshold: Float = audibleActivityLevelThreshold,
+        activityMargin: Float = audibleActivityMargin
     ) -> AutomaticSilenceTimeoutEvaluation {
         guard isRunning else {
-            return AutomaticSilenceTimeoutEvaluation(lastAudibleActivityAt: nil, shouldStop: false)
+            return AutomaticSilenceTimeoutEvaluation(tracking: .initial, shouldStop: false)
         }
 
         guard !isRecordingPaused else {
-            return AutomaticSilenceTimeoutEvaluation(lastAudibleActivityAt: now, shouldStop: false)
+            // Don't accrue silence while paused; keep the floor estimate so it
+            // doesn't have to re-converge on resume.
+            return AutomaticSilenceTimeoutEvaluation(
+                tracking: SilenceTracking(
+                    lastAudibleActivityAt: now,
+                    noiseFloor: tracking.noiseFloor,
+                    lastSampleAt: now
+                ),
+                shouldStop: false
+            )
         }
 
-        if audioLevel >= audibleThreshold {
-            return AutomaticSilenceTimeoutEvaluation(lastAudibleActivityAt: now, shouldStop: false)
+        // Seed the floor with the first observed level so it calibrates to this
+        // mic immediately rather than ramping up from zero.
+        let isFirstSample = tracking.lastSampleAt == nil
+        let dt: TimeInterval = isFirstSample
+            ? 0
+            : min(max(0, now.timeIntervalSince(tracking.lastSampleAt!)), noiseFloorMaxSampleInterval)
+        let priorFloor = isFirstSample ? audioLevel : tracking.noiseFloor
+        let noiseFloor = updatedNoiseFloor(current: priorFloor, level: audioLevel, dt: dt)
+
+        // Audible when the level clearly exceeds the ambient floor (or the
+        // absolute backstop, whichever is higher).
+        let dynamicThreshold = max(absoluteAudibleThreshold, noiseFloor * activityMargin)
+        let isAudible = audioLevel > dynamicThreshold
+
+        if isAudible {
+            return AutomaticSilenceTimeoutEvaluation(
+                tracking: SilenceTracking(
+                    lastAudibleActivityAt: now,
+                    noiseFloor: noiseFloor,
+                    lastSampleAt: now
+                ),
+                shouldStop: false
+            )
         }
 
-        let lastActivity = lastAudibleActivityAt ?? now
+        let lastActivity = tracking.lastAudibleActivityAt ?? now
         return AutomaticSilenceTimeoutEvaluation(
-            lastAudibleActivityAt: lastActivity,
+            tracking: SilenceTracking(
+                lastAudibleActivityAt: lastActivity,
+                noiseFloor: noiseFloor,
+                lastSampleAt: now
+            ),
             shouldStop: now.timeIntervalSince(lastActivity) >= timeoutInterval
         )
     }
@@ -1641,22 +1709,34 @@ final class LiveSessionController {
 
     private func updateAutomaticSilenceTimeout(currentState: LiveSessionState, settings: AppSettings) {
         guard let engine = coordinator.transcriptionEngine else {
-            observedLastAudibleActivityAt = nil
+            observedSilenceTracking = .initial
             return
         }
 
+        let timeout = Self.effectiveAutomaticSilenceTimeoutInterval(settings: settings)
+        guard timeout > 0 else {
+            observedSilenceTracking = .initial
+            return
+        }
         let evaluation = Self.automaticSilenceTimeoutEvaluation(
             isRunning: currentState.isRunning && engine.isRunning,
             isRecordingPaused: engine.isRecordingPaused,
             audioLevel: currentState.audioLevel,
             now: Date(),
-            lastAudibleActivityAt: observedLastAudibleActivityAt
+            tracking: observedSilenceTracking,
+            timeoutInterval: timeout
         )
-        observedLastAudibleActivityAt = evaluation.lastAudibleActivityAt
+        observedSilenceTracking = evaluation.tracking
 
         guard evaluation.shouldStop, !engine.isRecordingPaused else { return }
-        observedLastAudibleActivityAt = nil
-        DiagnosticsSupport.record(category: "meeting", message: "Recording auto-stopped after 5 minutes of silence")
+        observedSilenceTracking = .initial
+        Log.meetingDetection.notice(
+            "Auto-stopping after \(Int(timeout), privacy: .public)s of silence (noise floor \(evaluation.tracking.noiseFloor, privacy: .public))"
+        )
+        DiagnosticsSupport.record(
+            category: "meeting",
+            message: "Recording auto-stopped after \(Int(timeout))s of silence (noise floor \(String(format: "%.3f", Double(evaluation.tracking.noiseFloor))))"
+        )
         stopSession(settings: settings)
     }
 }
