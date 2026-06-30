@@ -807,6 +807,16 @@ final class SettingsStore {
         }
     }
 
+    /// The silence timeout read straight from persistent storage, bypassing the
+    /// in-memory cache. A long-running recording reads this every poll so that a
+    /// change made in the Settings window takes effect immediately, even if the
+    /// session happens to hold a different `SettingsStore` instance than the UI.
+    var persistedSilenceTimeoutSeconds: Int? {
+        defaults.object(forKey: "silenceTimeoutSeconds") != nil
+            ? defaults.integer(forKey: "silenceTimeoutSeconds")
+            : nil
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _silenceTimeoutUnitIsSeconds: Bool
     /// UI display preference for the silence timeout: true shows seconds, false minutes.
     var silenceTimeoutUnitIsSeconds: Bool {
