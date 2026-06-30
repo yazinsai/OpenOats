@@ -259,7 +259,8 @@ final class MeetingDetectionController {
 
         silenceCheckTask = Task { [weak self] in
             while !Task.isCancelled {
-                let timeoutSeconds = self?.activeSettings?.silenceTimeoutSeconds ?? 900
+                let timeoutSeconds = self?.activeSettings?.persistedSilenceTimeoutSeconds
+                    ?? self?.activeSettings?.silenceTimeoutSeconds ?? 900
                 guard timeoutSeconds > 0 else { return }
                 // Poll frequently enough to honor sub-minute timeouts.
                 let pollInterval = max(1, min(timeoutSeconds, 15))

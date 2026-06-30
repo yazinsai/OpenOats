@@ -144,7 +144,9 @@ final class LiveSessionController {
            let seconds = TimeInterval(raw), seconds > 0 {
             return seconds
         }
-        if let configured = settings?.silenceTimeoutSeconds {
+        // Read the persisted value so a live recording honors a Settings change
+        // immediately (no app restart), falling back to the in-memory value.
+        if let configured = settings?.persistedSilenceTimeoutSeconds ?? settings?.silenceTimeoutSeconds {
             return TimeInterval(configured)   // 0 == disabled
         }
         return automaticSilenceTimeoutInterval
