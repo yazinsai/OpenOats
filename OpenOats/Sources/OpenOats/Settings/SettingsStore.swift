@@ -794,13 +794,37 @@ final class SettingsStore {
         }
     }
 
-    @ObservationIgnored nonisolated(unsafe) private var _silenceTimeoutMinutes: Int
-    var silenceTimeoutMinutes: Int {
-        get { access(keyPath: \.silenceTimeoutMinutes); return _silenceTimeoutMinutes }
+    @ObservationIgnored nonisolated(unsafe) private var _silenceTimeoutSeconds: Int
+    /// Auto-stop a recording after this many seconds of silence. 0 disables it.
+    /// Applies to both manual and auto-detected sessions.
+    var silenceTimeoutSeconds: Int {
+        get { access(keyPath: \.silenceTimeoutSeconds); return _silenceTimeoutSeconds }
         set {
-            withMutation(keyPath: \.silenceTimeoutMinutes) {
-                _silenceTimeoutMinutes = newValue
-                defaults.set(newValue, forKey: "silenceTimeoutMinutes")
+            withMutation(keyPath: \.silenceTimeoutSeconds) {
+                _silenceTimeoutSeconds = max(0, newValue)
+                defaults.set(_silenceTimeoutSeconds, forKey: "silenceTimeoutSeconds")
+            }
+        }
+    }
+
+    /// The silence timeout read straight from persistent storage, bypassing the
+    /// in-memory cache. A long-running recording reads this every poll so that a
+    /// change made in the Settings window takes effect immediately, even if the
+    /// session happens to hold a different `SettingsStore` instance than the UI.
+    var persistedSilenceTimeoutSeconds: Int? {
+        defaults.object(forKey: "silenceTimeoutSeconds") != nil
+            ? defaults.integer(forKey: "silenceTimeoutSeconds")
+            : nil
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _silenceTimeoutUnitIsSeconds: Bool
+    /// UI display preference for the silence timeout: true shows seconds, false minutes.
+    var silenceTimeoutUnitIsSeconds: Bool {
+        get { access(keyPath: \.silenceTimeoutUnitIsSeconds); return _silenceTimeoutUnitIsSeconds }
+        set {
+            withMutation(keyPath: \.silenceTimeoutUnitIsSeconds) {
+                _silenceTimeoutUnitIsSeconds = newValue
+                defaults.set(newValue, forKey: "silenceTimeoutUnitIsSeconds")
             }
         }
     }
@@ -1435,8 +1459,19 @@ final class SettingsStore {
         }
         self._customMeetingAppBundleIDs = defaults.stringArray(forKey: "customMeetingAppBundleIDs") ?? []
         self._ignoredAppBundleIDs = defaults.stringArray(forKey: "ignoredAppBundleIDs") ?? []
-        self._silenceTimeoutMinutes = defaults.object(forKey: "silenceTimeoutMinutes") != nil
-            ? defaults.integer(forKey: "silenceTimeoutMinutes") : 15
+        // Canonical timeout is seconds; migrate from the legacy minutes key.
+        let silenceSeconds: Int
+        if defaults.object(forKey: "silenceTimeoutSeconds") != nil {
+            silenceSeconds = defaults.integer(forKey: "silenceTimeoutSeconds")
+        } else if defaults.object(forKey: "silenceTimeoutMinutes") != nil {
+            silenceSeconds = defaults.integer(forKey: "silenceTimeoutMinutes") * 60
+        } else {
+            silenceSeconds = 900
+        }
+        self._silenceTimeoutSeconds = silenceSeconds
+        self._silenceTimeoutUnitIsSeconds = defaults.object(forKey: "silenceTimeoutUnitIsSeconds") != nil
+            ? defaults.bool(forKey: "silenceTimeoutUnitIsSeconds")
+            : (silenceSeconds < 60)
         self._detectionLogEnabled = defaults.bool(forKey: "detectionLogEnabled")
         self._diagnosticLoggingEnabled = defaults.bool(forKey: "diagnosticLoggingEnabled")
         self._hasShownAutoDetectExplanation = defaults.bool(forKey: "hasShownAutoDetectExplanation")
