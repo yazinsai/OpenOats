@@ -17,7 +17,9 @@ enum TimingAwareStemRebuilder {
         44_100,
         48_000
     ]
-    private static let correctionThresholdRatio = 0.12
+    // Must sit below 0.088 so a 44.1kHz-declared stem carrying 48kHz-cadence data
+    // (the most common inputNode mistag after a device switch) triggers a rebuild.
+    private static let correctionThresholdRatio = 0.08
     private static let rateSnapToleranceRatio = 0.05
     private static let outputChunkFrameCapacity: AVAudioFrameCount = 16_384
 
@@ -135,11 +137,23 @@ enum TimingAwareStemRebuilder {
             }
 
             let reinterpretedBuffer = reinterpret(buffer: inputBuffer, as: chunkFormat)
-            let convertedBuffer = try convert(
+            guard let convertedBuffer = try convert(
                 reinterpretedBuffer,
                 to: outputFormat
-            )
-            guard convertedBuffer.frameLength > 0 else { continue }
+            ), convertedBuffer.frameLength > 0 else {
+                diagLog("[AUDIO-REBUILD] chunk \(index) unconvertible, skipping")
+                continue
+            }
+            // Writing a buffer whose format differs from the output file raises an
+            // uncatchable NSException inside AVAudioFile.write — skip instead.
+            guard formatsMatch(convertedBuffer.format, outputFormat) else {
+                diagLog(
+                    "[AUDIO-REBUILD] chunk \(index) format " +
+                    "\(convertedBuffer.format.sampleRate)/\(convertedBuffer.format.channelCount)ch " +
+                    "does not match output, skipping"
+                )
+                continue
+            }
 
             if let startReference {
                 let offsetSeconds = max(0, chunk.capturedAt.timeIntervalSince(startReference))
@@ -253,18 +267,22 @@ enum TimingAwareStemRebuilder {
         return reinterpreted
     }
 
+    /// Returns nil when the chunk cannot be converted to the output format —
+    /// callers must skip the chunk rather than write a mismatched buffer.
     private static func convert(
         _ buffer: AVAudioPCMBuffer,
         to outputFormat: AVAudioFormat
-    ) throws -> AVAudioPCMBuffer {
+    ) throws -> AVAudioPCMBuffer? {
         let sourceFormat = buffer.format
-        let floatSource = try convertToFloat32(buffer, format: sourceFormat)
+        guard let floatSource = try convertToFloat32(buffer, format: sourceFormat) else {
+            return nil
+        }
         guard !formatsMatch(floatSource.format, outputFormat) else {
             return floatSource
         }
 
         guard let converter = AVAudioConverter(from: floatSource.format, to: outputFormat) else {
-            return floatSource
+            return nil
         }
 
         let outputCapacity = AVAudioFrameCount(
@@ -277,7 +295,7 @@ enum TimingAwareStemRebuilder {
             pcmFormat: outputFormat,
             frameCapacity: outputCapacity
         ) else {
-            return floatSource
+            return nil
         }
 
         var conversionError: NSError?
@@ -298,19 +316,21 @@ enum TimingAwareStemRebuilder {
             throw conversionError
         }
 
-        return outputBuffer.frameLength > 0 ? outputBuffer : floatSource
+        return outputBuffer.frameLength > 0 ? outputBuffer : nil
     }
 
+    /// Returns nil when the buffer cannot be represented/converted as float32 —
+    /// callers must skip the chunk.
     private static func convertToFloat32(
         _ buffer: AVAudioPCMBuffer,
         format: AVAudioFormat
-    ) throws -> AVAudioPCMBuffer {
+    ) throws -> AVAudioPCMBuffer? {
         let channelCount = format.channelCount
         let floatFormat: AVAudioFormat
         if channelCount > 2 {
             let layoutTag = AudioChannelLayoutTag(kAudioChannelLayoutTag_DiscreteInOrder | UInt32(channelCount))
             guard let layout = AVAudioChannelLayout(layoutTag: layoutTag) else {
-                return buffer
+                return nil
             }
             floatFormat = AVAudioFormat(
                 commonFormat: .pcmFormatFloat32,
@@ -325,7 +345,7 @@ enum TimingAwareStemRebuilder {
                 channels: channelCount,
                 interleaved: false
             ) else {
-                return buffer
+                return nil
             }
             floatFormat = fmt
         }
@@ -336,7 +356,7 @@ enum TimingAwareStemRebuilder {
                 pcmFormat: floatFormat,
                 frameCapacity: AVAudioFrameCount(max(1, buffer.frameLength + 32))
               ) else {
-            return buffer
+            return nil
         }
 
         var conversionError: NSError?
@@ -357,7 +377,7 @@ enum TimingAwareStemRebuilder {
             throw conversionError
         }
 
-        return outputBuffer.frameLength > 0 ? outputBuffer : buffer
+        return outputBuffer.frameLength > 0 ? outputBuffer : nil
     }
 
     private static func writeSilence(

@@ -7,6 +7,9 @@ final class SystemAudioCapture: @unchecked Sendable {
     private let stateLock = NSLock()
     private let continuationLock = NSLock()
     private let callbackLock = NSLock()
+    /// Serializes capture lifecycle transitions (start/stop) so a restart racing a
+    /// stop can never double-destroy CoreAudio objects or orphan a live tap.
+    private let controlLock = NSLock()
     private let ioQueue = DispatchQueue(label: "com.gelato.system-audio.tap")
     private let deliveryQueue = DispatchQueue(label: "com.gelato.system-audio.delivery")
     private let _audioLevel = AudioLevel()
@@ -19,6 +22,7 @@ final class SystemAudioCapture: @unchecked Sendable {
     private var ioProcID: AudioDeviceIOProcID?
     private var tapFormat: AVAudioFormat?
     private var accumulator: PCMChunkAccumulator?
+    /// Confined to deliveryQueue — only touched from deliveryQueue blocks.
     private var sampleRateResolver: SystemTapSampleRateResolver?
     private var captureGeneration = UUID()
     private var deliveredChunkCount = 0
@@ -32,7 +36,16 @@ final class SystemAudioCapture: @unchecked Sendable {
     func bufferStream(
         onSystemBuffer: (@Sendable (CapturedAudioBuffer) -> Void)? = nil
     ) async throws -> CaptureStreams {
-        await stop()
+        try startStreamSynchronized(onSystemBuffer: onSystemBuffer)
+    }
+
+    private func startStreamSynchronized(
+        onSystemBuffer: (@Sendable (CapturedAudioBuffer) -> Void)?
+    ) throws -> CaptureStreams {
+        controlLock.lock()
+        defer { controlLock.unlock() }
+
+        stopLocked()
 
         let generation = UUID()
         callbackLock.withLock {
@@ -76,16 +89,32 @@ final class SystemAudioCapture: @unchecked Sendable {
     }
 
     func stop() async {
-        finishStream()
+        stopSynchronized()
+    }
 
+    private func stopSynchronized() {
+        controlLock.lock()
+        defer { controlLock.unlock() }
+        stopLocked()
+        finishStream()
+    }
+
+    /// Caller must hold `controlLock`.
+    private func stopLocked() {
+        // Take-and-clear the capture objects atomically: a second stop (or a stop
+        // racing a restart) sees nil and destroys nothing.
         let captureState = stateLock.withLock { () -> CaptureState in
-            CaptureState(
+            let state = CaptureState(
                 processTap: processTap,
                 aggregateDevice: aggregateDevice,
                 ioProcID: ioProcID,
                 format: tapFormat,
                 generation: captureGeneration
             )
+            processTap = nil
+            aggregateDevice = nil
+            ioProcID = nil
+            return state
         }
 
         if let aggregateDevice = captureState.aggregateDevice,
@@ -96,10 +125,16 @@ final class SystemAudioCapture: @unchecked Sendable {
             }
         }
 
+        // Flush the accumulator tail and resolver-buffered chunks while the
+        // continuation and recorder callback are still wired up — finishing the
+        // stream first would silently drop the final ~0.5s of system audio on
+        // every stop and device switch.
         let pendingChunk = ioQueue.sync { () -> PendingPCMChunk? in
-            let chunk = accumulator?.flush()
-            accumulator = nil
-            return chunk
+            stateLock.withLock {
+                let chunk = accumulator?.flush()
+                accumulator = nil
+                return chunk
+            }
         }
 
         deliveryQueue.sync {
@@ -107,6 +142,7 @@ final class SystemAudioCapture: @unchecked Sendable {
                 handleDeliveredChunk(pendingChunk, fallbackFormat: captureState.format)
             }
             flushBufferedChunks(fallbackFormat: captureState.format)
+            deliveredChunkCount = 0
         }
 
         if let aggregateDevice = captureState.aggregateDevice,
@@ -134,15 +170,10 @@ final class SystemAudioCapture: @unchecked Sendable {
         }
 
         stateLock.withLock {
-            processTap = nil
-            aggregateDevice = nil
-            ioProcID = nil
             tapFormat = nil
             accumulator = nil
             captureGeneration = UUID()
-            deliveredChunkCount = 0
         }
-        sampleRateResolver = nil
         _audioLevel.value = 0
     }
 
@@ -216,7 +247,10 @@ final class SystemAudioCapture: @unchecked Sendable {
             targetFrameCount: 4096,
             generation: generation
         )
-        sampleRateResolver = SystemTapSampleRateResolver(reportedFormat: tapFormat)
+        // sampleRateResolver is confined to deliveryQueue.
+        deliveryQueue.sync {
+            self.sampleRateResolver = SystemTapSampleRateResolver(reportedFormat: tapFormat)
+        }
         var ioProcID: AudioDeviceIOProcID?
         let createStatus = AudioDeviceCreateIOProcIDWithBlock(
             &ioProcID,
@@ -480,6 +514,10 @@ private final class SystemTapSampleRateResolver {
     private static let minimumObservedRates = 3
     private static let maximumBufferedChunks = 6
     private static let correctionThresholdRatio = 0.05
+    /// Post-resolution rolling window: ~1s of chunks must sustain a divergent
+    /// cadence before the resolved rate is corrected mid-capture.
+    private static let postResolutionWindow = 12
+    private static let reResolutionDivergenceRatio = 0.05
     private static let canonicalRates: [Double] = [
         8_000,
         12_000,
@@ -496,13 +534,20 @@ private final class SystemTapSampleRateResolver {
     private var observedRates: [Double] = []
     private var bufferedChunks: [PendingPCMChunk] = []
     private var resolvedFormat: AVAudioFormat?
+    private var postResolutionRates: [Double] = []
 
     init(reportedFormat: AVAudioFormat) {
         self.reportedFormat = reportedFormat
     }
 
     func append(_ chunk: PendingPCMChunk) -> ResolvedDelivery {
-        if let resolvedFormat {
+        if resolvedFormat != nil {
+            // Keep watching the delivery cadence after resolution: a Bluetooth
+            // profile flip (A2DP <-> HFP) changes the device's real rate without
+            // any device-change notification, and every buffer stays tagged with
+            // the stale rate. Re-resolve when the divergence is sustained.
+            trackPostResolutionCadence(chunk)
+            previousChunk = chunk
             return ResolvedDelivery(format: resolvedFormat, chunks: [chunk])
         }
 
@@ -523,6 +568,34 @@ private final class SystemTapSampleRateResolver {
         let chunks = bufferedChunks
         bufferedChunks = []
         return ResolvedDelivery(format: format, chunks: chunks)
+    }
+
+    private func trackPostResolutionCadence(_ chunk: PendingPCMChunk) {
+        guard let previousChunk, let current = resolvedFormat else { return }
+        let delta = chunk.capturedAt.timeIntervalSince(previousChunk.capturedAt)
+        guard delta > 0 else { return }
+
+        let rate = Double(previousChunk.frameCount) / delta
+        guard rate.isFinite, rate >= 4_000, rate <= 192_000 else { return }
+
+        postResolutionRates.append(rate)
+        if postResolutionRates.count > Self.postResolutionWindow {
+            postResolutionRates.removeFirst(postResolutionRates.count - Self.postResolutionWindow)
+        }
+        guard postResolutionRates.count >= Self.postResolutionWindow else { return }
+
+        let median = Self.median(of: postResolutionRates)
+        guard let snappedRate = Self.snapToCanonicalRate(median) else { return }
+
+        let divergence = abs(snappedRate - current.sampleRate) / max(current.sampleRate, 1)
+        guard divergence >= Self.reResolutionDivergenceRatio,
+              let correctedFormat = Self.makeFormat(from: current, sampleRate: snappedRate) else {
+            return
+        }
+
+        diagLog("[SYS-TAP-RATE-RERESOLVED] \(current.sampleRate) -> \(snappedRate) mid-capture")
+        resolvedFormat = correctedFormat
+        postResolutionRates.removeAll()
     }
 
     func drain(fallbackFormat: AVAudioFormat?) -> ResolvedDelivery {

@@ -5,15 +5,27 @@ import Observation
 import os
 
 /// Simple file logger for diagnostics — writes to /tmp/opengranola.log
+/// Writes happen on a serial utility queue with the throwing FileHandle APIs:
+/// the legacy seekToEndOfFile()/write(_:) raise uncatchable NSExceptions on
+/// write failure (e.g. disk full), and diagLog is called from audio callbacks.
+private let diagLogQueue = DispatchQueue(label: "com.gelato.diaglog", qos: .utility)
+
 func diagLog(_ msg: String) {
     let line = "\(Date()): \(msg)\n"
-    let path = "/tmp/opengranola.log"
-    if let fh = FileHandle(forWritingAtPath: path) {
-        fh.seekToEndOfFile()
-        fh.write(line.data(using: .utf8)!)
-        fh.closeFile()
-    } else {
-        FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
+    diagLogQueue.async {
+        let path = "/tmp/opengranola.log"
+        guard let data = line.data(using: .utf8) else { return }
+        if let fh = FileHandle(forWritingAtPath: path) {
+            defer { try? fh.close() }
+            do {
+                try fh.seekToEnd()
+                try fh.write(contentsOf: data)
+            } catch {
+                // Never crash (or spam) on logging failure.
+            }
+        } else {
+            FileManager.default.createFile(atPath: path, contents: data)
+        }
     }
 }
 
@@ -65,6 +77,10 @@ final class TranscriptionEngine {
     /// Remembers that another output-change notification arrived while a
     /// restart was pending or in flight.
     private var pendingSystemRestart = false
+    /// In-flight stop, retained so start() can wait for the previous session's
+    /// teardown instead of racing it (a stop suspended mid-teardown would
+    /// otherwise destroy the NEXT session's capture and recorder).
+    private var stopTask: Task<Void, Never>?
 
     init(transcriptStore: TranscriptStore) {
         self.transcriptStore = transcriptStore
@@ -77,6 +93,12 @@ final class TranscriptionEngine {
         audioRecorder: SessionAudioRecorder? = nil
     ) async {
         diagLog("[ENGINE-0] start() called, isRunning=\(isRunning)")
+        guard !isRunning else { return }
+        // Never start on top of a stop that is still tearing down.
+        if let stopTask {
+            diagLog("[ENGINE-0] waiting for previous stop() to finish")
+            await stopTask.value
+        }
         guard !isRunning else { return }
         lastError = nil
         self.audioRecorder = audioRecorder
@@ -135,44 +157,31 @@ final class TranscriptionEngine {
             return
         }
 
-        // 3. Start mic capture
+        // 3. Start mic capture + transcription
         userSelectedDeviceID = inputDeviceID
-        let targetMicID = inputDeviceID > 0 ? inputDeviceID : MicCapture.automaticInputDeviceID()
-        currentMicDeviceID = targetMicID ?? 0
+        let targetMicID = inputDeviceID > 0 ? inputDeviceID : MicCapture.automaticInputDeviceID() ?? 0
+        currentMicDeviceID = targetMicID
         if inputDeviceID == 0 {
-            diagLog("[ENGINE-4] automatic mic resolved to \(String(describing: targetMicID)) (\(MicCapture.automaticInputDeviceName() ?? "unknown"))")
+            diagLog("[ENGINE-4] automatic mic resolved to \(targetMicID) (\(MicCapture.automaticInputDeviceName() ?? "unknown"))")
         } else {
-            diagLog("[ENGINE-4] starting mic capture, targetMicID=\(String(describing: targetMicID))")
+            diagLog("[ENGINE-4] starting mic capture, targetMicID=\(targetMicID)")
         }
-        let micStream = micCapture.bufferStream(
-            deviceID: targetMicID,
-            onBuffer: { capturedBuffer in
-                audioRecorder?.appendMicBuffer(capturedBuffer)
+        if !startMicPipeline(targetMicID: targetMicID),
+           inputDeviceID > 0,
+           let fallbackID = MicCapture.automaticInputDeviceID(),
+           fallbackID != targetMicID {
+            // The requested device failed (unplugged, dead battery) — fall back to
+            // the automatic pick so the session still records mic audio.
+            diagLog("[ENGINE-4] requested mic failed, falling back to automatic device \(fallbackID)")
+            micCapture.stop()
+            if startMicPipeline(targetMicID: fallbackID) {
+                currentMicDeviceID = fallbackID
+                lastError = nil
             }
-        )
-
-        // 4. Start mic transcription
-        let store = transcriptStore
-        let micTranscriber = StreamingTranscriber(
-            asrManager: asrManager,
-            vadManager: vadManager,
-            speaker: .you,
-            sessionStart: sessionStart,
-            onPartial: { text in
-                Task { @MainActor in store.volatileYouText = text }
-            },
-            onFinal: { text, timestamp in
-                Task { @MainActor in
-                    store.volatileYouText = ""
-                    store.append(Utterance(text: text, speaker: .you, timestamp: timestamp))
-                }
-            }
-        )
-        micTask = Task.detached {
-            await micTranscriber.run(stream: micStream)
         }
 
         // 5. Start system audio transcription
+        let store = transcriptStore
         let sysTranscriber = StreamingTranscriber(
             asrManager: asrManager,
             vadManager: vadManager,
@@ -240,7 +249,7 @@ final class TranscriptionEngine {
     /// Restart only the mic capture with a new device, keeping system audio and models intact.
     /// Pass the raw setting value (0 = automatic selection, or a specific AudioDeviceID).
     func restartMic(inputDeviceID: AudioDeviceID, force: Bool = false) {
-        guard isRunning, let asrManager, let vadManager else { return }
+        guard isRunning, asrManager != nil, vadManager != nil else { return }
 
         if inputDeviceID != 0 || userSelectedDeviceID != 0 {
             userSelectedDeviceID = inputDeviceID
@@ -263,13 +272,42 @@ final class TranscriptionEngine {
 
         // Start new mic stream — makeFreshEngine() inside bufferStream handles
         // format negotiation automatically, no stabilization delay needed.
+        if !startMicPipeline(targetMicID: targetMicID),
+           let fallbackID = MicCapture.automaticInputDeviceID(),
+           fallbackID != targetMicID {
+            // The requested device failed mid-session (unplugged, dead battery).
+            // Fall back to the automatic pick instead of silently recording no mic.
+            diagLog("[ENGINE-MIC-SWAP] device \(targetMicID) failed, falling back to \(fallbackID)")
+            micCapture.stop()
+            if startMicPipeline(targetMicID: fallbackID) {
+                currentMicDeviceID = fallbackID
+                lastError = nil
+            }
+        }
+
+        diagLog("[ENGINE-MIC-SWAP] mic restarted on device \(currentMicDeviceID)")
+    }
+
+    /// Start the mic capture stream and its transcriber for the given device.
+    /// Returns false — and sets `lastError` — when the capture engine failed to start.
+    @discardableResult
+    private func startMicPipeline(targetMicID: AudioDeviceID) -> Bool {
+        guard let asrManager, let vadManager else { return false }
+
         let audioRecorder = self.audioRecorder
         let micStream = micCapture.bufferStream(
-            deviceID: targetMicID,
+            deviceID: targetMicID > 0 ? targetMicID : nil,
             onBuffer: { capturedBuffer in
                 audioRecorder?.appendMicBuffer(capturedBuffer)
             }
         )
+
+        if let error = micCapture.captureError {
+            diagLog("[ENGINE-MIC-START-FAIL] \(error)")
+            lastError = "Microphone capture failed: \(error)"
+            return false
+        }
+
         let store = transcriptStore
         let micTranscriber = StreamingTranscriber(
             asrManager: asrManager,
@@ -289,8 +327,7 @@ final class TranscriptionEngine {
         micTask = Task.detached {
             await micTranscriber.run(stream: micStream)
         }
-
-        diagLog("[ENGINE-MIC-SWAP] mic restarted on device \(targetMicID)")
+        return true
     }
 
     // MARK: - Default Device Listener
@@ -386,16 +423,19 @@ final class TranscriptionEngine {
         guard isRunning, let asrManager, let vadManager else { return }
 
         diagLog("[ENGINE-SYS-SWAP] restarting system capture for output device change")
-        systemCapture.finishStream()
+        // systemCapture.stop() flushes the buffered tail into the recorder and the
+        // stream FIRST, then finishes the stream — which lets the transcriber task
+        // exit on its own. (Finishing the stream before stopping would drop the
+        // tail audio around every device switch.)
+        await systemCapture.stop()
         await sysTask?.value
-        guard isRunning, !Task.isCancelled else { return }
         sysTask = nil
+        guard isRunning, !Task.isCancelled else { return }
 
         let audioRecorder = self.audioRecorder
-        await systemCapture.stop()
 
-        // Reset the audio recorder's system format so it doesn't try to convert
-        // new-device audio to the old-device format using a wrong sample rate.
+        // Reset the audio recorder's system converter so it rebuilds for the
+        // new device's format instead of reusing stale conversion state.
         audioRecorder?.resetSystemFormat()
 
         do {
@@ -404,6 +444,13 @@ final class TranscriptionEngine {
                     audioRecorder?.appendSystemBuffer(capturedBuffer)
                 }
             )
+            // stop() may have run while we were suspended in bufferStream —
+            // tear the fresh capture down instead of leaving a zombie tap alive.
+            guard isRunning, !Task.isCancelled else {
+                diagLog("[ENGINE-SYS-SWAP] engine stopped during restart, tearing down fresh capture")
+                await systemCapture.stop()
+                return
+            }
             let store = transcriptStore
             let sysTranscriber = StreamingTranscriber(
                 asrManager: asrManager,
@@ -456,30 +503,44 @@ final class TranscriptionEngine {
     }
 
     func stop() async {
+        // Serialize stops: concurrent callers all await the same teardown, and
+        // start() awaits `stopTask` so a new session can never race a stop that
+        // is suspended mid-teardown.
+        if let stopTask {
+            await stopTask.value
+            return
+        }
+        let task = Task { await self.performStop() }
+        stopTask = task
+        await task.value
+        stopTask = nil
+    }
+
+    private func performStop() async {
         diagLog("[ENGINE-STOP] begin")
         removeDefaultDeviceListener()
         removeDefaultOutputDeviceListener()
         micRestartTask?.cancel()
         micRestartTask = nil
-        systemRestartTask?.cancel()
-        systemRestartTask = nil
+        let restartTask = systemRestartTask
+        restartTask?.cancel()
         pendingSystemRestart = false
         let micTask = self.micTask
-        let sysTask = self.sysTask
         self.micKeepAliveTask?.cancel()
         self.micTask = nil
-        self.sysTask = nil
         self.micKeepAliveTask = nil
         isRunning = false
         assetStatus = "Ready"
 
-        micCapture.finishStream()
-        systemCapture.finishStream()
-        micTask?.cancel()
-        sysTask?.cancel()
-        await micTask?.value
-        await sysTask?.value
+        // Let any in-flight system-capture restart wind down (its post-await
+        // guards see isRunning == false and tear down whatever it created)
+        // before we tear down the capture ourselves.
+        await restartTask?.value
+        systemRestartTask = nil
 
+        micCapture.finishStream()
+        micTask?.cancel()
+        await micTask?.value
         micCapture.stop()
 
         let systemCapture = self.systemCapture
@@ -488,8 +549,17 @@ final class TranscriptionEngine {
         currentSessionStart = nil
         currentMicDeviceID = 0
 
+        // systemCapture.stop() flushes the tail into the recorder before finishing
+        // the stream, which also ends the system transcriber's loop.
         await Task.detached(priority: .userInitiated) {
             await systemCapture.stop()
+        }.value
+        let sysTask = self.sysTask
+        self.sysTask = nil
+        sysTask?.cancel()
+        await sysTask?.value
+
+        await Task.detached(priority: .userInitiated) {
             _ = recorder?.finish()
         }.value
         diagLog("[ENGINE-STOP] recorder finished")

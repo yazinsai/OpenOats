@@ -4,8 +4,10 @@ import Foundation
 final class SessionAudioRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private let writeQueue = DispatchQueue(label: "com.gelato.session-audio-recorder")
-    private static let drainTimeoutSeconds: TimeInterval = 5
-    private let encoder = SessionAudioTiming.makeJSONEncoder()
+    /// Timing-JSON checkpoints run here, off the stem write queue — encoding the
+    /// full chunk history must never delay audio writes.
+    private let checkpointQueue = DispatchQueue(label: "com.gelato.session-audio-timing", qos: .utility)
+    private static let drainTimeoutSeconds: TimeInterval = 30
     private var micWriter: PCMFileWriter?
     private var systemWriter: PCMFileWriter?
     private var timingURL: URL?
@@ -13,12 +15,17 @@ final class SessionAudioRecorder: @unchecked Sendable {
     private var systemFirstBufferAt: Date?
     private var micChunks: [SessionAudioChunk] = []
     private var systemChunks: [SessionAudioChunk] = []
+    private var lastCheckpointAt: Date?
 
     func start(sessionID: String, in directory: URL) {
         lock.lock()
         defer { lock.unlock() }
 
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        } catch {
+            diagLog("[AUDIO-RECORDER-START-FAIL] cannot create \(directory.path): \(error.localizedDescription)")
+        }
 
         let micURL = directory.appendingPathComponent("\(sessionID)_you.caf")
         let systemURL = directory.appendingPathComponent("\(sessionID)_them.caf")
@@ -35,38 +42,16 @@ final class SessionAudioRecorder: @unchecked Sendable {
         systemFirstBufferAt = nil
         micChunks = []
         systemChunks = []
+        lastCheckpointAt = nil
     }
 
     func appendMicBuffer(_ capturedBuffer: CapturedAudioBuffer) {
-        lock.lock()
-        let writer = micWriter
-        if micFirstBufferAt == nil {
-            micFirstBufferAt = capturedBuffer.capturedAt
-        }
-        lock.unlock()
-
-        guard let writer,
-              let copy = capturedBuffer.buffer.ownedCopy(),
-              let preparedBuffer = writer.prepareBufferForWriting(copy) else { return }
-        guard preparedBuffer.frameLength > 0 else { return }
-
-        lock.lock()
-        micChunks.append(
-            SessionAudioChunk(
-                capturedAt: capturedBuffer.capturedAt,
-                frameCount: Int(preparedBuffer.frameLength)
-            )
-        )
-        lock.unlock()
-
-        writeQueue.async {
-            writer.appendPreparedBuffer(preparedBuffer)
-        }
+        append(capturedBuffer, isMic: true)
     }
 
-    /// Reset the system writer's locked format so it re-locks to the next buffer's
+    /// Reset the system writer's converter so it re-locks to the next buffer's
     /// format. Call this when the system audio capture restarts (e.g. output device change)
-    /// so the writer doesn't try to convert new-device audio into the old-device format.
+    /// so the writer rebuilds its converter for the new-device format.
     func resetSystemFormat() {
         lock.lock()
         systemWriter?.resetTargetFormat()
@@ -74,10 +59,18 @@ final class SessionAudioRecorder: @unchecked Sendable {
     }
 
     func appendSystemBuffer(_ capturedBuffer: CapturedAudioBuffer) {
+        append(capturedBuffer, isMic: false)
+    }
+
+    private func append(_ capturedBuffer: CapturedAudioBuffer, isMic: Bool) {
         lock.lock()
-        let writer = systemWriter
-        if systemFirstBufferAt == nil {
-            systemFirstBufferAt = capturedBuffer.capturedAt
+        let writer = isMic ? micWriter : systemWriter
+        if writer != nil {
+            if isMic, micFirstBufferAt == nil {
+                micFirstBufferAt = capturedBuffer.capturedAt
+            } else if !isMic, systemFirstBufferAt == nil {
+                systemFirstBufferAt = capturedBuffer.capturedAt
+            }
         }
         lock.unlock()
 
@@ -86,17 +79,71 @@ final class SessionAudioRecorder: @unchecked Sendable {
               let preparedBuffer = writer.prepareBufferForWriting(copy) else { return }
         guard preparedBuffer.frameLength > 0 else { return }
 
-        lock.lock()
-        systemChunks.append(
-            SessionAudioChunk(
-                capturedAt: capturedBuffer.capturedAt,
-                frameCount: Int(preparedBuffer.frameLength)
+        let capturedAt = capturedBuffer.capturedAt
+        writeQueue.async { [weak self] in
+            // Record the timing chunk only if the write actually succeeded, so the
+            // timing JSON never claims frames that aren't in the file (a mismatch
+            // makes the mixer throw "time range beyond duration" at finalization).
+            guard writer.appendPreparedBuffer(preparedBuffer) else { return }
+            self?.recordChunk(
+                SessionAudioChunk(capturedAt: capturedAt, frameCount: Int(preparedBuffer.frameLength)),
+                isMic: isMic
             )
-        )
+        }
+    }
+
+    /// Runs on writeQueue.
+    private func recordChunk(_ chunk: SessionAudioChunk, isMic: Bool) {
+        lock.lock()
+        if isMic {
+            micChunks.append(chunk)
+        } else {
+            systemChunks.append(chunk)
+        }
+
+        // Checkpoint the timing JSON so a crash mid-session doesn't lose all
+        // timing metadata. Each checkpoint re-encodes the full history, so the
+        // interval grows with session length to keep cumulative cost bounded.
+        let totalChunks = micChunks.count + systemChunks.count
+        let minInterval = max(10.0, Double(totalChunks) / 400.0)
+        let now = Date()
+        let shouldCheckpoint: Bool
+        if let lastCheckpointAt {
+            shouldCheckpoint = now.timeIntervalSince(lastCheckpointAt) >= minInterval
+        } else {
+            shouldCheckpoint = totalChunks >= 20
+        }
+        if shouldCheckpoint {
+            lastCheckpointAt = now
+        }
+        let timing = shouldCheckpoint ? currentTimingLocked() : nil
+        let timingURL = self.timingURL
         lock.unlock()
 
-        writeQueue.async {
-            writer.appendPreparedBuffer(preparedBuffer)
+        if let timing, let timingURL {
+            checkpointQueue.async {
+                Self.writeTiming(timing, to: timingURL)
+            }
+        }
+    }
+
+    /// Caller must hold `lock`.
+    private func currentTimingLocked() -> SessionAudioTiming {
+        SessionAudioTiming(
+            micFirstBufferAt: micFirstBufferAt,
+            systemFirstBufferAt: systemFirstBufferAt,
+            micChunks: micChunks,
+            systemChunks: systemChunks
+        )
+    }
+
+    private static func writeTiming(_ timing: SessionAudioTiming, to url: URL) {
+        let encoder = SessionAudioTiming.makeJSONEncoder()
+        do {
+            let data = try encoder.encode(timing)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            diagLog("[AUDIO-TIMING-WRITE-FAIL] \(url.lastPathComponent): \(error.localizedDescription)")
         }
     }
 
@@ -105,26 +152,9 @@ final class SessionAudioRecorder: @unchecked Sendable {
         lock.lock()
         let micWriter = self.micWriter
         let systemWriter = self.systemWriter
-        let timingURL = self.timingURL
-        let timing = SessionAudioTiming(
-            micFirstBufferAt: micFirstBufferAt,
-            systemFirstBufferAt: systemFirstBufferAt,
-            micChunks: micChunks,
-            systemChunks: systemChunks
-        )
         self.micWriter = nil
         self.systemWriter = nil
-        self.timingURL = nil
-        self.micFirstBufferAt = nil
-        self.systemFirstBufferAt = nil
-        self.micChunks = []
-        self.systemChunks = []
         lock.unlock()
-
-        diagLog(
-            "[AUDIO-RECORDER-FINISH] micChunks=\(timing.micChunks?.count ?? 0) " +
-            "systemChunks=\(timing.systemChunks?.count ?? 0)"
-        )
 
         let drainSignal = DispatchSemaphore(value: 0)
         writeQueue.async {
@@ -138,13 +168,38 @@ final class SessionAudioRecorder: @unchecked Sendable {
             diagLog("[AUDIO-RECORDER-FINISH] drained queued writes")
         } else {
             diagLog("[AUDIO-RECORDER-FINISH-TIMEOUT] continuing after \(Self.drainTimeoutSeconds)s")
+            // Force-finish the writers NOW: straggler writes still queued behind
+            // the backlog must hit the isFinished guard instead of appending
+            // old-session audio and timing chunks after a new session starts.
+            micWriter?.finish()
+            systemWriter?.finish()
         }
+
+        // Snapshot chunks AFTER the drain so the timing JSON reflects every write
+        // that made it into the stems.
+        lock.lock()
+        let timing = currentTimingLocked()
+        let timingURL = self.timingURL
+        self.timingURL = nil
+        self.micFirstBufferAt = nil
+        self.systemFirstBufferAt = nil
+        self.micChunks = []
+        self.systemChunks = []
+        self.lastCheckpointAt = nil
+        lock.unlock()
+
+        diagLog(
+            "[AUDIO-RECORDER-FINISH] micChunks=\(timing.micChunks?.count ?? 0) " +
+            "systemChunks=\(timing.systemChunks?.count ?? 0)"
+        )
 
         guard let timingURL else { return drained }
         guard timing.micFirstBufferAt != nil || timing.systemFirstBufferAt != nil else { return drained }
 
-        if let data = try? encoder.encode(timing) {
-            try? data.write(to: timingURL, options: .atomic)
+        // Route the final write through checkpointQueue so a still-queued periodic
+        // checkpoint can't land after it and replace the final JSON with a stale one.
+        checkpointQueue.sync {
+            Self.writeTiming(timing, to: timingURL)
         }
         return drained
     }
@@ -157,27 +212,29 @@ private final class PCMFileWriter: @unchecked Sendable {
     private var targetFormat: AVAudioFormat?
     private var converter: AVAudioConverter?
     private var converterInputFormat: AVAudioFormat?
+    private var isFinished = false
+    private var zeroOutputStreak = 0
+    private static let zeroOutputRebuildThreshold = 30
 
     init(url: URL) {
         self.url = url
     }
 
-    /// Clear the locked target format so the next buffer sets a fresh format.
-    /// The underlying file handle stays open — subsequent buffers at the new format
-    /// will be converted to the file's original format via AVAudioConverter.
+    /// Rebuild the converter for the next buffer's format. The locked target format
+    /// is kept — the file was created with it and all audio must convert to it.
     func resetTargetFormat() {
         lock.lock()
-        // Don't reset targetFormat if a file is already open — the file was created
-        // with the original format and we must convert to it. Instead, just reset
-        // the converter so it's rebuilt for the new incoming format.
         converter = nil
         converterInputFormat = nil
+        zeroOutputStreak = 0
         lock.unlock()
     }
 
     func prepareBufferForWriting(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
         lock.lock()
         defer { lock.unlock() }
+
+        guard !isFinished else { return nil }
 
         if targetFormat == nil {
             targetFormat = buffer.format
@@ -192,6 +249,7 @@ private final class PCMFileWriter: @unchecked Sendable {
         if converter == nil || converterInputFormat.map({ !Self.formatsMatch($0, buffer.format) }) != false {
             converter = AVAudioConverter(from: buffer.format, to: targetFormat)
             converterInputFormat = buffer.format
+            zeroOutputStreak = 0
         }
 
         guard let activeConverter = converter else {
@@ -200,14 +258,27 @@ private final class PCMFileWriter: @unchecked Sendable {
         }
 
         if let convertedBuffer = convert(buffer, to: targetFormat, using: activeConverter) {
+            if convertedBuffer.frameLength == 0 {
+                // A priming converter can legitimately hold frames back, but a
+                // converter stuck at zero output forever would silently drop the
+                // rest of the stem — rebuild it after a sustained streak.
+                zeroOutputStreak += 1
+                if zeroOutputStreak >= Self.zeroOutputRebuildThreshold {
+                    diagLog("[AUDIO-WRITE-CONVERT] \(url.lastPathComponent): rebuilding stalled converter")
+                    converter = AVAudioConverter(from: buffer.format, to: targetFormat)
+                    converterInputFormat = buffer.format
+                    zeroOutputStreak = 0
+                }
+            } else {
+                zeroOutputStreak = 0
+            }
             return convertedBuffer
         }
 
-        // `AVAudioConverter` treats `.endOfStream` as terminal state. Since we
-        // convert one standalone buffer at a time, rebuild once and retry if a
-        // reused converter yielded no frames.
+        // Conversion errored — rebuild once and retry with the fresh converter.
         converter = AVAudioConverter(from: buffer.format, to: targetFormat)
         converterInputFormat = buffer.format
+        zeroOutputStreak = 0
 
         guard let freshConverter = converter,
               let convertedBuffer = convert(buffer, to: targetFormat, using: freshConverter) else {
@@ -220,9 +291,25 @@ private final class PCMFileWriter: @unchecked Sendable {
         return convertedBuffer
     }
 
-    func appendPreparedBuffer(_ buffer: AVAudioPCMBuffer) {
+    @discardableResult
+    func appendPreparedBuffer(_ buffer: AVAudioPCMBuffer) -> Bool {
         lock.lock()
         defer { lock.unlock() }
+
+        // A buffer that raced past finish() must never lazily re-create the file:
+        // AVAudioFile(forWriting:) truncates, erasing the entire recorded stem.
+        guard !isFinished else {
+            diagLog("[AUDIO-WRITE-DROP] \(url.lastPathComponent): buffer arrived after finish")
+            return false
+        }
+
+        if let targetFormat, !Self.formatsMatch(buffer.format, targetFormat) {
+            diagLog(
+                "[AUDIO-WRITE-DROP] \(url.lastPathComponent): buffer format " +
+                "\(buffer.format.sampleRate)/\(buffer.format.channelCount)ch does not match file format"
+            )
+            return false
+        }
 
         do {
             if audioFile == nil {
@@ -236,8 +323,10 @@ private final class PCMFileWriter: @unchecked Sendable {
                 )
             }
             try audioFile?.write(from: buffer)
+            return true
         } catch {
             diagLog("[AUDIO-WRITE-FAIL] \(url.lastPathComponent): \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -267,13 +356,15 @@ private final class PCMFileWriter: @unchecked Sendable {
             return nil
         }
 
-        converter.reset()
-
+        // Streaming conversion: the converter keeps its resampler state across
+        // buffers (no reset()). Answering .noDataNow — instead of .endOfStream —
+        // tells it more input will follow, avoiding an audible discontinuity at
+        // every buffer boundary in rate-converted stems.
         var error: NSError?
         var didProvideInput = false
         converter.convert(to: outputBuffer, error: &error) { _, outStatus in
             if didProvideInput {
-                outStatus.pointee = .endOfStream
+                outStatus.pointee = .noDataNow
                 return nil
             }
 
@@ -287,18 +378,30 @@ private final class PCMFileWriter: @unchecked Sendable {
             return nil
         }
 
-        guard outputBuffer.frameLength > 0 else { return nil }
-
-        diagLog(
-            "[AUDIO-WRITE-CONVERT] \(url.lastPathComponent): " +
-            "\(buffer.format.sampleRate)Hz -> \(targetFormat.sampleRate)Hz " +
-            "frames=\(outputBuffer.frameLength)"
-        )
         return outputBuffer
     }
 
     func finish() {
         lock.lock()
+        // Drain the streaming converter's held-back tail into the file before
+        // closing — a rate-converting AVAudioConverter holds ~latency frames
+        // until it sees .endOfStream.
+        if let converter, let targetFormat, let audioFile,
+           let tailBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: 8192) {
+            var drainError: NSError?
+            converter.convert(to: tailBuffer, error: &drainError) { _, outStatus in
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            if drainError == nil, tailBuffer.frameLength > 0 {
+                do {
+                    try audioFile.write(from: tailBuffer)
+                } catch {
+                    diagLog("[AUDIO-WRITE-FAIL] \(url.lastPathComponent): tail drain \(error.localizedDescription)")
+                }
+            }
+        }
+        isFinished = true
         audioFile = nil
         targetFormat = nil
         converter = nil

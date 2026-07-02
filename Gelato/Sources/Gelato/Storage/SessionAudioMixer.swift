@@ -172,12 +172,22 @@ enum SessionAudioMixer {
 
         if !validChunks.isEmpty, let streamStart, useChunkTiming {
             let sampleRate = audioFile.processingFormat.sampleRate
+            let fileDurationSeconds = Double(audioFile.length) / sampleRate
             var sourceCursor: Double = 0
 
             for chunk in validChunks {
                 let chunkDurationSeconds = Double(chunk.frameCount) / sampleRate
+                // Clamp to the actual file length — the timing JSON can claim more
+                // frames than the stem holds (e.g. a write failed mid-session), and
+                // inserting a range beyond the track duration throws, aborting the
+                // whole combined-audio export.
+                let clampedDurationSeconds = min(
+                    chunkDurationSeconds,
+                    max(0, fileDurationSeconds - sourceCursor)
+                )
+                guard clampedDurationSeconds > 0.000_1 else { break }
                 let chunkDuration = CMTime(
-                    seconds: chunkDurationSeconds,
+                    seconds: clampedDurationSeconds,
                     preferredTimescale: 60_000
                 )
                 let sourceTime = CMTime(
@@ -191,8 +201,13 @@ enum SessionAudioMixer {
                 )
                     + startTime
                 let timeRange = CMTimeRange(start: sourceTime, duration: chunkDuration)
-                try compositionTrack.insertTimeRange(timeRange, of: track, at: targetTime)
-                sourceCursor += chunkDurationSeconds
+                do {
+                    try compositionTrack.insertTimeRange(timeRange, of: track, at: targetTime)
+                } catch {
+                    // Skip the chunk (leaves a gap) instead of aborting the export.
+                    diagLog("[AUDIO] chunk insert failed for \(url.lastPathComponent): \(error.localizedDescription)")
+                }
+                sourceCursor += clampedDurationSeconds
             }
             return compositionTrack.trackID
         }
@@ -219,6 +234,26 @@ enum SessionAudioMixer {
     ) -> Double? {
         let validChunks = SessionAudioTiming.validChunks(chunks)
         guard validChunks.count >= 2, let firstBufferAt else { return nil }
+
+        // A session-average rate is only meaningful when the cadence is uniform.
+        // If the stem contains MIXED rates (mid-session device or Bluetooth
+        // profile switch), resampling the whole file at the average would corrupt
+        // the correctly-rated portion too — defer to the per-chunk rebuilder.
+        var snappedIntervalRates = Set<Double>()
+        for index in 0..<(validChunks.count - 1) {
+            let delta = validChunks[index + 1].capturedAt.timeIntervalSince(validChunks[index].capturedAt)
+            guard delta > 0 else { continue }
+            if let snapped = snapToCanonicalRate(Double(validChunks[index].frameCount) / delta) {
+                snappedIntervalRates.insert(snapped)
+            }
+        }
+        if snappedIntervalRates.count > 1 {
+            diagLog(
+                "[AUDIO-RATE-FIX] \(url.lastPathComponent): mixed interval rates " +
+                "\(snappedIntervalRates.sorted()), deferring to chunk-aware rebuild"
+            )
+            return nil
+        }
 
         let totalFrames = validChunks.reduce(0) { $0 + $1.frameCount }
         guard totalFrames > 0 else { return nil }
@@ -248,8 +283,9 @@ enum SessionAudioMixer {
     }
 
     /// Resample a CAF file from its effective sample rate to produce correct-duration
-    /// output. Reads all samples, re-tags them at the effective rate, then resamples
-    /// to 48kHz mono via AVAudioConverter.
+    /// output. Streams fixed-size blocks (re-tagged at the effective rate) through a
+    /// persistent AVAudioConverter to 48kHz mono — whole-file buffers for a long
+    /// session are multi-GB allocations that can kill the app during finalization.
     private static func resampleToCorrectDuration(
         sourceURL: URL,
         outputURL: URL,
@@ -257,14 +293,8 @@ enum SessionAudioMixer {
     ) throws -> URL? {
         let sourceFile = try AVAudioFile(forReading: sourceURL)
         let sourceFormat = sourceFile.processingFormat
-        let frameCount = AVAudioFrameCount(sourceFile.length)
-        guard frameCount > 0 else { return nil }
-
-        // Read all source samples
-        guard let readBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: frameCount) else {
-            return nil
-        }
-        try sourceFile.read(into: readBuffer)
+        let totalFrames = sourceFile.length
+        guard totalFrames > 0 else { return nil }
 
         // Re-tag at the effective rate (same raw samples, different declared rate)
         guard let effectiveFormat = AVAudioFormat(
@@ -274,20 +304,6 @@ enum SessionAudioMixer {
             interleaved: sourceFormat.isInterleaved
         ) else { return nil }
 
-        guard let retaggedBuffer = AVAudioPCMBuffer(
-            pcmFormat: effectiveFormat,
-            frameCapacity: frameCount
-        ) else { return nil }
-        retaggedBuffer.frameLength = readBuffer.frameLength
-
-        // Copy raw sample data
-        if let src = readBuffer.floatChannelData, let dst = retaggedBuffer.floatChannelData {
-            for ch in 0..<Int(sourceFormat.channelCount) {
-                memcpy(dst[ch], src[ch], Int(frameCount) * MemoryLayout<Float>.size)
-            }
-        }
-
-        // Resample to 48kHz mono
         let targetRate: Double = 48_000
         guard let targetFormat = AVAudioFormat(
             standardFormatWithSampleRate: targetRate, channels: 1
@@ -297,32 +313,6 @@ enum SessionAudioMixer {
             return nil
         }
 
-        let ratio = targetRate / effectiveRate
-        let outFrames = AVAudioFrameCount(Double(frameCount) * ratio) + 1
-        guard let outBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outFrames) else {
-            return nil
-        }
-
-        var consumed = false
-        var convError: NSError?
-        converter.convert(to: outBuffer, error: &convError) { _, status in
-            if consumed { status.pointee = .endOfStream; return nil }
-            consumed = true
-            status.pointee = .haveData
-            return retaggedBuffer
-        }
-
-        guard outBuffer.frameLength > 0 else { return nil }
-
-        let correctedDuration = Double(outBuffer.frameLength) / targetRate
-        diagLog(
-            "[AUDIO-RATE-FIX] resampled \(sourceURL.lastPathComponent): " +
-            "\(frameCount) frames @ \(Int(effectiveRate))Hz -> " +
-            "\(outBuffer.frameLength) frames @ \(Int(targetRate))Hz " +
-            "(duration: \(String(format: "%.1f", correctedDuration))s)"
-        )
-
-        // Write resampled audio to output file
         try? FileManager.default.removeItem(at: outputURL)
         let outputFile = try AVAudioFile(
             forWriting: outputURL,
@@ -330,9 +320,110 @@ enum SessionAudioMixer {
             commonFormat: targetFormat.commonFormat,
             interleaved: targetFormat.isInterleaved
         )
-        try outputFile.write(from: outBuffer)
+
+        var succeeded = false
+        defer {
+            if !succeeded {
+                try? FileManager.default.removeItem(at: outputURL)
+            }
+        }
+
+        let blockFrames: AVAudioFrameCount = 65_536
+        let ratio = targetRate / effectiveRate
+        var framesWritten: AVAudioFramePosition = 0
+
+        while sourceFile.framePosition < totalFrames {
+            guard let readBuffer = AVAudioPCMBuffer(
+                pcmFormat: sourceFormat,
+                frameCapacity: blockFrames
+            ) else { return nil }
+            try sourceFile.read(into: readBuffer, frameCount: blockFrames)
+            guard readBuffer.frameLength > 0 else { break }
+
+            guard let retaggedBuffer = AVAudioPCMBuffer(
+                pcmFormat: effectiveFormat,
+                frameCapacity: readBuffer.frameLength
+            ) else { return nil }
+            retaggedBuffer.frameLength = readBuffer.frameLength
+
+            guard let src = readBuffer.floatChannelData,
+                  let dst = retaggedBuffer.floatChannelData else { return nil }
+            for ch in 0..<Int(sourceFormat.channelCount) {
+                memcpy(dst[ch], src[ch], Int(readBuffer.frameLength) * MemoryLayout<Float>.size)
+            }
+
+            let outCapacity = AVAudioFrameCount(
+                ceil(Double(retaggedBuffer.frameLength) * ratio) + 64
+            )
+            guard let outBuffer = AVAudioPCMBuffer(
+                pcmFormat: targetFormat,
+                frameCapacity: outCapacity
+            ) else { return nil }
+
+            var consumed = false
+            var convError: NSError?
+            converter.convert(to: outBuffer, error: &convError) { _, status in
+                if consumed { status.pointee = .noDataNow; return nil }
+                consumed = true
+                status.pointee = .haveData
+                return retaggedBuffer
+            }
+            if convError != nil { return nil }
+
+            if outBuffer.frameLength > 0 {
+                try outputFile.write(from: outBuffer)
+                framesWritten += AVAudioFramePosition(outBuffer.frameLength)
+            }
+        }
+
+        // Drain the converter's held-back tail (.endOfStream) so the resampled
+        // stem isn't short by the resampler's internal latency.
+        if let tailBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: 8192) {
+            var drainError: NSError?
+            converter.convert(to: tailBuffer, error: &drainError) { _, status in
+                status.pointee = .endOfStream
+                return nil
+            }
+            if drainError == nil, tailBuffer.frameLength > 0 {
+                try outputFile.write(from: tailBuffer)
+                framesWritten += AVAudioFramePosition(tailBuffer.frameLength)
+            }
+        }
+
+        guard framesWritten > 0 else { return nil }
+        succeeded = true
+
+        let correctedDuration = Double(framesWritten) / targetRate
+        diagLog(
+            "[AUDIO-RATE-FIX] resampled \(sourceURL.lastPathComponent): " +
+            "\(totalFrames) frames @ \(Int(effectiveRate))Hz -> " +
+            "\(framesWritten) frames @ \(Int(targetRate))Hz " +
+            "(duration: \(String(format: "%.1f", correctedDuration))s)"
+        )
 
         return outputURL
+    }
+
+    private static let canonicalRates: [Double] = [
+        8_000,
+        12_000,
+        16_000,
+        22_050,
+        24_000,
+        32_000,
+        44_100,
+        48_000
+    ]
+
+    private static func snapToCanonicalRate(_ measuredRate: Double) -> Double? {
+        guard measuredRate.isFinite,
+              let nearestRate = canonicalRates.min(by: { abs($0 - measuredRate) < abs($1 - measuredRate) }) else {
+            return nil
+        }
+
+        let tolerance = nearestRate * 0.05
+        guard abs(nearestRate - measuredRate) <= tolerance else { return nil }
+        return nearestRate
     }
 
     private static func insertionTime(

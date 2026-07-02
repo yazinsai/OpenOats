@@ -16,7 +16,12 @@ final class MicCapture: @unchecked Sendable {
     private let callbackLock = NSLock()
     private var continuation: AsyncStream<CapturedAudioBuffer>.Continuation?
     private var onBuffer: (@Sendable (CapturedAudioBuffer) -> Void)?
-    private var deliveredChunkCount = 0
+
+    /// Tap-thread-only counter box. A fresh box per bufferStream() call means the
+    /// render thread never races the main thread over a shared property.
+    private final class ChunkCounter: @unchecked Sendable {
+        var count = 0
+    }
 
     var audioLevel: Float { _audioLevel.value }
     var captureError: String? { _error.value }
@@ -71,56 +76,51 @@ final class MicCapture: @unchecked Sendable {
 
         let format = inputNode.outputFormat(forBus: 0)
 
-        // Query the hardware sample rate directly — the inputNode format can lag
-        // behind a device switch (e.g. USB mic at 48kHz while engine reports 44.1kHz).
-        var sampleRate = format.sampleRate
+        // The hardware nominal rate can differ from what the inputNode reports right
+        // after a device switch (the node format lags). We must NOT install the tap
+        // at a rate different from the node's format — AVAudioEngine raises an
+        // uncatchable NSException ("format.sampleRate == hwFormat.sampleRate") and
+        // the app crashes. Log the divergence for diagnostics only; downstream
+        // consumers (PCMFileWriter conversion, StreamingTranscriber's cadence-based
+        // rate correction, TimingAwareStemRebuilder) all handle mistagged rates.
         if let devID = resolvedDeviceID,
            let hwRate = Self.deviceNominalSampleRate(for: devID),
-           hwRate > 0, hwRate != sampleRate {
-            diagLog("[MIC-3] hardware sr=\(hwRate) differs from inputNode sr=\(sampleRate), using hardware rate")
-            sampleRate = hwRate
+           hwRate > 0, hwRate != format.sampleRate {
+            diagLog("[MIC-3] hardware sr=\(hwRate) differs from inputNode sr=\(format.sampleRate); tapping at node rate, downstream corrects")
         }
 
-        diagLog("[MIC-3] inputNode format: sr=\(format.sampleRate) ch=\(format.channelCount) interleaved=\(format.isInterleaved), effective sr=\(sampleRate)")
+        diagLog("[MIC-3] inputNode format: sr=\(format.sampleRate) ch=\(format.channelCount) interleaved=\(format.isInterleaved)")
 
-        guard sampleRate > 0 && format.channelCount > 0 else {
-            let msg = "Invalid audio format: sr=\(sampleRate) ch=\(format.channelCount)"
+        guard format.sampleRate > 0 && format.channelCount > 0 else {
+            let msg = "Invalid audio format: sr=\(format.sampleRate) ch=\(format.channelCount)"
             diagLog("[MIC-FAIL] \(msg)")
             _error.value = msg
             continuationLock.withLock { continuation?.finish(); continuation = nil }
             return stream
         }
 
-        // Try multiple tap formats. Prefer mono — it's what the transcriber
-        // needs, and multi-channel formats (e.g. MacBook Air's 3-element mic
-        // array) can cause issues downstream. Fall back through progressively
-        // wider options until one works.
+        // Prefer mono at the NODE's sample rate — it's what the transcriber needs,
+        // and multi-channel formats (e.g. MacBook Air's 3-element mic array) can
+        // cause issues downstream. The tap format's sample rate must always equal
+        // the node's output sample rate (see crash note above).
         let tapFormat: AVAudioFormat
-        if let f = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) {
-            tapFormat = f
-        } else if format.channelCount > 1,
-                  let f = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: format.channelCount) {
-            diagLog("[MIC-4] mono format failed, using \(format.channelCount) channels")
-            tapFormat = f
-        } else if sampleRate != format.sampleRate,
-                  let f = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1) {
-            diagLog("[MIC-4] hardware-rate mono failed, using node rate \(format.sampleRate)")
+        if let f = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1) {
             tapFormat = f
         } else {
-            diagLog("[MIC-4] standard formats failed, using native input format")
+            diagLog("[MIC-4] standard mono format failed, using native input format")
             tapFormat = format
         }
 
         diagLog("[MIC-4] tapFormat: sr=\(tapFormat.sampleRate) ch=\(tapFormat.channelCount)")
 
         let level = _audioLevel
-        deliveredChunkCount = 0
+        let counter = ChunkCounter()
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { [weak self] buffer, _ in
             guard let self, buffer.frameLength > 0 else { return }
 
-            self.deliveredChunkCount += 1
-            let count = self.deliveredChunkCount
+            counter.count += 1
+            let count = counter.count
             let rms = Self.normalizedRMS(from: buffer)
             level.value = min(rms * 25, 1.0)
 
@@ -171,7 +171,6 @@ final class MicCapture: @unchecked Sendable {
         engine.stop()
         engine.reset()
         _audioLevel.value = 0
-        deliveredChunkCount = 0
         diagLog("[MIC-STOP] end")
     }
 

@@ -34,10 +34,12 @@ actor SessionStore {
         guard let fileHandle else { return }
 
         do {
+            // Throwing FileHandle APIs — the legacy seekToEndOfFile()/write(_:)
+            // raise uncatchable NSExceptions on write failure (e.g. disk full).
             let data = try encoder.encode(record)
-            fileHandle.seekToEndOfFile()
-            fileHandle.write(data)
-            fileHandle.write("\n".data(using: .utf8)!)
+            try fileHandle.seekToEnd()
+            try fileHandle.write(contentsOf: data)
+            try fileHandle.write(contentsOf: Data("\n".utf8))
         } catch {
             print("SessionStore: failed to write record: \(error)")
         }

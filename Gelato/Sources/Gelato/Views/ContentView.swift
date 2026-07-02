@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct ContentView: View {
+    /// Launch-time audio recovery must run once per process — WindowGroup can
+    /// create multiple ContentView instances.
+    @MainActor private static var didRunAudioRecovery = false
+
     private let collapsedSidebarNewNoteInset: CGFloat = 18
 
     @Bindable var settings: AppSettings
@@ -15,6 +19,7 @@ struct ContentView: View {
     @State private var systemAudioLevel: Float = 0
     @State private var finalizationMessage: String?
     @State private var isProcessingSession = false
+    @State private var isStartingSession = false
     @State private var processingStatus = "Processing session..."
     @State private var processingSessionTitle = ""
 
@@ -115,6 +120,28 @@ struct ContentView: View {
             if let first = model.sessions.first {
                 selectedSession = first
             }
+            // Recover combined audio for sessions that have raw stems but no mix
+            // (e.g. the app crashed or was killed before finalization ran).
+            // Once per process: WindowGroup can create multiple ContentView
+            // instances (Cmd+N, Dock reopen), and two concurrent recovery passes
+            // would collide on the deterministic temp/output paths.
+            if !Self.didRunAudioRecovery {
+                Self.didRunAudioRecovery = true
+                let sessionIDs = model.sessions.map(\.id)
+                let library = sessionLibrary
+                Task.detached(priority: .utility) {
+                    for sessionID in sessionIDs {
+                        guard let audioFiles = await library.audioFiles(for: sessionID),
+                              audioFiles.combinedURL == nil,
+                              audioFiles.micURL != nil || audioFiles.systemURL != nil else { continue }
+                        diagLog("[AUDIO-RECOVERY] rebuilding combined audio for \(sessionID)")
+                        await SessionFinalizer.generateCombinedAudioIfPossible(
+                            sessionID: sessionID,
+                            library: library
+                        )
+                    }
+                }
+            }
         }
         .onChange(of: settings.inputDeviceID) {
             if isRunning {
@@ -198,16 +225,28 @@ struct ContentView: View {
     // MARK: - Actions
 
     private func startSession() {
+        // Starting while the previous session is still finalizing (or while a
+        // start is already in flight) would let the old teardown destroy the new
+        // session's capture and recorder state.
+        guard !isProcessingSession, !isStartingSession, !isRunning else { return }
+        isStartingSession = true
+
         liveSessionTitle = SessionMetadataIO.defaultTitle(for: Date())
         sessionStartTime = Date()
         transcriptStore.clear()
         selectedSession = nil // detail panel will show live view since isRunning is true
 
         Task {
+            // Wait for any lingering engine teardown before touching the shared
+            // recorder — engine.stop() finishes the SAME SessionAudioRecorder
+            // instance this session is about to start.
+            await transcriptionEngine?.stop()
             await sessionStore.startSession()
             if let url = await sessionStore.currentSessionURL {
                 liveSessionID = url.deletingPathExtension().lastPathComponent
                 sessionAudioRecorder.start(sessionID: liveSessionID ?? "", in: url.deletingLastPathComponent())
+            } else {
+                diagLog("[SESSION-START-FAIL] no session URL; audio recorder not started")
             }
             await transcriptLogger.startSession()
             await transcriptionEngine?.start(
@@ -216,10 +255,14 @@ struct ContentView: View {
                 sessionStart: sessionStartTime ?? Date(),
                 audioRecorder: sessionAudioRecorder
             )
+            isStartingSession = false
         }
     }
 
     private func stopSession() {
+        // The stop button stays visible until the engine actually stops — a
+        // double-click must not run the finalization pipeline twice.
+        guard !isProcessingSession else { return }
         let utteranceCount = transcriptStore.utterances.count
         let wordCount = transcriptStore.utterances.reduce(0) { $0 + $1.text.split(separator: " ").count }
         let sessionID = liveSessionID
