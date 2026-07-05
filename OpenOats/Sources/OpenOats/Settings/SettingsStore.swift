@@ -81,6 +81,46 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _requestyApiKey: String
+    var requestyApiKey: String {
+        get {
+            access(keyPath: \.requestyApiKey)
+            return loadSecretIfNeeded(key: "requestyApiKey", currentValue: _requestyApiKey) {
+                _requestyApiKey = $0
+            }
+        }
+        set {
+            withMutation(keyPath: \.requestyApiKey) {
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                _requestyApiKey = trimmed
+                markSecretLoaded("requestyApiKey")
+                secretStore.save(key: "requestyApiKey", value: trimmed)
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _requestyBaseURL: String
+    var requestyBaseURL: String {
+        get { access(keyPath: \.requestyBaseURL); return _requestyBaseURL }
+        set {
+            withMutation(keyPath: \.requestyBaseURL) {
+                _requestyBaseURL = newValue
+                defaults.set(newValue, forKey: "requestyBaseURL")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _requestyModel: String
+    var requestyModel: String {
+        get { access(keyPath: \.requestyModel); return _requestyModel }
+        set {
+            withMutation(keyPath: \.requestyModel) {
+                _requestyModel = newValue
+                defaults.set(newValue, forKey: "requestyModel")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _openAIApiKey: String
     var openAIApiKey: String {
         get {
@@ -1351,6 +1391,9 @@ final class SettingsStore {
         // AI Settings
         self._llmProvider = LLMProvider(rawValue: defaults.string(forKey: "llmProvider") ?? "") ?? .openRouter
         self._openRouterApiKey = ""
+        self._requestyApiKey = ""
+        self._requestyBaseURL = defaults.string(forKey: "requestyBaseURL") ?? "https://router.requesty.ai/v1"
+        self._requestyModel = defaults.string(forKey: "requestyModel") ?? "openai/gpt-4o-mini"
         self._openAIApiKey = ""
         self._openAIBaseURL = defaults.string(forKey: "openAIBaseURL") ?? "https://api.openai.com"
         self._openAIModel = defaults.string(forKey: "openAIModel") ?? "gpt-4.1-mini"
@@ -1575,6 +1618,8 @@ final class SettingsStore {
         switch llmProvider {
         case .openRouter:
             selectedModel
+        case .requesty:
+            requestyModel
         case .openAI:
             openAIModel
         case .anthropic:
@@ -1599,6 +1644,8 @@ final class SettingsStore {
         switch llmProvider {
         case .openRouter:
             return !openRouterApiKey.isEmpty
+        case .requesty:
+            return !requestyApiKey.isEmpty && OpenRouterClient.chatCompletionsURL(from: requestyBaseURL) != nil
         case .openAI:
             return !openAIApiKey.isEmpty && OpenRouterClient.chatCompletionsURL(from: openAIBaseURL) != nil
         case .anthropic:
@@ -1624,6 +1671,7 @@ final class SettingsStore {
     var activeRealtimeModel: String {
         switch llmProvider {
         case .openRouter: return realtimeModel
+        case .requesty: return requestyModel
         case .openAI: return openAIModel
         case .anthropic: return anthropicModel
         case .ollama: return realtimeOllamaModel.isEmpty ? ollamaLLMModel : realtimeOllamaModel
@@ -1641,6 +1689,8 @@ final class SettingsStore {
         switch llmProvider {
         case .openRouter:
             openRouterApiKey.isEmpty ? nil : openRouterApiKey
+        case .requesty:
+            requestyApiKey.isEmpty ? nil : requestyApiKey
         case .openAI:
             openAIApiKey.isEmpty ? nil : openAIApiKey
         case .anthropic:
@@ -1658,6 +1708,8 @@ final class SettingsStore {
         switch llmProvider {
         case .openRouter:
             nil
+        case .requesty:
+            OpenRouterClient.chatCompletionsURL(from: requestyBaseURL)
         case .openAI:
             OpenRouterClient.chatCompletionsURL(from: openAIBaseURL)
         case .anthropic:
