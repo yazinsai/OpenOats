@@ -12,6 +12,7 @@ final class MicCapture: @unchecked Sendable {
     private var engine = AVAudioEngine()
     private var retiredEngines: [AVAudioEngine] = []
     private var hasTapInstalled = false
+    private var configChangeObserver: NSObjectProtocol?
     private let _audioLevel = AudioLevel()
     private let _hasCapturedFrames = SyncBool()
     private let _error = SyncString()
@@ -183,6 +184,7 @@ final class MicCapture: @unchecked Sendable {
                 Log.mic.info("Engine prepared, starting")
                 try engine.start()
                 Log.mic.info("Engine started successfully, isRunning=\(engine.isRunning, privacy: .public)")
+                self.observeConfigurationChanges(for: engine)
             } catch {
                 let msg = "Mic failed: \(error.localizedDescription)"
                 Log.mic.error("Mic failed: \(error, privacy: .public)")
@@ -190,6 +192,36 @@ final class MicCapture: @unchecked Sendable {
                 self.hasTapInstalled = false
                 continuation.finish()
             }
+        }
+    }
+
+    /// AVAudioEngine stops (without erroring) when the underlying hardware
+    /// configuration changes mid-session — e.g. another app (Teams, Zoom) takes
+    /// exclusive control of the mic or the OS renegotiates the audio graph.
+    /// The existing tap stays installed, but no buffers arrive until the engine
+    /// is restarted. Observe the notification and restart it automatically.
+    private func observeConfigurationChanges(for engine: AVAudioEngine) {
+        configChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self, self.engine === engine, self.hasTapInstalled, !engine.isRunning else { return }
+            Log.mic.info("Audio engine configuration changed while stopped, attempting restart")
+            do {
+                try engine.start()
+                Log.mic.info("Engine restarted after configuration change, isRunning=\(engine.isRunning, privacy: .public)")
+            } catch {
+                Log.mic.error("Failed to restart engine after configuration change: \(error, privacy: .public)")
+                self._error.value = "Mic failed after device change: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func removeConfigurationObserver() {
+        if let observer = configChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            configChangeObserver = nil
         }
     }
 
@@ -201,6 +233,7 @@ final class MicCapture: @unchecked Sendable {
 
     func stop() {
         finishStream()
+        removeConfigurationObserver()
         if hasTapInstalled {
             engine.inputNode.removeTap(onBus: 0)
             hasTapInstalled = false
@@ -213,6 +246,7 @@ final class MicCapture: @unchecked Sendable {
 
     private func makeFreshEngine() -> AVAudioEngine {
         let oldEngine = engine
+        removeConfigurationObserver()
         if hasTapInstalled {
             oldEngine.inputNode.removeTap(onBus: 0)
             hasTapInstalled = false
