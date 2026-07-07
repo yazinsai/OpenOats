@@ -27,7 +27,7 @@ final class SidecastPresetTests: XCTestCase {
 
     func testDefaultSidecastMaxTokens() {
         let store = makeStore()
-        XCTAssertEqual(store.sidecastMaxTokens, 700)
+        XCTAssertEqual(store.sidecastMaxTokens, 1500)
     }
 
     func testDefaultSidecastSystemPrompt() {
