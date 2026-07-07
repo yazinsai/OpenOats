@@ -644,6 +644,8 @@ final class WizardViewModel {
         switch settings.llmProvider {
         case .openRouter:
             hasConfiguredLLM = !settings.openRouterApiKey.isEmpty
+        case .requesty:
+            hasConfiguredLLM = !settings.requestyApiKey.isEmpty
         case .openAI:
             hasConfiguredLLM = !settings.openAIApiKey.isEmpty
         case .anthropic:
@@ -666,7 +668,7 @@ final class WizardViewModel {
         switch settings.llmProvider {
         case .ollama, .lmStudio:
             privacy = .local
-        case .openRouter, .openAI, .anthropic, .mlx, .openAICompatible:
+        case .openRouter, .requesty, .openAI, .anthropic, .mlx, .openAICompatible:
             privacy = .cloud
         }
     }
