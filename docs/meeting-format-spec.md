@@ -36,7 +36,7 @@ The OpenOats Meeting Format (`.md`) is a structured Markdown format for meeting 
 ### Goals
 
 1. **Human-readable** in any text editor, Obsidian, or GitHub preview
-2. **Agent-ready** for LLM consumption (Claude Code, Cursor, RAG pipelines)
+2. **Agent-ready** for LLM consumption (Claude Code, RAG pipelines)
 3. **CLI-friendly** with predictable patterns for grep/ripgrep
 4. **Obsidian-native** with Dataview-queryable frontmatter and Dataview TASK-queryable action items
 5. **Adoptable** by other tools as a shared standard for meeting transcripts
