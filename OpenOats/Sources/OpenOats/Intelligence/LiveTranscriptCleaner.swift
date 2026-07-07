@@ -98,6 +98,9 @@ actor LiveTranscriptCleaner {
         // Read settings on MainActor
         let provider = await MainActor.run { settings.llmProvider }
         let openRouterKey = await MainActor.run { settings.openRouterApiKey }
+        let requestyKey = await MainActor.run { settings.requestyApiKey }
+        let requestyURL = await MainActor.run { settings.requestyBaseURL }
+        let requestyModelName = await MainActor.run { settings.requestyModel }
         let openAIKey = await MainActor.run { settings.openAIApiKey }
         let openAIURL = await MainActor.run { settings.openAIBaseURL }
         let openAIModel = await MainActor.run { settings.openAIModel }
@@ -120,6 +123,15 @@ actor LiveTranscriptCleaner {
             apiKey = openRouterKey.isEmpty ? nil : openRouterKey
             baseURL = nil
             model = cleanupModel
+            transport = .chatCompletions
+        case .requesty:
+            apiKey = requestyKey.isEmpty ? nil : requestyKey
+            guard let url = OpenRouterClient.chatCompletionsURL(from: requestyURL) else {
+                await markFailed(utterance.id)
+                return
+            }
+            baseURL = url
+            model = requestyModelName
             transport = .chatCompletions
         case .openAI:
             apiKey = openAIKey.isEmpty ? nil : openAIKey

@@ -189,9 +189,12 @@ actor OpenRouterClient {
                         if payload == "[DONE]" { break }
 
                         guard let data = payload.data(using: .utf8) else { continue }
-                        if let chunk = try? JSONDecoder().decode(SSEChunk.self, from: data),
-                           let content = chunk.choices.first?.delta.content {
-                            continuation.yield(content)
+                        if let chunk = try? JSONDecoder().decode(SSEChunk.self, from: data) {
+                            if let content = chunk.choices.first?.delta.content {
+                                continuation.yield(content)
+                            } else if chunk.choices.first?.finish_reason == "length" {
+                                continuation.yield("…")
+                            }
                         }
                     }
 
@@ -430,6 +433,7 @@ actor OpenRouterClient {
 
         struct Choice: Codable {
             let delta: Delta
+            let finish_reason: String?
         }
 
         struct Delta: Codable {

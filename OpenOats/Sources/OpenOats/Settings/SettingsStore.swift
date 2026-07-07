@@ -81,6 +81,46 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _requestyApiKey: String
+    var requestyApiKey: String {
+        get {
+            access(keyPath: \.requestyApiKey)
+            return loadSecretIfNeeded(key: "requestyApiKey", currentValue: _requestyApiKey) {
+                _requestyApiKey = $0
+            }
+        }
+        set {
+            withMutation(keyPath: \.requestyApiKey) {
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                _requestyApiKey = trimmed
+                markSecretLoaded("requestyApiKey")
+                secretStore.save(key: "requestyApiKey", value: trimmed)
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _requestyBaseURL: String
+    var requestyBaseURL: String {
+        get { access(keyPath: \.requestyBaseURL); return _requestyBaseURL }
+        set {
+            withMutation(keyPath: \.requestyBaseURL) {
+                _requestyBaseURL = newValue
+                defaults.set(newValue, forKey: "requestyBaseURL")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _requestyModel: String
+    var requestyModel: String {
+        get { access(keyPath: \.requestyModel); return _requestyModel }
+        set {
+            withMutation(keyPath: \.requestyModel) {
+                _requestyModel = newValue
+                defaults.set(newValue, forKey: "requestyModel")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _openAIApiKey: String
     var openAIApiKey: String {
         get {
@@ -794,13 +834,37 @@ final class SettingsStore {
         }
     }
 
-    @ObservationIgnored nonisolated(unsafe) private var _silenceTimeoutMinutes: Int
-    var silenceTimeoutMinutes: Int {
-        get { access(keyPath: \.silenceTimeoutMinutes); return _silenceTimeoutMinutes }
+    @ObservationIgnored nonisolated(unsafe) private var _silenceTimeoutSeconds: Int
+    /// Auto-stop a recording after this many seconds of silence. 0 disables it.
+    /// Applies to both manual and auto-detected sessions.
+    var silenceTimeoutSeconds: Int {
+        get { access(keyPath: \.silenceTimeoutSeconds); return _silenceTimeoutSeconds }
         set {
-            withMutation(keyPath: \.silenceTimeoutMinutes) {
-                _silenceTimeoutMinutes = newValue
-                defaults.set(newValue, forKey: "silenceTimeoutMinutes")
+            withMutation(keyPath: \.silenceTimeoutSeconds) {
+                _silenceTimeoutSeconds = max(0, newValue)
+                defaults.set(_silenceTimeoutSeconds, forKey: "silenceTimeoutSeconds")
+            }
+        }
+    }
+
+    /// The silence timeout read straight from persistent storage, bypassing the
+    /// in-memory cache. A long-running recording reads this every poll so that a
+    /// change made in the Settings window takes effect immediately, even if the
+    /// session happens to hold a different `SettingsStore` instance than the UI.
+    var persistedSilenceTimeoutSeconds: Int? {
+        defaults.object(forKey: "silenceTimeoutSeconds") != nil
+            ? defaults.integer(forKey: "silenceTimeoutSeconds")
+            : nil
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _silenceTimeoutUnitIsSeconds: Bool
+    /// UI display preference for the silence timeout: true shows seconds, false minutes.
+    var silenceTimeoutUnitIsSeconds: Bool {
+        get { access(keyPath: \.silenceTimeoutUnitIsSeconds); return _silenceTimeoutUnitIsSeconds }
+        set {
+            withMutation(keyPath: \.silenceTimeoutUnitIsSeconds) {
+                _silenceTimeoutUnitIsSeconds = newValue
+                defaults.set(newValue, forKey: "silenceTimeoutUnitIsSeconds")
             }
         }
     }
@@ -1327,6 +1391,9 @@ final class SettingsStore {
         // AI Settings
         self._llmProvider = LLMProvider(rawValue: defaults.string(forKey: "llmProvider") ?? "") ?? .openRouter
         self._openRouterApiKey = ""
+        self._requestyApiKey = ""
+        self._requestyBaseURL = defaults.string(forKey: "requestyBaseURL") ?? "https://router.requesty.ai/v1"
+        self._requestyModel = defaults.string(forKey: "requestyModel") ?? "openai/gpt-4o-mini"
         self._openAIApiKey = ""
         self._openAIBaseURL = defaults.string(forKey: "openAIBaseURL") ?? "https://api.openai.com"
         self._openAIModel = defaults.string(forKey: "openAIModel") ?? "gpt-4.1-mini"
@@ -1377,7 +1444,7 @@ final class SettingsStore {
         self._sidecastTemperature = defaults.object(forKey: "sidecastTemperature") != nil
             ? defaults.double(forKey: "sidecastTemperature") : 1.0
         self._sidecastMaxTokens = defaults.object(forKey: "sidecastMaxTokens") != nil
-            ? defaults.integer(forKey: "sidecastMaxTokens") : 700
+            ? defaults.integer(forKey: "sidecastMaxTokens") : 1500
         self._sidecastSystemPrompt = defaults.string(forKey: "sidecastSystemPrompt") ?? ""
         self._sidecastMinValueThreshold = defaults.object(forKey: "sidecastMinValueThreshold") != nil
             ? defaults.double(forKey: "sidecastMinValueThreshold") : 0.5
@@ -1435,8 +1502,19 @@ final class SettingsStore {
         }
         self._customMeetingAppBundleIDs = defaults.stringArray(forKey: "customMeetingAppBundleIDs") ?? []
         self._ignoredAppBundleIDs = defaults.stringArray(forKey: "ignoredAppBundleIDs") ?? []
-        self._silenceTimeoutMinutes = defaults.object(forKey: "silenceTimeoutMinutes") != nil
-            ? defaults.integer(forKey: "silenceTimeoutMinutes") : 15
+        // Canonical timeout is seconds; migrate from the legacy minutes key.
+        let silenceSeconds: Int
+        if defaults.object(forKey: "silenceTimeoutSeconds") != nil {
+            silenceSeconds = defaults.integer(forKey: "silenceTimeoutSeconds")
+        } else if defaults.object(forKey: "silenceTimeoutMinutes") != nil {
+            silenceSeconds = defaults.integer(forKey: "silenceTimeoutMinutes") * 60
+        } else {
+            silenceSeconds = 900
+        }
+        self._silenceTimeoutSeconds = silenceSeconds
+        self._silenceTimeoutUnitIsSeconds = defaults.object(forKey: "silenceTimeoutUnitIsSeconds") != nil
+            ? defaults.bool(forKey: "silenceTimeoutUnitIsSeconds")
+            : (silenceSeconds < 60)
         self._detectionLogEnabled = defaults.bool(forKey: "detectionLogEnabled")
         self._diagnosticLoggingEnabled = defaults.bool(forKey: "diagnosticLoggingEnabled")
         self._hasShownAutoDetectExplanation = defaults.bool(forKey: "hasShownAutoDetectExplanation")
@@ -1540,6 +1618,8 @@ final class SettingsStore {
         switch llmProvider {
         case .openRouter:
             selectedModel
+        case .requesty:
+            requestyModel
         case .openAI:
             openAIModel
         case .anthropic:
@@ -1564,6 +1644,8 @@ final class SettingsStore {
         switch llmProvider {
         case .openRouter:
             return !openRouterApiKey.isEmpty
+        case .requesty:
+            return !requestyApiKey.isEmpty && OpenRouterClient.chatCompletionsURL(from: requestyBaseURL) != nil
         case .openAI:
             return !openAIApiKey.isEmpty && OpenRouterClient.chatCompletionsURL(from: openAIBaseURL) != nil
         case .anthropic:
@@ -1589,6 +1671,7 @@ final class SettingsStore {
     var activeRealtimeModel: String {
         switch llmProvider {
         case .openRouter: return realtimeModel
+        case .requesty: return requestyModel
         case .openAI: return openAIModel
         case .anthropic: return anthropicModel
         case .ollama: return realtimeOllamaModel.isEmpty ? ollamaLLMModel : realtimeOllamaModel
@@ -1606,6 +1689,8 @@ final class SettingsStore {
         switch llmProvider {
         case .openRouter:
             openRouterApiKey.isEmpty ? nil : openRouterApiKey
+        case .requesty:
+            requestyApiKey.isEmpty ? nil : requestyApiKey
         case .openAI:
             openAIApiKey.isEmpty ? nil : openAIApiKey
         case .anthropic:
@@ -1623,6 +1708,8 @@ final class SettingsStore {
         switch llmProvider {
         case .openRouter:
             nil
+        case .requesty:
+            OpenRouterClient.chatCompletionsURL(from: requestyBaseURL)
         case .openAI:
             OpenRouterClient.chatCompletionsURL(from: openAIBaseURL)
         case .anthropic:

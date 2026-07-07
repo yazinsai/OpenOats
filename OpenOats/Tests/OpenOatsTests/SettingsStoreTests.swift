@@ -399,15 +399,55 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertFalse(store.meetingAutoDetectEnabled)
     }
 
-    func testDefaultSilenceTimeoutMinutes() {
+    func testDefaultSilenceTimeoutSeconds() {
         let store = makeStore()
-        XCTAssertEqual(store.silenceTimeoutMinutes, 15)
+        XCTAssertEqual(store.silenceTimeoutSeconds, 900)
     }
 
-    func testSilenceTimeoutMinutesRoundTrip() {
+    func testSilenceTimeoutSecondsRoundTrip() {
         let store = makeStore()
-        store.silenceTimeoutMinutes = 30
-        XCTAssertEqual(store.silenceTimeoutMinutes, 30)
+        store.silenceTimeoutSeconds = 30
+        XCTAssertEqual(store.silenceTimeoutSeconds, 30)
+    }
+
+    func testSilenceTimeoutClampsNegativeToZero() {
+        let store = makeStore()
+        store.silenceTimeoutSeconds = -5
+        XCTAssertEqual(store.silenceTimeoutSeconds, 0)
+    }
+
+    func testSilenceTimeoutMigratesFromLegacyMinutesKey() {
+        let name = "com.openoats.test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        // Simulate a user upgrading from the old minutes-based setting.
+        defaults.set(10, forKey: "silenceTimeoutMinutes")
+
+        let store = makeStore(defaults: defaults)
+        XCTAssertEqual(store.silenceTimeoutSeconds, 600)
+    }
+
+    func testSilenceTimeoutUnitRoundTrip() {
+        let store = makeStore()
+        store.silenceTimeoutUnitIsSeconds = true
+        XCTAssertTrue(store.silenceTimeoutUnitIsSeconds)
+    }
+
+    /// A live recording must honor a Settings change immediately. The in-memory
+    /// value can go stale (e.g. a second SettingsStore instance persisted the
+    /// change), so the persisted read is the source of truth.
+    func testPersistedSilenceTimeoutReflectsExternalWrite() {
+        let name = "com.openoats.test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+
+        let store = makeStore(defaults: defaults)
+        store.silenceTimeoutSeconds = 30
+        // Simulate another instance (the Settings window) persisting a change.
+        defaults.set(10, forKey: "silenceTimeoutSeconds")
+
+        XCTAssertEqual(store.silenceTimeoutSeconds, 30, "in-memory cache stays at its last set value")
+        XCTAssertEqual(store.persistedSilenceTimeoutSeconds, 10, "persisted read reflects the live change")
     }
 
     func testDefaultCustomMeetingAppBundleIDs() {
@@ -784,13 +824,13 @@ final class SettingsStoreTests: XCTestCase {
 
         let store1 = makeStore(defaults: defaults)
         store1.llmProvider = .mlx
-        store1.silenceTimeoutMinutes = 42
+        store1.silenceTimeoutSeconds = 42
         store1.transcriptionModel = .qwen3ASR06B
 
         // Create a second store from the same defaults
         let store2 = makeStore(defaults: defaults)
         XCTAssertEqual(store2.llmProvider, .mlx)
-        XCTAssertEqual(store2.silenceTimeoutMinutes, 42)
+        XCTAssertEqual(store2.silenceTimeoutSeconds, 42)
         XCTAssertEqual(store2.transcriptionModel, .qwen3ASR06B)
     }
 

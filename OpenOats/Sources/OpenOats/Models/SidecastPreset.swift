@@ -78,6 +78,7 @@ struct SidecastPreset: Decodable {
     /// Maps debug tool provider strings to app LLMProvider enum values.
     private static let providerMap: [String: LLMProvider] = [
         "openrouter": .openRouter,
+        "requesty": .requesty,
         "openai": .openAI,
         "anthropic": .anthropic,
         "ollama": .ollama,
@@ -95,6 +96,8 @@ struct SidecastPreset: Decodable {
                 switch mapped {
                 case .openRouter:
                     settings.openRouterApiKey = apiKey
+                case .requesty:
+                    settings.requestyApiKey = apiKey
                 case .openAI:
                     settings.openAIApiKey = apiKey
                 case .anthropic:
@@ -112,6 +115,8 @@ struct SidecastPreset: Decodable {
                 switch mapped {
                 case .openAI:
                     settings.openAIBaseURL = baseURL
+                case .requesty:
+                    settings.requestyBaseURL = baseURL
                 case .anthropic:
                     settings.anthropicBaseURL = baseURL
                 case .ollama:
@@ -129,6 +134,8 @@ struct SidecastPreset: Decodable {
                 switch mapped {
                 case .openRouter:
                     settings.realtimeModel = model
+                case .requesty:
+                    settings.requestyModel = model
                 case .openAI:
                     settings.openAIModel = model
                 case .anthropic:

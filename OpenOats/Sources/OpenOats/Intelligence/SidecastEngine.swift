@@ -385,6 +385,8 @@ final class SidecastEngine {
         switch settings.llmProvider {
         case .openRouter:
             return !settings.openRouterApiKey.isEmpty
+        case .requesty:
+            return !settings.requestyApiKey.isEmpty && llmBaseURL != nil
         case .openAI:
             return !settings.openAIApiKey.isEmpty && llmBaseURL != nil
         case .anthropic:
@@ -397,6 +399,8 @@ final class SidecastEngine {
     private var llmApiKey: String? {
         switch settings.llmProvider {
         case .openRouter: settings.openRouterApiKey
+        case .requesty:
+            settings.requestyApiKey.isEmpty ? nil : settings.requestyApiKey
         case .openAI:
             settings.openAIApiKey.isEmpty ? nil : settings.openAIApiKey
         case .anthropic:
@@ -418,6 +422,8 @@ final class SidecastEngine {
     private var llmBaseURL: URL? {
         switch settings.llmProvider {
         case .openRouter: nil
+        case .requesty:
+            OpenRouterClient.chatCompletionsURL(from: settings.requestyBaseURL)
         case .openAI:
             OpenRouterClient.chatCompletionsURL(from: settings.openAIBaseURL)
         case .anthropic:
