@@ -981,68 +981,177 @@ final class LiveSessionControllerTests: XCTestCase {
         XCTAssertFalse(plan.shouldRunRecoveryBatch)
     }
 
+    /// Drive the evaluator over a sequence of constant-level samples at a fixed
+    /// cadence, returning the elapsed time at which it first asks to stop
+    /// (or nil if it never did over `duration`).
+    private func simulateSilenceTimeout(
+        level: Float,
+        duration: TimeInterval,
+        sampleInterval: TimeInterval = 0.25,
+        levelAt: ((TimeInterval) -> Float)? = nil
+    ) -> (firstStopAt: TimeInterval?, finalFloor: Float) {
+        let start = Date()
+        var tracking = LiveSessionController.SilenceTracking.initial
+        var firstStopAt: TimeInterval?
+        var t: TimeInterval = 0
+        while t <= duration {
+            let now = start.addingTimeInterval(t)
+            let evaluation = LiveSessionController.automaticSilenceTimeoutEvaluation(
+                isRunning: true,
+                isRecordingPaused: false,
+                audioLevel: levelAt?(t) ?? level,
+                now: now,
+                tracking: tracking
+            )
+            tracking = evaluation.tracking
+            if evaluation.shouldStop, firstStopAt == nil {
+                firstStopAt = t
+            }
+            t += sampleInterval
+        }
+        return (firstStopAt, tracking.noiseFloor)
+    }
+
     func testAutomaticSilenceTimeoutWaitsForFiveMinutesOfSilence() {
         let now = Date()
-        let lastActivity = now.addingTimeInterval(-299)
+        let tracking = LiveSessionController.SilenceTracking(
+            lastAudibleActivityAt: now.addingTimeInterval(-299),
+            noiseFloor: 0,
+            lastSampleAt: now.addingTimeInterval(-0.25)
+        )
 
         let evaluation = LiveSessionController.automaticSilenceTimeoutEvaluation(
             isRunning: true,
             isRecordingPaused: false,
             audioLevel: 0,
             now: now,
-            lastAudibleActivityAt: lastActivity
+            tracking: tracking
         )
 
-        XCTAssertEqual(evaluation.lastAudibleActivityAt, lastActivity)
+        XCTAssertEqual(evaluation.tracking.lastAudibleActivityAt, tracking.lastAudibleActivityAt)
         XCTAssertFalse(evaluation.shouldStop)
     }
 
     func testAutomaticSilenceTimeoutTriggersStopAfterFiveMinutesOfSilence() {
         let now = Date()
         let lastActivity = now.addingTimeInterval(-300)
+        let tracking = LiveSessionController.SilenceTracking(
+            lastAudibleActivityAt: lastActivity,
+            noiseFloor: 0,
+            lastSampleAt: now.addingTimeInterval(-0.25)
+        )
 
         let evaluation = LiveSessionController.automaticSilenceTimeoutEvaluation(
             isRunning: true,
             isRecordingPaused: false,
             audioLevel: 0,
             now: now,
-            lastAudibleActivityAt: lastActivity
+            tracking: tracking
         )
 
-        XCTAssertEqual(evaluation.lastAudibleActivityAt, lastActivity)
+        XCTAssertEqual(evaluation.tracking.lastAudibleActivityAt, lastActivity)
         XCTAssertTrue(evaluation.shouldStop)
     }
 
     func testAutomaticSilenceTimeoutResetsOnAudibleActivity() {
         let now = Date()
         let lastActivity = now.addingTimeInterval(-180)
+        // Established ambient floor of 0.05 with the timer already part-way.
+        let tracking = LiveSessionController.SilenceTracking(
+            lastAudibleActivityAt: lastActivity,
+            noiseFloor: 0.05,
+            lastSampleAt: now.addingTimeInterval(-0.25)
+        )
 
+        // A clearly-above-floor level (speech) should reset the timer.
         let evaluation = LiveSessionController.automaticSilenceTimeoutEvaluation(
             isRunning: true,
             isRecordingPaused: false,
-            audioLevel: LiveSessionController.audibleActivityLevelThreshold,
+            audioLevel: 0.5,
             now: now,
-            lastAudibleActivityAt: lastActivity
+            tracking: tracking
         )
 
-        XCTAssertEqual(evaluation.lastAudibleActivityAt, now)
+        XCTAssertEqual(evaluation.tracking.lastAudibleActivityAt, now)
         XCTAssertFalse(evaluation.shouldStop)
     }
 
     func testAutomaticSilenceTimeoutDoesNotAccrueWhileAlreadyPaused() {
         let now = Date()
-        let lastActivity = now.addingTimeInterval(-300)
+        let tracking = LiveSessionController.SilenceTracking(
+            lastAudibleActivityAt: now.addingTimeInterval(-300),
+            noiseFloor: 0.05,
+            lastSampleAt: now.addingTimeInterval(-0.25)
+        )
 
         let evaluation = LiveSessionController.automaticSilenceTimeoutEvaluation(
             isRunning: true,
             isRecordingPaused: true,
             audioLevel: 0,
             now: now,
-            lastAudibleActivityAt: lastActivity
+            tracking: tracking
         )
 
-        XCTAssertEqual(evaluation.lastAudibleActivityAt, now)
+        XCTAssertEqual(evaluation.tracking.lastAudibleActivityAt, now)
         XCTAssertFalse(evaluation.shouldStop)
+    }
+
+    // MARK: - Adaptive noise floor
+
+    /// Regression test for the original bug: a live mic's steady noise floor
+    /// (here ~0.06 combined level, well above the old fixed 0.01 threshold)
+    /// must NOT count as audible activity — the session should still auto-stop.
+    func testSteadyMicNoiseFloorStillAutoStops() {
+        let ambient: Float = 0.06
+        // Sanity: this ambient would have defeated the old fixed threshold.
+        XCTAssertGreaterThan(ambient, LiveSessionController.audibleActivityLevelThreshold)
+
+        let result = simulateSilenceTimeout(level: ambient, duration: 360)
+
+        XCTAssertNotNil(result.firstStopAt, "Steady mic noise floor never triggered auto-stop")
+        if let stopAt = result.firstStopAt {
+            // Should stop right around the 5-minute mark, not before.
+            XCTAssertGreaterThanOrEqual(stopAt, 300)
+            XCTAssertLessThan(stopAt, 305)
+        }
+        // Floor should have converged to the ambient level.
+        XCTAssertEqual(result.finalFloor, ambient, accuracy: 0.01)
+    }
+
+    /// A much louder constant tone also calibrates and stops — proving the
+    /// fix is relative to the mic, not tied to any particular absolute level.
+    func testLoudConstantNoiseFloorAlsoAutoStops() {
+        let result = simulateSilenceTimeout(level: 0.3, duration: 360)
+        XCTAssertNotNil(result.firstStopAt)
+        if let stopAt = result.firstStopAt {
+            XCTAssertGreaterThanOrEqual(stopAt, 300)
+            XCTAssertLessThan(stopAt, 305)
+        }
+    }
+
+    /// Periodic speech bursts above the ambient floor must keep the session
+    /// alive indefinitely (no false auto-stop during an active meeting).
+    func testPeriodicSpeechAboveFloorPreventsAutoStop() {
+        let ambient: Float = 0.06
+        let result = simulateSilenceTimeout(level: ambient, duration: 900) { t in
+            // 2s of speech (level 0.5) every 60s, ambient otherwise.
+            (t.truncatingRemainder(dividingBy: 60) < 2) ? 0.5 : ambient
+        }
+        XCTAssertNil(result.firstStopAt, "Active meeting with periodic speech should not auto-stop")
+    }
+
+    func testNoiseFloorFallsFasterThanItRises() {
+        // Falling toward quiet: large move over 5s.
+        let fell = LiveSessionController.updatedNoiseFloor(current: 0.5, level: 0.05, dt: 5)
+        // Rising toward loud: small move over the same 5s.
+        let rose = LiveSessionController.updatedNoiseFloor(current: 0.05, level: 0.5, dt: 5)
+
+        let fallDelta = 0.5 - fell      // how far it dropped
+        let riseDelta = rose - 0.05     // how far it climbed
+        XCTAssertGreaterThan(fallDelta, riseDelta)
+        // Sanity bounds on the asymmetry.
+        XCTAssertGreaterThan(fallDelta, 0.2)
+        XCTAssertLessThan(riseDelta, 0.1)
     }
 
     func testRecordingHealthNoticeWarnsWhenNoAudioDetected() {

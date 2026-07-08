@@ -8,6 +8,12 @@ final class APIKeyValidatorTests: XCTestCase {
         XCTAssertEqual(result, .invalid(message: "API key is empty"))
     }
 
+    func testValidateCohereKeyRejectsEmptyKey() async {
+        let result = await APIKeyValidator.validateCohereKey(" \n ")
+
+        XCTAssertEqual(result, .invalid(message: "API key is empty"))
+    }
+
     func testValidationResultTreatsSuccessAsValid() {
         let response = makeResponse(statusCode: 200)
 

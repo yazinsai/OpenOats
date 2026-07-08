@@ -73,6 +73,24 @@ private struct GeneralSettingsTab: View {
     @State private var diagnosticsExportHadError = false
     @State private var diagnosticsExportInFlight = false
 
+    /// Bridges the canonical seconds setting to the value shown in the field,
+    /// converting to/from the user's chosen display unit (seconds vs minutes).
+    private var silenceTimeoutDisplayValue: Binding<Int> {
+        Binding(
+            get: {
+                settings.silenceTimeoutUnitIsSeconds
+                    ? settings.silenceTimeoutSeconds
+                    : settings.silenceTimeoutSeconds / 60
+            },
+            set: { newValue in
+                let clamped = max(0, newValue)
+                settings.silenceTimeoutSeconds = settings.silenceTimeoutUnitIsSeconds
+                    ? clamped
+                    : clamped * 60
+            }
+        )
+    }
+
     var body: some View {
         ScrollView {
             Form {
@@ -181,22 +199,6 @@ private struct GeneralSettingsTab: View {
 
                 if settings.meetingAutoDetectEnabled {
                     DisclosureGroup(isExpanded: $showAdvancedDetection, content: {
-                        HStack {
-                            Text("Silence timeout")
-                                .font(.system(size: 12))
-                            Spacer()
-                            TextField("", value: $settings.silenceTimeoutMinutes, format: .number)
-                                .font(.system(size: 12, design: .monospaced))
-                                .frame(width: 50)
-                                .multilineTextAlignment(.trailing)
-                            Text("min")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                        }
-                        Text("Auto-detected sessions stop after this many minutes of silence.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-
                         Toggle("Detection log", isOn: $settings.detectionLogEnabled)
                             .font(.system(size: 12))
                         Text("Print detection events to the system console for debugging.")
@@ -213,6 +215,28 @@ private struct GeneralSettingsTab: View {
                         .padding(.vertical, -10)
                     })
                     .font(.system(size: 12))
+                }
+
+                Section("Auto-Stop on Silence") {
+                    HStack {
+                        Text("Silence timeout")
+                            .font(.system(size: 12))
+                        Spacer()
+                        TextField("", value: silenceTimeoutDisplayValue, format: .number)
+                            .font(.system(size: 12, design: .monospaced))
+                            .frame(width: 50)
+                            .multilineTextAlignment(.trailing)
+                        Picker("", selection: $settings.silenceTimeoutUnitIsSeconds) {
+                            Text("sec").tag(true)
+                            Text("min").tag(false)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(width: 110)
+                    }
+                    Text("Recordings automatically stop after this much silence — applies to both manual and auto-detected sessions. Set to 0 to disable.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
 
                 if !settings.ignoredAppBundleIDs.isEmpty {
@@ -358,6 +382,9 @@ private struct TranscriptionSettingsTab: View {
     @State private var isValidatingElevenLabsKey = false
     @State private var elevenLabsValidation: APIKeyValidator.ValidationResult?
     @State private var elevenLabsValidationTask: Task<Void, Never>?
+    @State private var isValidatingCohereKey = false
+    @State private var cohereValidation: APIKeyValidator.ValidationResult?
+    @State private var cohereValidationTask: Task<Void, Never>?
 
     var body: some View {
         ScrollView {
@@ -452,7 +479,7 @@ private struct TranscriptionSettingsTab: View {
                                 scheduleElevenLabsValidation(for: newValue)
                             }
 
-                            apiKeyValidationMessage(result: elevenLabsValidation)
+                            apiKeyValidationMessage(result: elevenLabsValidation, providerName: "ElevenLabs")
 
                             Text("Audio segments are sent to ElevenLabs for transcription. Review their privacy policy at elevenlabs.io/privacy.")
                                 .font(.system(size: 11))
@@ -463,6 +490,30 @@ private struct TranscriptionSettingsTab: View {
                             Text("Strips filler words, false starts, and non-speech sounds server-side before returning the transcript.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
+                        case .cohereTranscribeArabic:
+                            HStack(spacing: 8) {
+                                SecureField("Cohere API Key", text: $settings.cohereApiKey)
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .accessibilityIdentifier("settings.cohereApiKeyField")
+
+                                apiKeyValidationIndicator(
+                                    isValidating: isValidatingCohereKey,
+                                    result: cohereValidation
+                                )
+                            }
+                            .onAppear {
+                                scheduleCohereValidation(for: settings.cohereApiKey)
+                            }
+                            .onChange(of: settings.cohereApiKey) { _, newValue in
+                                scheduleCohereValidation(for: newValue)
+                            }
+
+                            apiKeyValidationMessage(result: cohereValidation, providerName: "Cohere")
+
+                            Text("Audio segments are sent to Cohere for transcription. Cohere Transcribe Arabic does not return provider timestamps or speaker diarization; OpenOats still uses local stream separation and diarization where available.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         default:
                             EmptyView()
                         }
@@ -518,7 +569,7 @@ private struct TranscriptionSettingsTab: View {
                         )
 
                         Text(
-                            "Boost meeting-specific jargon, names, and product terms. Enter one term per line, or use `Preferred Term: alias one, alias two`. Parakeet: full alias support. AssemblyAI: aliases map to custom spelling. ElevenLabs: terms boost recognition."
+                            "Boost meeting-specific jargon, names, and product terms. Enter one term per line, or use `Preferred Term: alias one, alias two`. Parakeet: full alias support. AssemblyAI: aliases map to custom spelling. ElevenLabs: terms boost recognition. Cohere: preferred terms are sent as prompt guidance."
                         )
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -581,6 +632,7 @@ private struct TranscriptionSettingsTab: View {
         }
         .onDisappear {
             cancelElevenLabsValidation()
+            cancelCohereValidation()
         }
     }
 
@@ -614,11 +666,11 @@ private struct TranscriptionSettingsTab: View {
     }
 
     @ViewBuilder
-    private func apiKeyValidationMessage(result: APIKeyValidator.ValidationResult?) -> some View {
+    private func apiKeyValidationMessage(result: APIKeyValidator.ValidationResult?, providerName: String) -> some View {
         if let result {
             switch result {
             case .valid:
-                Text("Connected to ElevenLabs")
+                Text("Connected to \(providerName)")
                     .font(.system(size: 11))
                     .foregroundStyle(.green)
             case .invalid(let message):
@@ -664,6 +716,38 @@ private struct TranscriptionSettingsTab: View {
         elevenLabsValidationTask = nil
         isValidatingElevenLabsKey = false
     }
+
+    private func scheduleCohereValidation(for key: String) {
+        cohereValidationTask?.cancel()
+
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            cohereValidation = nil
+            isValidatingCohereKey = false
+            return
+        }
+
+        isValidatingCohereKey = true
+        cohereValidation = nil
+        cohereValidationTask = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+
+            let result = await APIKeyValidator.validateCohereKey(trimmed)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                cohereValidation = result
+                isValidatingCohereKey = false
+            }
+        }
+    }
+
+    private func cancelCohereValidation() {
+        cohereValidationTask?.cancel()
+        cohereValidationTask = nil
+        isValidatingCohereKey = false
+    }
 }
 
 // MARK: - Intelligence Settings Tab
@@ -698,6 +782,18 @@ private struct IntelligenceSettingsTab: View {
 
                         TextField("Model", text: $settings.selectedModel, prompt: Text("e.g. google/gemini-3-flash-preview"))
                             .font(.system(size: 12, design: .monospaced))
+                    case .requesty:
+                        TextField("Requesty URL", text: $settings.requestyBaseURL, prompt: Text("https://router.requesty.ai/v1"))
+                            .font(.system(size: 12, design: .monospaced))
+
+                        SecureField("Requesty API Key", text: $settings.requestyApiKey)
+                            .font(.system(size: 12, design: .monospaced))
+
+                        TextField("Model", text: $settings.requestyModel, prompt: Text("e.g. openai/gpt-4o-mini"))
+                            .font(.system(size: 12, design: .monospaced))
+
+                        Link("Get API key", destination: URL(string: "https://app.requesty.ai/api-keys")!)
+                            .font(.system(size: 11))
                     case .openAI:
                         TextField("OpenAI URL", text: $settings.openAIBaseURL, prompt: Text("https://api.openai.com"))
                             .font(.system(size: 12, design: .monospaced))
@@ -829,6 +925,12 @@ private struct IntelligenceSettingsTab: View {
                     switch settings.llmProvider {
                     case .openRouter:
                         TextField("Speed Model", text: $settings.realtimeModel, prompt: Text("e.g. google/gemini-2.0-flash-001"))
+                            .font(.system(size: 12, design: .monospaced))
+                        Text("A fast model used for real-time suggestion synthesis. Separate from your main model.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    case .requesty:
+                        TextField("Speed Model", text: $settings.requestyModel, prompt: Text("e.g. openai/gpt-4o-mini"))
                             .font(.system(size: 12, design: .monospaced))
                         Text("A fast model used for real-time suggestion synthesis. Separate from your main model.")
                             .font(.system(size: 11))

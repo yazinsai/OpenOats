@@ -111,6 +111,21 @@ final class WizardViewModel {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _cohereKeyInput = ""
+    var cohereKeyInput: String {
+        get { access(keyPath: \.cohereKeyInput); return _cohereKeyInput }
+        set {
+            withMutation(keyPath: \.cohereKeyInput) { _cohereKeyInput = newValue }
+            if !newValue.isEmpty {
+                validateCohereKey()
+            } else {
+                cohereValidationTask?.cancel()
+                cohereValidation = nil
+                isValidatingCohere = false
+            }
+        }
+    }
+
     // MARK: - Validation State
 
     @ObservationIgnored nonisolated(unsafe) private var _openRouterValidation: APIKeyValidator.ValidationResult?
@@ -137,6 +152,12 @@ final class WizardViewModel {
         set { withMutation(keyPath: \.elevenLabsValidation) { _elevenLabsValidation = newValue } }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _cohereValidation: APIKeyValidator.ValidationResult?
+    var cohereValidation: APIKeyValidator.ValidationResult? {
+        get { access(keyPath: \.cohereValidation); return _cohereValidation }
+        set { withMutation(keyPath: \.cohereValidation) { _cohereValidation = newValue } }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _isValidatingOpenRouter = false
     var isValidatingOpenRouter: Bool {
         get { access(keyPath: \.isValidatingOpenRouter); return _isValidatingOpenRouter }
@@ -159,6 +180,12 @@ final class WizardViewModel {
     var isValidatingElevenLabs: Bool {
         get { access(keyPath: \.isValidatingElevenLabs); return _isValidatingElevenLabs }
         set { withMutation(keyPath: \.isValidatingElevenLabs) { _isValidatingElevenLabs = newValue } }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _isValidatingCohere = false
+    var isValidatingCohere: Bool {
+        get { access(keyPath: \.isValidatingCohere); return _isValidatingCohere }
+        set { withMutation(keyPath: \.isValidatingCohere) { _isValidatingCohere = newValue } }
     }
 
     // MARK: - Ollama State
@@ -245,6 +272,7 @@ final class WizardViewModel {
     private var voyageValidationTask: Task<Void, Never>?
     private var assemblyAIValidationTask: Task<Void, Never>?
     private var elevenLabsValidationTask: Task<Void, Never>?
+    private var cohereValidationTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
@@ -270,6 +298,9 @@ final class WizardViewModel {
         }
         if !snapshot.existingElevenLabsKey.isEmpty {
             elevenLabsKeyInput = snapshot.existingElevenLabsKey
+        }
+        if !snapshot.existingCohereKey.isEmpty {
+            cohereKeyInput = snapshot.existingCohereKey
         }
 
         if isReconfiguration, let currentSettings {
@@ -395,6 +426,8 @@ final class WizardViewModel {
             return "AssemblyAI"
         case .elevenLabsScribe?:
             return "ElevenLabs"
+        case .cohereTranscribeArabic?:
+            return "Cohere"
         default:
             return nil
         }
@@ -406,6 +439,8 @@ final class WizardViewModel {
             return assemblyAIKeyInput
         case .elevenLabsScribe?:
             return elevenLabsKeyInput
+        case .cohereTranscribeArabic?:
+            return cohereKeyInput
         default:
             return ""
         }
@@ -417,6 +452,8 @@ final class WizardViewModel {
             return assemblyAIValidation
         case .elevenLabsScribe?:
             return elevenLabsValidation
+        case .cohereTranscribeArabic?:
+            return cohereValidation
         default:
             return nil
         }
@@ -489,6 +526,23 @@ final class WizardViewModel {
 
             self.elevenLabsValidation = result
             self.isValidatingElevenLabs = false
+        }
+    }
+
+    private func validateCohereKey() {
+        cohereValidationTask?.cancel()
+        isValidatingCohere = true
+        cohereValidation = nil
+
+        cohereValidationTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+
+            let result = await APIKeyValidator.validateCohereKey(self.cohereKeyInput)
+            guard !Task.isCancelled else { return }
+
+            self.cohereValidation = result
+            self.isValidatingCohere = false
         }
     }
 
@@ -594,9 +648,15 @@ final class WizardViewModel {
         case .assemblyAI:
             settings.assemblyAIApiKey = assemblyAIKeyInput
             settings.elevenLabsApiKey = ""
+            settings.cohereApiKey = ""
         case .elevenLabsScribe:
             settings.elevenLabsApiKey = elevenLabsKeyInput
             settings.assemblyAIApiKey = ""
+            settings.cohereApiKey = ""
+        case .cohereTranscribeArabic:
+            settings.cohereApiKey = cohereKeyInput
+            settings.assemblyAIApiKey = ""
+            settings.elevenLabsApiKey = ""
         default:
             break
         }
@@ -626,6 +686,7 @@ final class WizardViewModel {
         if !profile.isCloud {
             settings.assemblyAIApiKey = ""
             settings.elevenLabsApiKey = ""
+            settings.cohereApiKey = ""
         }
 
         if !profile.isLocal {
@@ -644,6 +705,8 @@ final class WizardViewModel {
         switch settings.llmProvider {
         case .openRouter:
             hasConfiguredLLM = !settings.openRouterApiKey.isEmpty
+        case .requesty:
+            hasConfiguredLLM = !settings.requestyApiKey.isEmpty
         case .openAI:
             hasConfiguredLLM = !settings.openAIApiKey.isEmpty
         case .anthropic:
@@ -666,7 +729,7 @@ final class WizardViewModel {
         switch settings.llmProvider {
         case .ollama, .lmStudio:
             privacy = .local
-        case .openRouter, .openAI, .anthropic, .mlx, .openAICompatible:
+        case .openRouter, .requesty, .openAI, .anthropic, .mlx, .openAICompatible:
             privacy = .cloud
         }
     }

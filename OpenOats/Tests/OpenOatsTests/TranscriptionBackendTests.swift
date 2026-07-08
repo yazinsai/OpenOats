@@ -226,6 +226,74 @@ final class TranscriptionBackendTests: XCTestCase {
         }
     }
 
+    // MARK: - CohereTranscribeArabicBackend
+
+    func testCohereTranscribeArabicDisplayName() {
+        let backend = CohereTranscribeArabicBackend(apiKey: "test-key")
+        XCTAssertEqual(backend.displayName, "Cohere Transcribe Arabic")
+    }
+
+    func testCohereTranscribeArabicCheckStatusAlwaysReady() {
+        let withKey = CohereTranscribeArabicBackend(apiKey: "test-key")
+        XCTAssertEqual(withKey.checkStatus(), .ready)
+
+        let withoutKey = CohereTranscribeArabicBackend(apiKey: "")
+        XCTAssertEqual(withoutKey.checkStatus(), .ready)
+    }
+
+    func testCohereTranscribeArabicTranscribeWithoutPrepareThrows() async {
+        let backend = CohereTranscribeArabicBackend(apiKey: "test-key")
+        do {
+            _ = try await backend.transcribe([0.0, 0.1, 0.2], locale: Locale(identifier: "ar-SA"))
+            XCTFail("Expected error")
+        } catch is TranscriptionBackendError {
+            // Expected: notPrepared
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    func testCohereTranscribeArabicParsesTranscriptResponse() throws {
+        let json = """
+        {
+          "id": "tr-123",
+          "status": "completed",
+          "results": {
+            "transcripts": [
+              { "language": "ar", "text": "مرحبا يا فريق", "duration": 1.2, "offset": 0 },
+              { "language": "ar", "text": "كيف الحال", "duration": 1.0, "offset": 1.2 }
+            ]
+          }
+        }
+        """
+
+        let text = try CohereTranscribeArabicBackend.parseTranscriptResponse(Data(json.utf8))
+
+        XCTAssertEqual(text, "مرحبا يا فريق كيف الحال")
+    }
+
+    func testCohereTranscribeArabicMultipartUsesModelLanguagePromptAndFileLast() throws {
+        let body = CohereTranscribeArabicBackend.buildMultipartBody(
+            boundary: "Boundary-Test",
+            wavData: Data("wav-data".utf8),
+            languageCode: "ar",
+            prompt: "OpenOats فريق المنتج"
+        )
+        let bodyText = String(data: body, encoding: .utf8) ?? ""
+
+        XCTAssertTrue(bodyText.contains("name=\"model\""))
+        XCTAssertTrue(bodyText.contains("cohere-transcribe-arabic-07-2026"))
+        XCTAssertTrue(bodyText.contains("name=\"language\""))
+        XCTAssertTrue(bodyText.contains("\r\nar\r\n"))
+        XCTAssertTrue(bodyText.contains("name=\"prompt\""))
+        XCTAssertTrue(bodyText.contains("OpenOats فريق المنتج"))
+
+        let fileRange = try XCTUnwrap(bodyText.range(of: "name=\"file\""))
+        XCTAssertNil(bodyText.range(of: "name=\"model\"", range: fileRange.upperBound..<bodyText.endIndex))
+        XCTAssertNil(bodyText.range(of: "name=\"language\"", range: fileRange.upperBound..<bodyText.endIndex))
+        XCTAssertNil(bodyText.range(of: "name=\"prompt\"", range: fileRange.upperBound..<bodyText.endIndex))
+    }
+
     // MARK: - TranscriptionModel cloud factory
 
     func testMakeBackendAssemblyAI() {
@@ -238,16 +306,23 @@ final class TranscriptionBackendTests: XCTestCase {
         XCTAssertEqual(backend.displayName, "ElevenLabs Scribe")
     }
 
+    func testMakeBackendCohereTranscribeArabic() {
+        let backend = TranscriptionModel.cohereTranscribeArabic.makeBackend(apiKey: "test")
+        XCTAssertEqual(backend.displayName, "Cohere Transcribe Arabic")
+    }
+
     func testCloudModelsNotInBatchSuitable() {
         let batchModels = TranscriptionModel.batchSuitableModels
         XCTAssertFalse(batchModels.contains(.assemblyAI))
         XCTAssertFalse(batchModels.contains(.elevenLabsScribe))
+        XCTAssertFalse(batchModels.contains(.cohereTranscribeArabic))
     }
 
     func testIsCloudProperty() {
         // Cloud models
         XCTAssertTrue(TranscriptionModel.assemblyAI.isCloud)
         XCTAssertTrue(TranscriptionModel.elevenLabsScribe.isCloud)
+        XCTAssertTrue(TranscriptionModel.cohereTranscribeArabic.isCloud)
         // Local models
         XCTAssertFalse(TranscriptionModel.parakeetV2.isCloud)
         XCTAssertFalse(TranscriptionModel.parakeetV3.isCloud)

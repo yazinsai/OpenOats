@@ -67,6 +67,16 @@ final class BatchTextCleaner {
             baseURL = nil
             model = "openai/gpt-4o-mini"
             transport = settings.activeLLMTransport
+        case .requesty:
+            apiKey = settings.activeLLMApiKey
+            guard let requestyURL = OpenRouterClient.chatCompletionsURL(from: settings.requestyBaseURL) else {
+                error = "Invalid Requesty URL: \(settings.requestyBaseURL)"
+                isCleaningUp = false
+                return records
+            }
+            baseURL = requestyURL
+            model = settings.requestyModel
+            transport = settings.activeLLMTransport
         case .openAI:
             apiKey = settings.activeLLMApiKey
             guard let url = settings.activeLLMBaseURL else {

@@ -210,6 +210,36 @@ struct ProviderSetupStepView: View {
                 .foregroundStyle(Color.accentTeal)
             }
 
+        case .cohereTranscribeArabic?:
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Cohere API key")
+                    .font(.system(size: 12, weight: .medium))
+
+                Text("Required for the recommended Arabic cloud transcription model.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    TextField("Cohere API key", text: $viewModel.cohereKeyInput)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12, design: .monospaced))
+
+                    validationIndicator(
+                        isValidating: viewModel.isValidatingCohere,
+                        result: viewModel.cohereValidation
+                    )
+                }
+
+                validationMessage(result: viewModel.cohereValidation)
+
+                Link(
+                    "Don't have a key? Create one on Cohere",
+                    destination: URL(string: "https://dashboard.cohere.com/api-keys")!
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(Color.accentTeal)
+            }
+
         default:
             EmptyView()
         }

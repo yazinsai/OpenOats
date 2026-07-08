@@ -294,6 +294,7 @@ enum PersonaAvatarTint: String, CaseIterable, Identifiable, Codable {
 
 enum LLMProvider: String, CaseIterable, Identifiable {
     case openRouter
+    case requesty
     case openAI
     case anthropic
     case ollama
@@ -306,6 +307,7 @@ enum LLMProvider: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .openRouter: "OpenRouter"
+        case .requesty: "Requesty"
         case .openAI: "OpenAI"
         case .anthropic: "Anthropic"
         case .ollama: "Ollama"
@@ -342,12 +344,13 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
     case whisperLargeV3Turbo
     case assemblyAI
     case elevenLabsScribe
+    case cohereTranscribeArabic
 
     var id: String { rawValue }
 
     var isCloud: Bool {
         switch self {
-        case .assemblyAI, .elevenLabsScribe: true
+        case .assemblyAI, .elevenLabsScribe, .cohereTranscribeArabic: true
         default: false
         }
     }
@@ -362,6 +365,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         case .whisperLargeV3Turbo: "Whisper Large v3 Turbo"
         case .assemblyAI: "AssemblyAI"
         case .elevenLabsScribe: "ElevenLabs Scribe"
+        case .cohereTranscribeArabic: "Cohere Transcribe Arabic"
         }
     }
 
@@ -379,6 +383,8 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
             "Whisper Large v3 Turbo requires a one-time model download (~800 MB)."
         case .assemblyAI, .elevenLabsScribe:
             "Requires an API key. Enter it in Settings > Transcription."
+        case .cohereTranscribeArabic:
+            "Requires a Cohere API key. Enter it in Settings > Transcription."
         }
     }
 
@@ -390,7 +396,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         case .whisperSmall: 244_000_000
         case .whisperLargeV3Turbo: 800_000_000
         case .parakeetV2, .parakeetV3, .qwen3ASR06B: nil
-        case .assemblyAI, .elevenLabsScribe: nil
+        case .assemblyAI, .elevenLabsScribe, .cohereTranscribeArabic: nil
         }
     }
 
@@ -404,7 +410,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
             "Language Hint"
         case .parakeetV2, .parakeetV3, .whisperBase, .whisperSmall, .whisperLargeV3Turbo:
             "Locale"
-        case .assemblyAI, .elevenLabsScribe:
+        case .assemblyAI, .elevenLabsScribe, .cohereTranscribeArabic:
             "Language Hint"
         }
     }
@@ -425,6 +431,8 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
             "Optional language hint for AssemblyAI. Leave as en-US for English or set to your expected meeting language."
         case .elevenLabsScribe:
             "Optional language hint for ElevenLabs Scribe. Leave empty for auto-detection (recommended for multilingual meetings), or set to a language code like en, fr, de."
+        case .cohereTranscribeArabic:
+            "Use ar for Arabic and Arabic-English code-switching. Use en for English speech with Arabic accents."
         }
     }
 
@@ -448,6 +456,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         case .whisperLargeV3Turbo: return WhisperKitBackend(variant: .largeV3Turbo)
         case .assemblyAI: return AssemblyAIBackend(apiKey: apiKey, customVocabulary: customVocabulary)
         case .elevenLabsScribe: return ElevenLabsScribeBackend(apiKey: apiKey, customVocabulary: customVocabulary, removeFillerWords: removeFillerWords)
+        case .cohereTranscribeArabic: return CohereTranscribeArabicBackend(apiKey: apiKey, customVocabulary: customVocabulary)
         }
     }
 
@@ -459,7 +468,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
             10 * 16_000
         case .parakeetV2, .parakeetV3, .qwen3ASR06B:
             5 * 16_000
-        case .assemblyAI, .elevenLabsScribe:
+        case .assemblyAI, .elevenLabsScribe, .cohereTranscribeArabic:
             10 * 16_000  // 10s - fewer API calls, better accuracy per segment
         }
     }

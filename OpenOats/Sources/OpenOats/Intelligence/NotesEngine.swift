@@ -118,6 +118,17 @@ final class NotesEngine {
             baseURL = nil
             model = settings.selectedModel
             transport = settings.activeLLMTransport
+        case .requesty:
+            apiKey = settings.activeLLMApiKey
+            guard let requestyURL = OpenRouterClient.chatCompletionsURL(from: settings.requestyBaseURL) else {
+                error = "Invalid Requesty URL: \(settings.requestyBaseURL)"
+                isGenerating = false
+                onFinished()
+                return
+            }
+            baseURL = requestyURL
+            model = settings.requestyModel
+            transport = settings.activeLLMTransport
         case .openAI:
             apiKey = settings.activeLLMApiKey
             guard let openAIURL = settings.activeLLMBaseURL else {
@@ -327,7 +338,7 @@ final class NotesEngine {
         switch provider {
         case .ollama, .lmStudio, .mlx:
             return true
-        case .openRouter, .openAI, .anthropic:
+        case .openRouter, .requesty, .openAI, .anthropic:
             return allowCloudCalendarContext
         case .openAICompatible:
             if let baseURL, OpenRouterClient.isLocalHost(baseURL) {

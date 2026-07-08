@@ -8,6 +8,88 @@ import os
 
 /// Captures system output audio via a Core Audio process tap.
 final class SystemAudioCapture: @unchecked Sendable {
+    struct SystemAudioDiagnosticsEvent: Codable, Equatable {
+        let event: String
+        let attempt: Int?
+        let requestedOutputDeviceID: UInt32?
+        let resolvedOutputDeviceID: UInt32?
+        let outputDeviceAvailable: Bool?
+        let outputDeviceUIDLength: Int?
+        let availableOutputDeviceCount: Int?
+        let outputStreamCount: Int?
+        let outputNominalSampleRate: Double?
+        let outputTransportType: UInt32?
+        let processObjectID: UInt32?
+        let processCount: Int?
+        let tapID: UInt32?
+        let aggregateDeviceID: UInt32?
+        let ioProcCreated: Bool?
+        let status: Int32?
+        let cleanupAggregateStatus: Int32?
+        let cleanupTapStatus: Int32?
+        let retryIndex: Int?
+        let retryCount: Int?
+        let sampleRate: Double?
+        let channels: UInt32?
+        let bytesPerFrame: UInt32?
+        let flags: [String: Bool]?
+        let errorKind: String?
+
+        init(
+            event: String,
+            attempt: Int? = nil,
+            requestedOutputDeviceID: UInt32? = nil,
+            resolvedOutputDeviceID: UInt32? = nil,
+            outputDeviceAvailable: Bool? = nil,
+            outputDeviceUIDLength: Int? = nil,
+            availableOutputDeviceCount: Int? = nil,
+            outputStreamCount: Int? = nil,
+            outputNominalSampleRate: Double? = nil,
+            outputTransportType: UInt32? = nil,
+            processObjectID: UInt32? = nil,
+            processCount: Int? = nil,
+            tapID: UInt32? = nil,
+            aggregateDeviceID: UInt32? = nil,
+            ioProcCreated: Bool? = nil,
+            status: Int32? = nil,
+            cleanupAggregateStatus: Int32? = nil,
+            cleanupTapStatus: Int32? = nil,
+            retryIndex: Int? = nil,
+            retryCount: Int? = nil,
+            sampleRate: Double? = nil,
+            channels: UInt32? = nil,
+            bytesPerFrame: UInt32? = nil,
+            flags: [String: Bool]? = nil,
+            errorKind: String? = nil
+        ) {
+            self.event = event
+            self.attempt = attempt
+            self.requestedOutputDeviceID = requestedOutputDeviceID
+            self.resolvedOutputDeviceID = resolvedOutputDeviceID
+            self.outputDeviceAvailable = outputDeviceAvailable
+            self.outputDeviceUIDLength = outputDeviceUIDLength
+            self.availableOutputDeviceCount = availableOutputDeviceCount
+            self.outputStreamCount = outputStreamCount
+            self.outputNominalSampleRate = outputNominalSampleRate
+            self.outputTransportType = outputTransportType
+            self.processObjectID = processObjectID
+            self.processCount = processCount
+            self.tapID = tapID
+            self.aggregateDeviceID = aggregateDeviceID
+            self.ioProcCreated = ioProcCreated
+            self.status = status
+            self.cleanupAggregateStatus = cleanupAggregateStatus
+            self.cleanupTapStatus = cleanupTapStatus
+            self.retryIndex = retryIndex
+            self.retryCount = retryCount
+            self.sampleRate = sampleRate
+            self.channels = channels
+            self.bytesPerFrame = bytesPerFrame
+            self.flags = flags
+            self.errorKind = errorKind
+        }
+    }
+
     private let _audioLevel = AudioLevel()
     private let _hasCapturedFrames = SyncBool()
     private let _paused = SyncBool()
@@ -41,6 +123,74 @@ final class SystemAudioCapture: @unchecked Sendable {
         let systemAudio: AsyncStream<AVAudioPCMBuffer>
     }
 
+    static func systemAudioDiagnosticsMessage(for event: SystemAudioDiagnosticsEvent) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        if let data = try? encoder.encode(event),
+           let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+        return #"{"event":"system_audio_capture_diagnostics","result":"encoding_failed"}"#
+    }
+
+    private static func recordSystemAudioDiagnostics(_ event: SystemAudioDiagnosticsEvent) {
+        let message = systemAudioDiagnosticsMessage(for: event)
+        DiagnosticsSupport.record(category: "system-audio", message: message)
+        Log.systemAudio.info("\(message, privacy: .public)")
+    }
+
+    private static func outputDeviceSnapshot(for deviceID: AudioDeviceID) -> (
+        streamCount: Int?,
+        nominalSampleRate: Double?,
+        transportType: UInt32?
+    ) {
+        var streamAddress = propertyAddress(
+            selector: kAudioDevicePropertyStreams,
+            scope: kAudioDevicePropertyScopeOutput
+        )
+        var streamSize: UInt32 = 0
+        let streamStatus = AudioObjectGetPropertyDataSize(
+            deviceID,
+            &streamAddress,
+            0,
+            nil,
+            &streamSize
+        )
+        let streamCount = streamStatus == noErr
+            ? Int(streamSize) / MemoryLayout<AudioStreamID>.size
+            : nil
+
+        var sampleRateAddress = propertyAddress(selector: kAudioDevicePropertyNominalSampleRate)
+        var sampleRate = Float64(0)
+        var sampleRateSize = UInt32(MemoryLayout<Float64>.size)
+        let sampleRateStatus = AudioObjectGetPropertyData(
+            deviceID,
+            &sampleRateAddress,
+            0,
+            nil,
+            &sampleRateSize,
+            &sampleRate
+        )
+
+        var transportAddress = propertyAddress(selector: kAudioDevicePropertyTransportType)
+        var transportType = UInt32(0)
+        var transportSize = UInt32(MemoryLayout<UInt32>.size)
+        let transportStatus = AudioObjectGetPropertyData(
+            deviceID,
+            &transportAddress,
+            0,
+            nil,
+            &transportSize,
+            &transportType
+        )
+
+        return (
+            streamCount: streamCount,
+            nominalSampleRate: sampleRateStatus == noErr ? sampleRate : nil,
+            transportType: transportStatus == noErr ? transportType : nil
+        )
+    }
+
     func bufferStream(outputDeviceID: AudioDeviceID? = nil) async throws -> CaptureStreams {
         await stop()
 
@@ -50,17 +200,37 @@ final class SystemAudioCapture: @unchecked Sendable {
         _hasCapturedFrames.value = false
 
         let resolvedDeviceID: AudioDeviceID
+        let requestedOutputDeviceAvailable: Bool?
         if let requested = outputDeviceID {
             // Verify the requested device is still available; fall back to system default if not
             if (try? Self.deviceUID(for: requested)) != nil {
                 resolvedDeviceID = requested
+                requestedOutputDeviceAvailable = true
             } else {
                 resolvedDeviceID = try Self.defaultOutputDeviceID()
+                requestedOutputDeviceAvailable = false
             }
         } else {
             resolvedDeviceID = try Self.defaultOutputDeviceID()
+            requestedOutputDeviceAvailable = nil
         }
         let outputUID = try Self.deviceUID(for: resolvedDeviceID)
+        let outputSnapshot = Self.outputDeviceSnapshot(for: resolvedDeviceID)
+        // #region system audio diagnostics
+        Self.recordSystemAudioDiagnostics(
+            SystemAudioDiagnosticsEvent(
+                event: "system_audio_output_resolved",
+                requestedOutputDeviceID: outputDeviceID,
+                resolvedOutputDeviceID: resolvedDeviceID,
+                outputDeviceAvailable: requestedOutputDeviceAvailable,
+                outputDeviceUIDLength: outputUID.count,
+                availableOutputDeviceCount: Self.availableOutputDevices().count,
+                outputStreamCount: outputSnapshot.streamCount,
+                outputNominalSampleRate: outputSnapshot.nominalSampleRate,
+                outputTransportType: outputSnapshot.transportType
+            )
+        )
+        // #endregion
 
         // Outer retry: recreate the tap from scratch if the format query keeps failing.
         // Some external USB/Bluetooth devices need more than one full tap creation cycle
@@ -78,7 +248,8 @@ final class SystemAudioCapture: @unchecked Sendable {
             let tapDescription = CATapDescription()
             tapDescription.name = "OpenOats System Audio"
             tapDescription.uuid = tapUUID
-            tapDescription.processes = Self.currentProcessObjectID().map { [$0] } ?? []
+            let processObjectID = Self.currentProcessObjectID()
+            tapDescription.processes = processObjectID.map { [$0] } ?? []
             tapDescription.isPrivate = true
             tapDescription.muteBehavior = .unmuted
             tapDescription.isMixdown = true
@@ -88,6 +259,26 @@ final class SystemAudioCapture: @unchecked Sendable {
 
             var tapID = AudioObjectID(kAudioObjectUnknown)
             var status = AudioHardwareCreateProcessTap(tapDescription, &tapID)
+            // #region system audio diagnostics
+            Self.recordSystemAudioDiagnostics(
+                SystemAudioDiagnosticsEvent(
+                    event: "system_audio_process_tap_created",
+                    attempt: attempt,
+                    resolvedOutputDeviceID: resolvedDeviceID,
+                    outputDeviceUIDLength: outputUID.count,
+                    processObjectID: processObjectID,
+                    processCount: tapDescription.processes.count,
+                    tapID: tapID,
+                    status: status,
+                    flags: [
+                        "isPrivate": tapDescription.isPrivate,
+                        "isExclusive": tapDescription.isExclusive,
+                        "isMixdown": tapDescription.isMixdown,
+                        "isMono": tapDescription.isMono
+                    ]
+                )
+            )
+            // #endregion
             guard status == noErr else {
                 _sysContinuation.withLock { $0?.finish(); $0 = nil }
                 throw CaptureError.tapCreationFailed(status)
@@ -116,6 +307,22 @@ final class SystemAudioCapture: @unchecked Sendable {
                 aggregateDescription as CFDictionary,
                 &aggregateDeviceID
             )
+            // #region system audio diagnostics
+            Self.recordSystemAudioDiagnostics(
+                SystemAudioDiagnosticsEvent(
+                    event: "system_audio_aggregate_created",
+                    attempt: attempt,
+                    tapID: tapID,
+                    aggregateDeviceID: aggregateDeviceID,
+                    status: status,
+                    flags: [
+                        "isPrivate": true,
+                        "tapAutoStart": true,
+                        "tapDriftCompensation": true
+                    ]
+                )
+            )
+            // #endregion
             guard status == noErr else {
                 _tapID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
                 _ = AudioHardwareDestroyProcessTap(tapID)
@@ -127,12 +334,25 @@ final class SystemAudioCapture: @unchecked Sendable {
 
             let streamDescription: AudioStreamBasicDescription
             do {
-                streamDescription = try await Self.tapStreamDescription(for: tapID)
+                streamDescription = try await Self.tapStreamDescription(for: tapID, attempt: attempt)
             } catch {
                 _aggregateDeviceID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
                 _tapID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
                 let da = AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
                 let dt = AudioHardwareDestroyProcessTap(tapID)
+                // #region system audio diagnostics
+                Self.recordSystemAudioDiagnostics(
+                    SystemAudioDiagnosticsEvent(
+                        event: "system_audio_tap_format_failed_cleanup",
+                        attempt: attempt,
+                        tapID: tapID,
+                        aggregateDeviceID: aggregateDeviceID,
+                        cleanupAggregateStatus: da,
+                        cleanupTapStatus: dt,
+                        errorKind: Self.captureDiagnosticsErrorKind(for: error)
+                    )
+                )
+                // #endregion
                 if da != noErr { Log.systemAudio.warning("Tap format cleanup: DestroyAggregateDevice OSStatus \(da, privacy: .public)") }
                 if dt != noErr { Log.systemAudio.warning("Tap format cleanup: DestroyProcessTap OSStatus \(dt, privacy: .public)") }
                 // Retry only for the transient kAudioHardwareBadObjectError race.
@@ -163,6 +383,18 @@ final class SystemAudioCapture: @unchecked Sendable {
             ) { [weak self] _, inInputData, _, _, _ in
                 self?.handleInputData(inInputData, format: format)
             }
+            // #region system audio diagnostics
+            Self.recordSystemAudioDiagnostics(
+                SystemAudioDiagnosticsEvent(
+                    event: "system_audio_io_proc_created",
+                    attempt: attempt,
+                    tapID: tapID,
+                    aggregateDeviceID: aggregateDeviceID,
+                    ioProcCreated: ioProcID != nil,
+                    status: status
+                )
+            )
+            // #endregion
             if status == kAudioHardwareBadObjectError {
                 // Transient race on aggregate device registration — retry from scratch.
                 _aggregateDeviceID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
@@ -184,6 +416,20 @@ final class SystemAudioCapture: @unchecked Sendable {
             }
 
             status = AudioDeviceStart(aggregateDeviceID, ioProcID)
+            // #region system audio diagnostics
+            Self.recordSystemAudioDiagnostics(
+                SystemAudioDiagnosticsEvent(
+                    event: "system_audio_device_start_returned",
+                    attempt: attempt,
+                    tapID: tapID,
+                    aggregateDeviceID: aggregateDeviceID,
+                    status: status,
+                    sampleRate: streamDescription.mSampleRate,
+                    channels: streamDescription.mChannelsPerFrame,
+                    bytesPerFrame: streamDescription.mBytesPerFrame
+                )
+            )
+            // #endregion
             if status == kAudioHardwareBadObjectError {
                 // Transient race on device start — retry from scratch.
                 _aggregateDeviceID.withLock { $0 = AudioObjectID(kAudioObjectUnknown) }
@@ -214,6 +460,15 @@ final class SystemAudioCapture: @unchecked Sendable {
         }
 
         _sysContinuation.withLock { $0?.finish(); $0 = nil }
+        // #region system audio diagnostics
+        Self.recordSystemAudioDiagnostics(
+            SystemAudioDiagnosticsEvent(
+                event: "system_audio_start_exhausted",
+                retryCount: 3,
+                errorKind: Self.captureDiagnosticsErrorKind(for: lastError)
+            )
+        )
+        // #endregion
         throw lastError
     }
 
@@ -427,7 +682,10 @@ final class SystemAudioCapture: @unchecked Sendable {
         return uid.takeUnretainedValue() as String
     }
 
-    private static func tapStreamDescription(for tapID: AudioObjectID) async throws -> AudioStreamBasicDescription {
+    private static func tapStreamDescription(
+        for tapID: AudioObjectID,
+        attempt: Int
+    ) async throws -> AudioStreamBasicDescription {
         var address = propertyAddress(selector: kAudioTapPropertyFormat)
         var streamDescription = AudioStreamBasicDescription()
         var dataSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
@@ -436,7 +694,7 @@ final class SystemAudioCapture: @unchecked Sendable {
         // devices on M1/M2) needs up to ~3 s after AudioHardwareCreateProcessTap returns
         // before the tap object is fully resolvable.
         var status: OSStatus = noErr
-        for _ in 0..<40 {
+        for retryIndex in 0..<40 {
             try Task.checkCancellation()
             status = AudioObjectGetPropertyData(
                 tapID,
@@ -446,11 +704,67 @@ final class SystemAudioCapture: @unchecked Sendable {
                 &dataSize,
                 &streamDescription
             )
-            if status == noErr { return streamDescription }
+            if status == noErr {
+                // #region system audio diagnostics
+                recordSystemAudioDiagnostics(
+                    SystemAudioDiagnosticsEvent(
+                        event: "system_audio_tap_format_resolved",
+                        attempt: attempt,
+                        tapID: tapID,
+                        status: status,
+                        retryIndex: retryIndex,
+                        sampleRate: streamDescription.mSampleRate,
+                        channels: streamDescription.mChannelsPerFrame,
+                        bytesPerFrame: streamDescription.mBytesPerFrame
+                    )
+                )
+                // #endregion
+                return streamDescription
+            }
             if status != kAudioHardwareBadObjectError { break }
             try await Task.sleep(nanoseconds: 75_000_000)
         }
+        // #region system audio diagnostics
+        recordSystemAudioDiagnostics(
+            SystemAudioDiagnosticsEvent(
+                event: "system_audio_tap_format_exhausted",
+                attempt: attempt,
+                tapID: tapID,
+                status: status,
+                retryCount: 40
+            )
+        )
+        // #endregion
         throw CaptureError.tapFormatUnavailable(status)
+    }
+
+    private static func captureDiagnosticsErrorKind(for error: Error) -> String {
+        if error is CancellationError {
+            return "cancelled"
+        }
+
+        if let captureError = error as? CaptureError {
+            switch captureError {
+            case .noOutputDevice:
+                return "no_output_device"
+            case .outputDeviceUIDUnavailable(let status):
+                return "output_device_uid_unavailable_\(status)"
+            case .tapCreationFailed(let status):
+                return "tap_creation_failed_\(status)"
+            case .aggregateDeviceCreationFailed(let status):
+                return "aggregate_device_creation_failed_\(status)"
+            case .tapFormatUnavailable(let status):
+                return "tap_format_unavailable_\(status)"
+            case .invalidTapFormat:
+                return "invalid_tap_format"
+            case .ioProcCreationFailed(let status):
+                return "io_proc_creation_failed_\(status)"
+            case .startFailed(let status):
+                return "start_failed_\(status)"
+            }
+        }
+
+        return "other"
     }
 
     enum CaptureError: LocalizedError {

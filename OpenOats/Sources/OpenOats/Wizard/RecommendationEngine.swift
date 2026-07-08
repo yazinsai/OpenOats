@@ -105,7 +105,7 @@ enum RecommendationEngine {
         case .transcriptMulti:
             return TranscriptionConfig(model: .parakeetV3, locale: "")
         case .cloudMulti:
-            return TranscriptionConfig(model: .elevenLabsScribe, locale: "")
+            return TranscriptionConfig(model: .cohereTranscribeArabic, locale: "ar")
         case .localMultiLight:
             return TranscriptionConfig(model: .whisperSmall, locale: "")
         case .localMultiFull:

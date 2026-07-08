@@ -37,4 +37,40 @@ final class DiagnosticsSupportTests: XCTestCase {
         XCTAssertTrue(report.contains("[meeting] Started session"))
         XCTAssertTrue(report.contains("test line"))
     }
+
+    func testSystemAudioDiagnosticsMessageIsStructuredJSON() throws {
+        let event = SystemAudioCapture.SystemAudioDiagnosticsEvent(
+            event: "system_audio_tap_format_exhausted",
+            attempt: 2,
+            requestedOutputDeviceID: nil,
+            resolvedOutputDeviceID: 108,
+            outputDeviceAvailable: nil,
+            outputDeviceUIDLength: 32,
+            availableOutputDeviceCount: 4,
+            outputStreamCount: 1,
+            outputNominalSampleRate: 16_000,
+            outputTransportType: 1_651_271_286,
+            processObjectID: 91,
+            processCount: 1,
+            tapID: 123,
+            aggregateDeviceID: 456,
+            ioProcCreated: nil,
+            status: 560_947_818,
+            cleanupAggregateStatus: nil,
+            cleanupTapStatus: nil,
+            retryIndex: nil,
+            retryCount: 40,
+            sampleRate: nil,
+            channels: nil,
+            bytesPerFrame: nil,
+            flags: ["isPrivate": true],
+            errorKind: nil
+        )
+
+        let message = SystemAudioCapture.systemAudioDiagnosticsMessage(for: event)
+        let data = try XCTUnwrap(message.data(using: .utf8))
+        let decoded = try JSONDecoder().decode(SystemAudioCapture.SystemAudioDiagnosticsEvent.self, from: data)
+
+        XCTAssertEqual(decoded, event)
+    }
 }
