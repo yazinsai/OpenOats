@@ -41,6 +41,9 @@ struct SetupSnapshot: Sendable {
     /// Whether an ElevenLabs API key was found in existing settings.
     let hasElevenLabsKey: Bool
 
+    /// Whether a Cohere API key was found in existing settings.
+    let hasCohereKey: Bool
+
     /// Existing OpenRouter API key value for pre-populating fields.
     let existingOpenRouterKey: String
 
@@ -52,6 +55,9 @@ struct SetupSnapshot: Sendable {
 
     /// Existing ElevenLabs API key value for pre-populating fields.
     let existingElevenLabsKey: String
+
+    /// Existing Cohere API key value for pre-populating fields.
+    let existingCohereKey: String
 
     /// Ollama probe result.
     let ollamaResult: Result<[String], OllamaModelFetcher.FetchError>
@@ -112,10 +118,12 @@ struct SetupSnapshot: Sendable {
         hasVoyageKey: false,
         hasAssemblyAIKey: false,
         hasElevenLabsKey: false,
+        hasCohereKey: false,
         existingOpenRouterKey: "",
         existingVoyageKey: "",
         existingAssemblyAIKey: "",
         existingElevenLabsKey: "",
+        existingCohereKey: "",
         ollamaResult: .failure(.networkError("not probed"))
     )
 }

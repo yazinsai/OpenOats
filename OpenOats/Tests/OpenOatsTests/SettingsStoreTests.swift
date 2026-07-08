@@ -901,6 +901,11 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.elevenLabsApiKey, "")
     }
 
+    func testCohereApiKeyDefaultsToEmpty() {
+        let store = makeStore()
+        XCTAssertEqual(store.cohereApiKey, "")
+    }
+
     func testAssemblyAIApiKeyAutoTrimsWhitespace() {
         let store = makeStore()
         store.assemblyAIApiKey = "  sk-test-abc123  \n"
@@ -913,16 +918,26 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(store.elevenLabsApiKey, "xi-test-abc123")
     }
 
+    func testCohereApiKeyAutoTrimsWhitespace() {
+        let store = makeStore()
+        store.cohereApiKey = "  co-test-abc123  \n"
+        XCTAssertEqual(store.cohereApiKey, "co-test-abc123")
+    }
+
     func testCloudASRApiKeyRoutesCorrectly() {
         let store = makeStore()
         store.assemblyAIApiKey = "aai-key"
         store.elevenLabsApiKey = "el-key"
+        store.cohereApiKey = "co-key"
 
         store.transcriptionModel = .assemblyAI
         XCTAssertEqual(store.cloudASRApiKey, "aai-key")
 
         store.transcriptionModel = .elevenLabsScribe
         XCTAssertEqual(store.cloudASRApiKey, "el-key")
+
+        store.transcriptionModel = .cohereTranscribeArabic
+        XCTAssertEqual(store.cloudASRApiKey, "co-key")
 
         store.transcriptionModel = .parakeetV2
         XCTAssertEqual(store.cloudASRApiKey, "")

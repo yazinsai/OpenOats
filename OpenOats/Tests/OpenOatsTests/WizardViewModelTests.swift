@@ -9,6 +9,7 @@ final class WizardViewModelTests: XCTestCase {
         hasOpenRouterKey: Bool = false,
         hasAssemblyAIKey: Bool = false,
         hasElevenLabsKey: Bool = false,
+        hasCohereKey: Bool = false,
         hasVoyageKey: Bool = false,
         ollamaModels: Result<[String], OllamaModelFetcher.FetchError> = .failure(.networkError("no"))
     ) -> SetupSnapshot {
@@ -22,10 +23,12 @@ final class WizardViewModelTests: XCTestCase {
             hasVoyageKey: hasVoyageKey,
             hasAssemblyAIKey: hasAssemblyAIKey,
             hasElevenLabsKey: hasElevenLabsKey,
+            hasCohereKey: hasCohereKey,
             existingOpenRouterKey: hasOpenRouterKey ? "sk-or-test" : "",
             existingVoyageKey: hasVoyageKey ? "pa-test" : "",
             existingAssemblyAIKey: hasAssemblyAIKey ? "aai-test" : "",
             existingElevenLabsKey: hasElevenLabsKey ? "xi-test" : "",
+            existingCohereKey: hasCohereKey ? "co-test" : "",
             ollamaResult: ollamaModels
         )
     }
@@ -137,6 +140,7 @@ final class WizardViewModelTests: XCTestCase {
             hasOpenRouterKey: true,
             hasAssemblyAIKey: true,
             hasElevenLabsKey: true,
+            hasCohereKey: true,
             hasVoyageKey: true
         ))
 
@@ -144,6 +148,7 @@ final class WizardViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.voyageKeyInput, "pa-test")
         XCTAssertEqual(viewModel.assemblyAIKeyInput, "aai-test")
         XCTAssertEqual(viewModel.elevenLabsKeyInput, "xi-test")
+        XCTAssertEqual(viewModel.cohereKeyInput, "co-test")
     }
 
     func testApplySettingsWritesCloudProfile() {
@@ -167,6 +172,23 @@ final class WizardViewModelTests: XCTestCase {
         XCTAssertTrue(store.meetingAutoDetectEnabled)
         XCTAssertTrue(store.hasShownAutoDetectExplanation)
         XCTAssertTrue(viewModel.isComplete)
+    }
+
+    func testApplySettingsWritesCohereForCloudMultilingualProfile() {
+        let store = makeStore()
+        let viewModel = makeConfiguredVM()
+        viewModel.intent = .notes
+        viewModel.language = .multilingual
+        viewModel.privacy = .cloud
+        viewModel.cohereKeyInput = "co-new"
+
+        viewModel.applySettings(to: store)
+
+        XCTAssertEqual(store.transcriptionModel, .cohereTranscribeArabic)
+        XCTAssertEqual(store.transcriptionLocale, "ar")
+        XCTAssertEqual(store.cohereApiKey, "co-new")
+        XCTAssertEqual(store.assemblyAIApiKey, "")
+        XCTAssertEqual(store.elevenLabsApiKey, "")
     }
 
     func testApplySettingsLocalProfile() {
@@ -205,6 +227,7 @@ final class WizardViewModelTests: XCTestCase {
         store.voyageApiKey = "old-voyage"
         store.assemblyAIApiKey = "old-aai"
         store.elevenLabsApiKey = "old-xi"
+        store.cohereApiKey = "old-co"
 
         let viewModel = makeConfiguredVM()
         viewModel.intent = .notes
@@ -217,6 +240,7 @@ final class WizardViewModelTests: XCTestCase {
         XCTAssertEqual(store.voyageApiKey, "")
         XCTAssertEqual(store.assemblyAIApiKey, "")
         XCTAssertEqual(store.elevenLabsApiKey, "")
+        XCTAssertEqual(store.cohereApiKey, "")
     }
 
     func testReconfigurationSeedsCurrentSettings() {

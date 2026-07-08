@@ -8,6 +8,7 @@ final class RecommendationEngineTests: XCTestCase {
         hasOpenRouterKey: Bool = false,
         hasAssemblyAIKey: Bool = false,
         hasElevenLabsKey: Bool = false,
+        hasCohereKey: Bool = false,
         hasVoyageKey: Bool = false,
         ollamaModels: Result<[String], OllamaModelFetcher.FetchError> = .failure(.networkError("not probed"))
     ) -> SetupSnapshot {
@@ -21,10 +22,12 @@ final class RecommendationEngineTests: XCTestCase {
             hasVoyageKey: hasVoyageKey,
             hasAssemblyAIKey: hasAssemblyAIKey,
             hasElevenLabsKey: hasElevenLabsKey,
+            hasCohereKey: hasCohereKey,
             existingOpenRouterKey: hasOpenRouterKey ? "sk-test" : "",
             existingVoyageKey: hasVoyageKey ? "pa-test" : "",
             existingAssemblyAIKey: hasAssemblyAIKey ? "aai-test" : "",
             existingElevenLabsKey: hasElevenLabsKey ? "xi-test" : "",
+            existingCohereKey: hasCohereKey ? "co-test" : "",
             ollamaResult: ollamaModels
         )
     }
@@ -101,7 +104,7 @@ final class RecommendationEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(recommendation.profile, .cloudMulti)
-        XCTAssertEqual(recommendation.transcriptionModel, .elevenLabsScribe)
+        XCTAssertEqual(recommendation.transcriptionModel, .cohereTranscribeArabic)
     }
 
     func testCloudMultiHighRAM() {
@@ -113,7 +116,7 @@ final class RecommendationEngineTests: XCTestCase {
         )
 
         XCTAssertEqual(recommendation.profile, .cloudMulti)
-        XCTAssertEqual(recommendation.transcriptionModel, .elevenLabsScribe)
+        XCTAssertEqual(recommendation.transcriptionModel, .cohereTranscribeArabic)
     }
 
     func testLocalEnglishLowRAM() {

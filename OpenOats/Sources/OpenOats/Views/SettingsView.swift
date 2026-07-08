@@ -382,6 +382,9 @@ private struct TranscriptionSettingsTab: View {
     @State private var isValidatingElevenLabsKey = false
     @State private var elevenLabsValidation: APIKeyValidator.ValidationResult?
     @State private var elevenLabsValidationTask: Task<Void, Never>?
+    @State private var isValidatingCohereKey = false
+    @State private var cohereValidation: APIKeyValidator.ValidationResult?
+    @State private var cohereValidationTask: Task<Void, Never>?
 
     var body: some View {
         ScrollView {
@@ -476,7 +479,7 @@ private struct TranscriptionSettingsTab: View {
                                 scheduleElevenLabsValidation(for: newValue)
                             }
 
-                            apiKeyValidationMessage(result: elevenLabsValidation)
+                            apiKeyValidationMessage(result: elevenLabsValidation, providerName: "ElevenLabs")
 
                             Text("Audio segments are sent to ElevenLabs for transcription. Review their privacy policy at elevenlabs.io/privacy.")
                                 .font(.system(size: 11))
@@ -487,6 +490,30 @@ private struct TranscriptionSettingsTab: View {
                             Text("Strips filler words, false starts, and non-speech sounds server-side before returning the transcript.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
+                        case .cohereTranscribeArabic:
+                            HStack(spacing: 8) {
+                                SecureField("Cohere API Key", text: $settings.cohereApiKey)
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .accessibilityIdentifier("settings.cohereApiKeyField")
+
+                                apiKeyValidationIndicator(
+                                    isValidating: isValidatingCohereKey,
+                                    result: cohereValidation
+                                )
+                            }
+                            .onAppear {
+                                scheduleCohereValidation(for: settings.cohereApiKey)
+                            }
+                            .onChange(of: settings.cohereApiKey) { _, newValue in
+                                scheduleCohereValidation(for: newValue)
+                            }
+
+                            apiKeyValidationMessage(result: cohereValidation, providerName: "Cohere")
+
+                            Text("Audio segments are sent to Cohere for transcription. Cohere Transcribe Arabic does not return provider timestamps or speaker diarization; OpenOats still uses local stream separation and diarization where available.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         default:
                             EmptyView()
                         }
@@ -542,7 +569,7 @@ private struct TranscriptionSettingsTab: View {
                         )
 
                         Text(
-                            "Boost meeting-specific jargon, names, and product terms. Enter one term per line, or use `Preferred Term: alias one, alias two`. Parakeet: full alias support. AssemblyAI: aliases map to custom spelling. ElevenLabs: terms boost recognition."
+                            "Boost meeting-specific jargon, names, and product terms. Enter one term per line, or use `Preferred Term: alias one, alias two`. Parakeet: full alias support. AssemblyAI: aliases map to custom spelling. ElevenLabs: terms boost recognition. Cohere: preferred terms are sent as prompt guidance."
                         )
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -605,6 +632,7 @@ private struct TranscriptionSettingsTab: View {
         }
         .onDisappear {
             cancelElevenLabsValidation()
+            cancelCohereValidation()
         }
     }
 
@@ -638,11 +666,11 @@ private struct TranscriptionSettingsTab: View {
     }
 
     @ViewBuilder
-    private func apiKeyValidationMessage(result: APIKeyValidator.ValidationResult?) -> some View {
+    private func apiKeyValidationMessage(result: APIKeyValidator.ValidationResult?, providerName: String) -> some View {
         if let result {
             switch result {
             case .valid:
-                Text("Connected to ElevenLabs")
+                Text("Connected to \(providerName)")
                     .font(.system(size: 11))
                     .foregroundStyle(.green)
             case .invalid(let message):
@@ -687,6 +715,38 @@ private struct TranscriptionSettingsTab: View {
         elevenLabsValidationTask?.cancel()
         elevenLabsValidationTask = nil
         isValidatingElevenLabsKey = false
+    }
+
+    private func scheduleCohereValidation(for key: String) {
+        cohereValidationTask?.cancel()
+
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            cohereValidation = nil
+            isValidatingCohereKey = false
+            return
+        }
+
+        isValidatingCohereKey = true
+        cohereValidation = nil
+        cohereValidationTask = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+
+            let result = await APIKeyValidator.validateCohereKey(trimmed)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                cohereValidation = result
+                isValidatingCohereKey = false
+            }
+        }
+    }
+
+    private func cancelCohereValidation() {
+        cohereValidationTask?.cancel()
+        cohereValidationTask = nil
+        isValidatingCohereKey = false
     }
 }
 

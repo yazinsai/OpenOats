@@ -66,6 +66,33 @@ enum APIKeyValidator {
         }
     }
 
+    /// Validate a Cohere API key by hitting the read-only models endpoint.
+    static func validateCohereKey(_ key: String) async -> ValidationResult {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return .invalid(message: "API key is empty")
+        }
+
+        guard let url = URL(string: "https://api.cohere.com/v1/models") else {
+            return .networkError(message: "Invalid URL")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(trimmed)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 5
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return validationResult(
+                for: response,
+                authFailureMessage: "This key didn't work - double-check it on dashboard.cohere.com"
+            )
+        } catch {
+            return .networkError(message: "Could not verify - will test when you go online")
+        }
+    }
+
     /// Validate an OpenRouter API key by hitting the models list endpoint.
     static func validateOpenRouterKey(_ key: String) async -> ValidationResult {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)

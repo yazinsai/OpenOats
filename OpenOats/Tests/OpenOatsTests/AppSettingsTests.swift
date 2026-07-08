@@ -70,7 +70,7 @@ final class AppSettingsTests: XCTestCase {
 
     func testTranscriptionModelAllCases() {
         let cases = TranscriptionModel.allCases
-        XCTAssertEqual(cases.count, 8)
+        XCTAssertEqual(cases.count, 9)
     }
 
     func testTranscriptionModelDisplayNames() {
@@ -79,6 +79,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(TranscriptionModel.qwen3ASR06B.displayName, "Qwen3 ASR 0.6B")
         XCTAssertEqual(TranscriptionModel.whisperBase.displayName, "Whisper Base")
         XCTAssertEqual(TranscriptionModel.whisperSmall.displayName, "Whisper Small")
+        XCTAssertEqual(TranscriptionModel.cohereTranscribeArabic.displayName, "Cohere Transcribe Arabic")
     }
 
     func testTranscriptionModelRoundTripFromRawValue() {
@@ -95,6 +96,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(TranscriptionModel.whisperBase.supportsExplicitLanguageHint)
         XCTAssertTrue(TranscriptionModel.whisperSmall.supportsExplicitLanguageHint)
         XCTAssertTrue(TranscriptionModel.whisperLargeV3Turbo.supportsExplicitLanguageHint)
+        XCTAssertTrue(TranscriptionModel.cohereTranscribeArabic.supportsExplicitLanguageHint)
     }
 
     func testTranscriptionModelWhisperVariant() {
@@ -115,6 +117,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(TranscriptionModel.qwen3ASR06B.localeFieldTitle, "Language Hint")
         XCTAssertEqual(TranscriptionModel.parakeetV2.localeFieldTitle, "Locale")
         XCTAssertEqual(TranscriptionModel.whisperBase.localeFieldTitle, "Locale")
+        XCTAssertEqual(TranscriptionModel.cohereTranscribeArabic.localeFieldTitle, "Language Hint")
     }
 
     // MARK: - EmbeddingProvider

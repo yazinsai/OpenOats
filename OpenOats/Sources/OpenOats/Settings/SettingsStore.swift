@@ -237,6 +237,24 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _cohereApiKey: String
+    var cohereApiKey: String {
+        get {
+            access(keyPath: \.cohereApiKey)
+            return loadSecretIfNeeded(key: "cohereApiKey", currentValue: _cohereApiKey) {
+                _cohereApiKey = $0
+            }
+        }
+        set {
+            withMutation(keyPath: \.cohereApiKey) {
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                _cohereApiKey = trimmed
+                markSecretLoaded("cohereApiKey")
+                secretStore.save(key: "cohereApiKey", value: trimmed)
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _ollamaBaseURL: String
     var ollamaBaseURL: String {
         get { access(keyPath: \.ollamaBaseURL); return _ollamaBaseURL }
@@ -1402,6 +1420,7 @@ final class SettingsStore {
         self._anthropicModel = defaults.string(forKey: "anthropicModel") ?? "claude-sonnet-4-5-20250929"
         self._assemblyAIApiKey = ""
         self._elevenLabsApiKey = ""
+        self._cohereApiKey = ""
         self._ollamaBaseURL = defaults.string(forKey: "ollamaBaseURL") ?? "http://localhost:11434"
         self._ollamaLLMModel = defaults.string(forKey: "ollamaLLMModel") ?? "qwen3:8b"
         self._ollamaEmbedModel = defaults.string(forKey: "ollamaEmbedModel") ?? "nomic-embed-text"
@@ -1596,6 +1615,7 @@ final class SettingsStore {
         switch transcriptionModel {
         case .assemblyAI: assemblyAIApiKey
         case .elevenLabsScribe: elevenLabsApiKey
+        case .cohereTranscribeArabic: cohereApiKey
         default: ""
         }
     }
