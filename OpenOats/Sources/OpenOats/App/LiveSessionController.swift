@@ -593,6 +593,9 @@ final class LiveSessionController {
     // MARK: - Transcription Lifecycle (migrated from AppCoordinator)
 
     func startTranscription(metadata: MeetingMetadata, settings: AppSettings?) async {
+        if let settings {
+            container.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
+        }
         if let batchAudioTranscriber = coordinator.batchAudioTranscriber {
             await batchAudioTranscriber.cancel()
         }

@@ -41,6 +41,8 @@
     <string>OpenOats uses Apple Notes to export your meeting notes.</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
+    <key>LSMultipleInstancesProhibited</key>
+    <true/>
     <key>SUFeedURL</key>
     <string>https://raw.githubusercontent.com/yazinsai/OpenOats/gh-pages/appcast.xml</string>
     <key>SUEnableAutomaticChecks</key>
