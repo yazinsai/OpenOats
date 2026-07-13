@@ -316,6 +316,23 @@ final class TranscriptionBackendTests: XCTestCase {
         XCTAssertFalse(batchModels.contains(.assemblyAI))
         XCTAssertFalse(batchModels.contains(.elevenLabsScribe))
         XCTAssertFalse(batchModels.contains(.cohereTranscribeArabic))
+        XCTAssertFalse(batchModels.contains(.speechAnalyzer))
+    }
+
+    // MARK: - SpeechAnalyzer factory
+
+    func testSpeechAnalyzerUsesStreamingSession() {
+        XCTAssertTrue(TranscriptionModel.speechAnalyzer.usesStreamingSession)
+    }
+
+    func testMakeStreamingProviderSpeechAnalyzer() {
+        let provider = TranscriptionModel.speechAnalyzer.makeStreamingProvider()
+        if #available(macOS 26, *) {
+            XCTAssertNotNil(provider)
+            XCTAssertEqual(provider?.displayName, "Apple SpeechAnalyzer")
+        } else {
+            XCTAssertNil(provider)
+        }
     }
 
     func testIsCloudProperty() {
@@ -330,6 +347,7 @@ final class TranscriptionBackendTests: XCTestCase {
         XCTAssertFalse(TranscriptionModel.whisperBase.isCloud)
         XCTAssertFalse(TranscriptionModel.whisperSmall.isCloud)
         XCTAssertFalse(TranscriptionModel.whisperLargeV3Turbo.isCloud)
+        XCTAssertFalse(TranscriptionModel.speechAnalyzer.isCloud)
     }
 }
 
