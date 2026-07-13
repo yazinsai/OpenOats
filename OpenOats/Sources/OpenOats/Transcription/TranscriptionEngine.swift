@@ -246,6 +246,11 @@ final class TranscriptionEngine {
         switch mode {
         case .live:
             self.needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel)
+            if settings.transcriptionModel.usesStreamingSession {
+                Task { @MainActor [weak self] in
+                    await self?.refreshStreamingDownloadStatus()
+                }
+            }
         case .scripted:
             self.needsModelDownload = false
         }
@@ -260,14 +265,22 @@ final class TranscriptionEngine {
         return hasRetried ? .showNoAudioError : .retryCapture
     }
 
-    static func shouldLoadVAD(for model: TranscriptionModel) -> Bool {
+    nonisolated static func shouldLoadVAD(for model: TranscriptionModel) -> Bool {
         !model.usesStreamingSession
     }
 
     func refreshModelAvailability() {
         switch mode {
         case .live:
-            needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel)
+            if settings.transcriptionModel.usesStreamingSession {
+                // Sync path cannot query Speech assets; refresh asynchronously.
+                needsModelDownload = false
+                Task { @MainActor [weak self] in
+                    await self?.refreshStreamingDownloadStatus()
+                }
+            } else {
+                needsModelDownload = Self.modelNeedsDownload(settings.transcriptionModel)
+            }
         case .scripted:
             needsModelDownload = false
         }
@@ -1450,14 +1463,35 @@ final class TranscriptionEngine {
     private static func modelNeedsDownload(_ model: TranscriptionModel) -> Bool {
         guard !model.isCloud else { return false }
         if model.usesStreamingSession {
-            // Conservative sync heuristic — real status is async via makeStreamingProvider().
-            return model.isSelectableOnCurrentOS
+            // Speech asset status is async (AssetInventory / installedLocales).
+            // Never force-true here — that blocked Live start with a silent return
+            // and left the UI in .recording with no capture. Async refresh sets
+            // needsModelDownload from StreamingTranscriptionProvider.checkStatus.
+            return false
         }
         let backend = model.makeBackend()
         if case .needsDownload = backend.checkStatus() {
             return true
         }
         return false
+    }
+
+    private func refreshStreamingDownloadStatus() async {
+        let model = settings.transcriptionModel
+        guard model.usesStreamingSession else { return }
+        guard let provider = model.makeStreamingProvider() else {
+            needsModelDownload = false
+            return
+        }
+
+        let status = await provider.checkStatus(locale: settings.locale)
+        let needsDownload: Bool
+        if case .needsDownload = status {
+            needsDownload = true
+        } else {
+            needsDownload = false
+        }
+        needsModelDownload = needsDownload
     }
 
     private func validateConfiguredInputDevice() -> StartPreflightIssue? {
