@@ -439,12 +439,12 @@ private struct TranscriptionSettingsTab: View {
                 Section("Transcription") {
                     Picker("Model", selection: $settings.transcriptionModel) {
                         Section("Local") {
-                            ForEach(TranscriptionModel.allCases.filter { !$0.isCloud }) { model in
+                            ForEach(TranscriptionModel.allCases.filter { !$0.isCloud && $0.isSelectableOnCurrentOS }) { model in
                                 Text(model.displayName).tag(model)
                             }
                         }
                         Section("Cloud") {
-                            ForEach(TranscriptionModel.allCases.filter { $0.isCloud }) { model in
+                            ForEach(TranscriptionModel.allCases.filter { $0.isCloud && $0.isSelectableOnCurrentOS }) { model in
                                 Text(model.displayName).tag(model)
                             }
                         }

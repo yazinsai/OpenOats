@@ -342,6 +342,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
     case whisperBase
     case whisperSmall
     case whisperLargeV3Turbo
+    case speechAnalyzer
     case assemblyAI
     case elevenLabsScribe
     case cohereTranscribeArabic
@@ -355,6 +356,22 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         }
     }
 
+    var usesStreamingSession: Bool {
+        self == .speechAnalyzer
+    }
+
+    var isSelectableOnCurrentOS: Bool {
+        switch self {
+        case .speechAnalyzer:
+            if #available(macOS 26, *) {
+                return true
+            }
+            return false
+        default:
+            return true
+        }
+    }
+
     var displayName: String {
         switch self {
         case .parakeetV2: "Parakeet TDT v2"
@@ -363,6 +380,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         case .whisperBase: "Whisper Base"
         case .whisperSmall: "Whisper Small"
         case .whisperLargeV3Turbo: "Whisper Large v3 Turbo"
+        case .speechAnalyzer: "Apple SpeechAnalyzer"
         case .assemblyAI: "AssemblyAI"
         case .elevenLabsScribe: "ElevenLabs Scribe"
         case .cohereTranscribeArabic: "Cohere Transcribe Arabic"
@@ -381,6 +399,8 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
             "Whisper Small requires a one-time model download (~244 MB)."
         case .whisperLargeV3Turbo:
             "Whisper Large v3 Turbo requires a one-time model download (~800 MB)."
+        case .speechAnalyzer:
+            "Apple SpeechAnalyzer may download on-device speech assets for your locale."
         case .assemblyAI, .elevenLabsScribe:
             "Requires an API key. Enter it in Settings > Transcription."
         case .cohereTranscribeArabic:
@@ -395,6 +415,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         case .whisperBase: 142_000_000
         case .whisperSmall: 244_000_000
         case .whisperLargeV3Turbo: 800_000_000
+        case .speechAnalyzer: 150_000_000
         case .parakeetV2, .parakeetV3, .qwen3ASR06B: nil
         case .assemblyAI, .elevenLabsScribe, .cohereTranscribeArabic: nil
         }
@@ -408,7 +429,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         switch self {
         case .qwen3ASR06B:
             "Language Hint"
-        case .parakeetV2, .parakeetV3, .whisperBase, .whisperSmall, .whisperLargeV3Turbo:
+        case .parakeetV2, .parakeetV3, .whisperBase, .whisperSmall, .whisperLargeV3Turbo, .speechAnalyzer:
             "Locale"
         case .assemblyAI, .elevenLabsScribe, .cohereTranscribeArabic:
             "Language Hint"
@@ -427,6 +448,8 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
             "Whisper auto-detects speech language. This setting is still saved with the session and markdown export."
         case .whisperLargeV3Turbo:
             "Whisper Large v3 Turbo auto-detects speech language. This setting is saved with session metadata and markdown export."
+        case .speechAnalyzer:
+            "SpeechAnalyzer requires a supported Apple speech locale. Change locale in Settings or pick Parakeet if unsupported."
         case .assemblyAI:
             "Optional language hint for AssemblyAI. Leave as en-US for English or set to your expected meeting language."
         case .elevenLabsScribe:
@@ -454,10 +477,18 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         case .whisperBase: return WhisperKitBackend(variant: .base)
         case .whisperSmall: return WhisperKitBackend(variant: .small)
         case .whisperLargeV3Turbo: return WhisperKitBackend(variant: .largeV3Turbo)
+        case .speechAnalyzer:
+            preconditionFailure("SpeechAnalyzer uses streaming sessions; call makeStreamingProvider() instead of makeBackend()")
         case .assemblyAI: return AssemblyAIBackend(apiKey: apiKey, customVocabulary: customVocabulary)
         case .elevenLabsScribe: return ElevenLabsScribeBackend(apiKey: apiKey, customVocabulary: customVocabulary, removeFillerWords: removeFillerWords)
         case .cohereTranscribeArabic: return CohereTranscribeArabicBackend(apiKey: apiKey, customVocabulary: customVocabulary)
         }
+    }
+
+    func makeStreamingProvider() -> (any StreamingTranscriptionProvider)? {
+        guard usesStreamingSession else { return nil }
+        guard #available(macOS 26, *) else { return nil }
+        return SpeechAnalyzerProvider()
     }
 
     /// Flush interval in 16kHz samples for streaming transcription.
@@ -466,7 +497,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         switch self {
         case .whisperBase, .whisperSmall, .whisperLargeV3Turbo:
             10 * 16_000
-        case .parakeetV2, .parakeetV3, .qwen3ASR06B:
+        case .parakeetV2, .parakeetV3, .qwen3ASR06B, .speechAnalyzer:
             5 * 16_000
         case .assemblyAI, .elevenLabsScribe, .cohereTranscribeArabic:
             10 * 16_000  // 10s - fewer API calls, better accuracy per segment

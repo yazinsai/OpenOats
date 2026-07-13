@@ -711,8 +711,9 @@ final class SettingsStore {
         get { access(keyPath: \.transcriptionModel); return _transcriptionModel }
         set {
             withMutation(keyPath: \.transcriptionModel) {
-                _transcriptionModel = newValue
-                defaults.set(newValue.rawValue, forKey: "transcriptionModel")
+                let model = newValue.isSelectableOnCurrentOS ? newValue : .parakeetV3
+                _transcriptionModel = model
+                defaults.set(model.rawValue, forKey: "transcriptionModel")
             }
         }
     }
@@ -789,8 +790,9 @@ final class SettingsStore {
         get { access(keyPath: \.batchTranscriptionModel); return _batchTranscriptionModel }
         set {
             withMutation(keyPath: \.batchTranscriptionModel) {
-                _batchTranscriptionModel = newValue
-                defaults.set(newValue.rawValue, forKey: "batchTranscriptionModel")
+                let model = newValue.isSelectableOnCurrentOS ? newValue : .parakeetV3
+                _batchTranscriptionModel = model
+                defaults.set(model.rawValue, forKey: "batchTranscriptionModel")
             }
         }
     }
@@ -1491,6 +1493,10 @@ final class SettingsStore {
         self._transcriptionModel = TranscriptionModel(
             rawValue: defaults.string(forKey: "transcriptionModel") ?? ""
         ) ?? .parakeetV2
+        if !_transcriptionModel.isSelectableOnCurrentOS {
+            _transcriptionModel = .parakeetV3
+            defaults.set(TranscriptionModel.parakeetV3.rawValue, forKey: "transcriptionModel")
+        }
         self._transcriptionLocale = defaults.string(forKey: "transcriptionLocale") ?? "en-US"
         self._transcriptionCustomVocabulary = defaults.string(forKey: "transcriptionCustomVocabulary") ?? ""
         self._removeFillerWords = defaults.bool(forKey: "removeFillerWords")
@@ -1510,6 +1516,10 @@ final class SettingsStore {
         self._batchTranscriptionModel = TranscriptionModel(
             rawValue: defaults.string(forKey: "batchTranscriptionModel") ?? ""
         ) ?? .whisperLargeV3Turbo
+        if !_batchTranscriptionModel.isSelectableOnCurrentOS {
+            _batchTranscriptionModel = .parakeetV3
+            defaults.set(TranscriptionModel.parakeetV3.rawValue, forKey: "batchTranscriptionModel")
+        }
         self._enableDiarization = defaults.bool(forKey: "enableDiarization")
         self._diarizationVariant = defaults.string(forKey: "diarizationVariant") ?? DiarizationVariant.dihard3.rawValue
 
