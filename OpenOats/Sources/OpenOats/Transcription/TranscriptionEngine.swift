@@ -32,6 +32,7 @@ struct ActiveTranscriptionSession: Sendable, Equatable {
     func clearModelCache(
         using makeBackend: (TranscriptionModel) -> any TranscriptionBackend = { $0.makeBackend() }
     ) {
+        guard !transcriptionModel.usesStreamingSession else { return }
         makeBackend(transcriptionModel).clearModelCache()
     }
 }
@@ -209,6 +210,10 @@ final class TranscriptionEngine {
     private var systemBackend: (any TranscriptionBackend)?
     private var vadManager: VadManager?
 
+    private var streamingProvider: (any StreamingTranscriptionProvider)?
+    private var micStreamingSession: (any StreamingTranscriptionSession)?
+    private var systemStreamingSession: (any StreamingTranscriptionSession)?
+
     /// Audio recorder for tapping streams (set by ContentView when recording is enabled).
     var audioRecorder: AudioRecorder?
 
@@ -253,6 +258,10 @@ final class TranscriptionEngine {
     ) -> MicStartupHealthAction {
         guard !hasCapturedFrames, captureError == nil else { return .none }
         return hasRetried ? .showNoAudioError : .retryCapture
+    }
+
+    static func shouldLoadVAD(for model: TranscriptionModel) -> Bool {
+        !model.usesStreamingSession
     }
 
     func refreshModelAvailability() {
@@ -348,10 +357,20 @@ final class TranscriptionEngine {
         assetStatus = "Downloading \(transcriptionModel.displayName)..."
         beginDownloadTracking(for: transcriptionModel)
 
-        let vocab = settings.transcriptionCustomVocabulary
-        let backend = transcriptionModel.makeBackend(customVocabulary: vocab)
         do {
-            try await prepareBackend(backend)
+            if transcriptionModel.usesStreamingSession {
+                guard let provider = transcriptionModel.makeStreamingProvider() else {
+                    lastError = StreamingTranscriptionError.unsupportedOnThisOS.localizedDescription
+                    assetStatus = "Ready"
+                    clearDownloadTracking()
+                    return
+                }
+                try await prepareStreamingProvider(provider, locale: settings.locale)
+            } else {
+                let vocab = settings.transcriptionCustomVocabulary
+                let backend = transcriptionModel.makeBackend(customVocabulary: vocab)
+                try await prepareBackend(backend)
+            }
             needsModelDownload = false
             downloadConfirmed = false
             clearDownloadTracking()
@@ -363,7 +382,9 @@ final class TranscriptionEngine {
             lastError = "Failed to download: \(error.localizedDescription)"
             assetStatus = "Ready"
             clearDownloadTracking()
-            transcriptionModel.makeBackend().clearModelCache()
+            if !transcriptionModel.usesStreamingSession {
+                transcriptionModel.makeBackend().clearModelCache()
+            }
             needsModelDownload = true
         }
     }
@@ -426,52 +447,75 @@ final class TranscriptionEngine {
             beginDownloadTracking(for: transcriptionModel)
         }
         Log.transcription.info("Loading transcription model \(transcriptionModel.rawValue, privacy: .public)")
+        let usesStreaming = transcriptionModel.usesStreamingSession
         do {
-            let vocab = settings.transcriptionCustomVocabulary
-            let apiKey = settings.cloudASRApiKey
-            let noFiller = settings.removeFillerWords
-            let mic: any TranscriptionBackend
-            if transcriptionModel.isCloud,
-               let preparedCloudStartBackend,
-               preparedCloudStartBackend.model == transcriptionModel {
-                mic = preparedCloudStartBackend.backend
-                self.preparedCloudStartBackend = nil
-            } else {
-                mic = transcriptionModel.makeBackend(
-                    customVocabulary: vocab,
-                    apiKey: apiKey,
-                    removeFillerWords: noFiller
-                )
-                try await prepareBackend(mic)
-            }
-            self.micBackend = mic
+            if usesStreaming {
+                guard let provider = transcriptionModel.makeStreamingProvider() else {
+                    lastError = StreamingTranscriptionError.unsupportedOnThisOS.localizedDescription
+                    assetStatus = "Ready"
+                    isRunning = false
+                    clearDownloadTracking()
+                    downloadConfirmed = false
+                    activeTranscriptionSession = nil
+                    return
+                }
+                try await prepareStreamingProvider(provider, locale: locale)
+                streamingProvider = provider
 
-            // Parakeet needs a separate backend for system audio (mutable decoder state).
-            // Qwen3 is actor-based and thread-safe, so reuse the same instance.
-            if transcriptionModel == .qwen3ASR06B || transcriptionModel.isCloud {
-                self.systemBackend = mic
+                if settings.enableDiarization {
+                    Log.transcription.info("Diarization is ignored when using Apple SpeechAnalyzer")
+                }
+                diarizationManager = nil
+                vadManager = nil
+                micBackend = nil
+                systemBackend = nil
             } else {
-                let sys = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey, removeFillerWords: noFiller)
-                try await sys.prepare { _ in }
-                self.systemBackend = sys
-            }
+                let vocab = settings.transcriptionCustomVocabulary
+                let apiKey = settings.cloudASRApiKey
+                let noFiller = settings.removeFillerWords
+                let mic: any TranscriptionBackend
+                if transcriptionModel.isCloud,
+                   let preparedCloudStartBackend,
+                   preparedCloudStartBackend.model == transcriptionModel {
+                    mic = preparedCloudStartBackend.backend
+                    self.preparedCloudStartBackend = nil
+                } else {
+                    mic = transcriptionModel.makeBackend(
+                        customVocabulary: vocab,
+                        apiKey: apiKey,
+                        removeFillerWords: noFiller
+                    )
+                    try await prepareBackend(mic)
+                }
+                self.micBackend = mic
 
-            assetStatus = "Loading VAD model..."
-            Log.transcription.info("Loading VAD model")
-            let vad = try await VadManager()
-            self.vadManager = vad
+                // Parakeet needs a separate backend for system audio (mutable decoder state).
+                // Qwen3 is actor-based and thread-safe, so reuse the same instance.
+                if transcriptionModel == .qwen3ASR06B || transcriptionModel.isCloud {
+                    self.systemBackend = mic
+                } else {
+                    let sys = transcriptionModel.makeBackend(customVocabulary: vocab, apiKey: apiKey, removeFillerWords: noFiller)
+                    try await sys.prepare { _ in }
+                    self.systemBackend = sys
+                }
 
-            // Optionally load speaker diarization model
-            if settings.enableDiarization {
-                assetStatus = "Loading diarization model..."
-                Log.transcription.info("Loading LS-EEND diarization model")
-                let dm = DiarizationManager()
-                let variant = LSEENDVariant(rawValue: settings.diarizationVariant.rawValue) ?? .dihard3
-                try await dm.load(variant: variant)
-                self.diarizationManager = dm
-                Log.transcription.info("Diarization model loaded")
-            } else {
-                self.diarizationManager = nil
+                assetStatus = "Loading VAD model..."
+                Log.transcription.info("Loading VAD model")
+                let vad = try await VadManager()
+                self.vadManager = vad
+
+                // Optionally load speaker diarization model
+                if settings.enableDiarization {
+                    assetStatus = "Loading diarization model..."
+                    Log.transcription.info("Loading LS-EEND diarization model")
+                    let dm = DiarizationManager()
+                    let variant = LSEENDVariant(rawValue: settings.diarizationVariant.rawValue) ?? .dihard3
+                    try await dm.load(variant: variant)
+                    self.diarizationManager = dm
+                    Log.transcription.info("Diarization model loaded")
+                } else {
+                    self.diarizationManager = nil
+                }
             }
 
             needsModelDownload = false
@@ -486,6 +530,7 @@ final class TranscriptionEngine {
             assetStatus = "Ready"
             isRunning = false
             clearDownloadTracking()
+            streamingProvider = nil
             // Clear corrupt cache so the next attempt triggers a fresh download.
             // Cloud models don't have local caches or download flows.
             if !transcriptionModel.isCloud {
@@ -500,9 +545,11 @@ final class TranscriptionEngine {
             return
         }
 
-        guard let vadManager else {
-            activeTranscriptionSession = nil
-            return
+        if !usesStreaming {
+            guard vadManager != nil else {
+                activeTranscriptionSession = nil
+                return
+            }
         }
 
         // 2. Start mic capture
@@ -513,6 +560,7 @@ final class TranscriptionEngine {
             lastError = msg
             assetStatus = "Ready"
             isRunning = false
+            streamingProvider = nil
             activeTranscriptionSession = nil
             return
         }
@@ -527,12 +575,35 @@ final class TranscriptionEngine {
         }
 
         Log.transcription.info("Starting mic capture, targetMicID=\(targetMicID, privacy: .public), aec=\(useAEC, privacy: .public)")
-        startMicStream(
-            locale: locale,
-            vadManager: vadManager,
-            deviceID: targetMicID,
-            echoCancellation: useAEC
-        )
+        if usesStreaming {
+            do {
+                try await startMicStreamingSession(
+                    locale: locale,
+                    deviceID: targetMicID,
+                    echoCancellation: useAEC
+                )
+            } catch {
+                Log.transcription.error("Failed to start mic streaming session: \(error, privacy: .public)")
+                lastError = error.localizedDescription
+                assetStatus = "Ready"
+                isRunning = false
+                micCapture.finishStream()
+                await tearDownStreamingSessions()
+                await micTask?.value
+                micCapture.stop()
+                micTask = nil
+                streamingProvider = nil
+                activeTranscriptionSession = nil
+                return
+            }
+        } else if let vadManager {
+            startMicStream(
+                locale: locale,
+                vadManager: vadManager,
+                deviceID: targetMicID,
+                echoCancellation: useAEC
+            )
+        }
 
         // Check for immediate mic capture failure
         if let micError = micCapture.captureError {
@@ -558,16 +629,38 @@ final class TranscriptionEngine {
                 self.lastError = "Microphone is not producing audio. Check your input device in System Settings."
             case .retryCapture:
                 Log.transcription.error("No mic audio after 5s, retrying mic capture once")
-                self.micCapture.finishStream()
-                await self.micTask?.value
-                self.micTask = nil
-                self.micCapture.stop()
-                self.startMicStream(
-                    locale: locale,
-                    vadManager: vadManager,
-                    deviceID: targetMicID,
-                    echoCancellation: false
-                )
+                if self.streamingProvider != nil {
+                    await self.micStreamingSession?.finish()
+                    self.micStreamingSession = nil
+                    self.micCapture.finishStream()
+                    await self.micTask?.value
+                    self.micTask = nil
+                    self.micCapture.stop()
+                    do {
+                        try await self.startMicStreamingSession(
+                            locale: locale,
+                            deviceID: targetMicID,
+                            echoCancellation: false
+                        )
+                    } catch {
+                        Log.transcription.error("Mic streaming retry failed: \(error, privacy: .public)")
+                        self.lastError = error.localizedDescription
+                        return
+                    }
+                } else if let vadManager = self.vadManager {
+                    self.micCapture.finishStream()
+                    await self.micTask?.value
+                    self.micTask = nil
+                    self.micCapture.stop()
+                    self.startMicStream(
+                        locale: locale,
+                        vadManager: vadManager,
+                        deviceID: targetMicID,
+                        echoCancellation: false
+                    )
+                } else {
+                    return
+                }
 
                 try? await Task.sleep(for: .seconds(5))
                 guard self.isRunning else { return }
@@ -588,9 +681,37 @@ final class TranscriptionEngine {
         }
 
         // 3. Start system audio capture
-        await startSystemAudioStream(locale: locale, vadManager: vadManager)
+        if usesStreaming {
+            do {
+                try await startSystemAudioStreamingSession(locale: locale)
+            } catch {
+                Log.transcription.error("Failed to start system streaming session: \(error, privacy: .public)")
+                lastError = error.localizedDescription
+                assetStatus = "Ready"
+                isRunning = false
+                micCapture.finishStream()
+                systemCapture.finishStream()
+                await tearDownStreamingSessions()
+                micTask?.cancel()
+                sysTask?.cancel()
+                await micTask?.value
+                await sysTask?.value
+                micCapture.stop()
+                await systemCapture.stop()
+                micTask = nil
+                sysTask = nil
+                streamingProvider = nil
+                activeTranscriptionSession = nil
+                return
+            }
+        } else if let vadManager {
+            await startSystemAudioStream(locale: locale, vadManager: vadManager)
+        }
 
-        assetStatus = "Transcribing (\(micBackend?.displayName ?? transcriptionModel.displayName))"
+        let displayName = streamingProvider?.displayName
+            ?? micBackend?.displayName
+            ?? transcriptionModel.displayName
+        assetStatus = "Transcribing (\(displayName))"
         Log.transcription.info("All transcription tasks started")
 
         // Install CoreAudio listeners for live device routing changes
@@ -752,6 +873,11 @@ final class TranscriptionEngine {
         micCapture.finishStream()
         systemCapture.finishStream()
 
+        await micStreamingSession?.finish()
+        await systemStreamingSession?.finish()
+        micStreamingSession = nil
+        systemStreamingSession = nil
+
         micTask?.cancel()
         sysTask?.cancel()
         await micTask?.value
@@ -774,6 +900,7 @@ final class TranscriptionEngine {
         micBackend = nil
         systemBackend = nil
         vadManager = nil
+        streamingProvider = nil
         transcriptStore.volatileYouText = ""
         transcriptStore.volatileThemText = ""
         liveCloudTranscriptIssue = nil
@@ -809,6 +936,17 @@ final class TranscriptionEngine {
         micTask = nil
         sysTask = nil
         micKeepAliveTask = nil
+        let micSession = micStreamingSession
+        let sysSession = systemStreamingSession
+        micStreamingSession = nil
+        systemStreamingSession = nil
+        streamingProvider = nil
+        if micSession != nil || sysSession != nil {
+            Task {
+                await micSession?.finish()
+                await sysSession?.finish()
+            }
+        }
         Task { await systemCapture.stop() }
         micCapture.stop()
         currentMicDeviceID = 0
@@ -826,7 +964,7 @@ final class TranscriptionEngine {
     }
 
     private func performMicRestart(inputDeviceID: AudioDeviceID) async {
-        guard isRunning, let vadManager else { return }
+        guard isRunning else { return }
 
         userSelectedDeviceID = inputDeviceID
 
@@ -843,6 +981,41 @@ final class TranscriptionEngine {
         }
 
         Log.transcription.info("Switching mic from \(self.currentMicDeviceID, privacy: .public) to \(targetMicID, privacy: .public)")
+
+        if streamingProvider != nil {
+            await micStreamingSession?.finish()
+            micStreamingSession = nil
+            micCapture.finishStream()
+            await micTask?.value
+
+            if Task.isCancelled || !isRunning {
+                return
+            }
+
+            micTask = nil
+            micCapture.stop()
+
+            guard await ensureMicrophonePermission() else {
+                Log.transcription.error("Mic permission lost during device switch")
+                return
+            }
+
+            do {
+                try await startMicStreamingSession(
+                    locale: settings.locale,
+                    deviceID: targetMicID
+                )
+                currentMicDeviceID = targetMicID
+                lastError = nil
+                Log.transcription.info("Mic restarted on device \(targetMicID, privacy: .public)")
+            } catch {
+                Log.transcription.error("Mic streaming restart failed: \(error, privacy: .public)")
+                lastError = error.localizedDescription
+            }
+            return
+        }
+
+        guard let vadManager else { return }
 
         micCapture.finishStream()
         await micTask?.value
@@ -891,9 +1064,33 @@ final class TranscriptionEngine {
     }
 
     private func performSystemAudioRestart() async {
-        guard isRunning, let vadManager else { return }
+        guard isRunning else { return }
 
         Log.transcription.info("Restarting system audio stream")
+
+        if streamingProvider != nil {
+            await systemStreamingSession?.finish()
+            systemStreamingSession = nil
+            systemCapture.finishStream()
+            await sysTask?.value
+
+            if Task.isCancelled || !isRunning {
+                return
+            }
+
+            sysTask = nil
+            await systemCapture.stop()
+            do {
+                try await startSystemAudioStreamingSession(locale: settings.locale)
+                Log.transcription.info("System audio stream restarted")
+            } catch {
+                Log.transcription.error("System streaming restart failed: \(error, privacy: .public)")
+                lastError = error.localizedDescription
+            }
+            return
+        }
+
+        guard let vadManager else { return }
 
         systemCapture.finishStream()
         await sysTask?.value
@@ -907,6 +1104,102 @@ final class TranscriptionEngine {
         await startSystemAudioStream(locale: settings.locale, vadManager: vadManager)
 
         Log.transcription.info("System audio stream restarted")
+    }
+
+    private func startMicStreamingSession(
+        locale: Locale,
+        deviceID: AudioDeviceID,
+        echoCancellation: Bool = false
+    ) async throws {
+        guard let provider = streamingProvider else {
+            throw StreamingTranscriptionError.notPrepared
+        }
+
+        var micStream = micCapture.bufferStream(deviceID: deviceID, echoCancellation: echoCancellation)
+        if let recorder = audioRecorder {
+            micStream = Self.tappedStream(micStream) { buffer in
+                recorder.writeMicBuffer(buffer)
+            }
+        }
+
+        let session = try await provider.makeSession(locale: locale)
+        micStreamingSession = session
+        let store = transcriptStore
+        micTask = Task.detached {
+            await session.run(
+                stream: micStream,
+                onPartial: { text in
+                    Task { @MainActor in store.volatileYouText = text }
+                },
+                onFinal: { segment in
+                    Task { @MainActor in
+                        store.volatileYouText = ""
+                        store.append(Utterance(text: segment.text, speaker: .you))
+                    }
+                }
+            )
+        }
+    }
+
+    private func startSystemAudioStreamingSession(locale: Locale) async throws {
+        guard let provider = streamingProvider else {
+            throw StreamingTranscriptionError.notPrepared
+        }
+
+        Log.transcription.info("Starting system audio capture")
+
+        let sysStreams: SystemAudioCapture.CaptureStreams
+        do {
+            var outputID: AudioDeviceID? = settings.outputDeviceID != 0 ? settings.outputDeviceID : nil
+            // If the stored ID is stale, try resolving via stable UID.
+            if let id = outputID,
+               !SystemAudioCapture.availableOutputDevices().contains(where: { $0.id == id }),
+               let uid = settings.outputDeviceUID,
+               let resolved = SystemAudioCapture.outputDeviceID(forUID: uid) {
+                settings.outputDeviceID = resolved
+                outputID = resolved
+            }
+            sysStreams = try await systemCapture.bufferStream(outputDeviceID: outputID)
+            Log.transcription.info("System audio capture started")
+            clearSystemAudioErrorIfPresent()
+        } catch {
+            let msg = "Failed to start system audio: \(error.localizedDescription)"
+            Log.transcription.error("Failed to start system audio: \(error, privacy: .public)")
+            lastError = msg
+            throw error
+        }
+
+        var sysStream = sysStreams.systemAudio
+        if let recorder = audioRecorder {
+            sysStream = Self.tappedStream(sysStream) { buffer in
+                recorder.writeSysBuffer(buffer)
+            }
+        }
+
+        let session = try await provider.makeSession(locale: locale)
+        systemStreamingSession = session
+        let store = transcriptStore
+        sysTask = Task.detached {
+            await session.run(
+                stream: sysStream,
+                onPartial: { text in
+                    Task { @MainActor in store.volatileThemText = text }
+                },
+                onFinal: { segment in
+                    Task { @MainActor in
+                        store.volatileThemText = ""
+                        store.append(Utterance(text: segment.text, speaker: .them))
+                    }
+                }
+            )
+        }
+    }
+
+    private func tearDownStreamingSessions() async {
+        await micStreamingSession?.finish()
+        await systemStreamingSession?.finish()
+        micStreamingSession = nil
+        systemStreamingSession = nil
     }
 
     private func startMicStream(
@@ -1156,6 +1449,10 @@ final class TranscriptionEngine {
 
     private static func modelNeedsDownload(_ model: TranscriptionModel) -> Bool {
         guard !model.isCloud else { return false }
+        if model.usesStreamingSession {
+            // Conservative sync heuristic — real status is async via makeStreamingProvider().
+            return model.isSelectableOnCurrentOS
+        }
         let backend = model.makeBackend()
         if case .needsDownload = backend.checkStatus() {
             return true
@@ -1291,6 +1588,24 @@ final class TranscriptionEngine {
 
     private func prepareBackend(_ backend: any TranscriptionBackend) async throws {
         try await backend.prepare(
+            onStatus: { [weak self] status in
+                Task { @MainActor in self?.assetStatus = status }
+            },
+            onProgress: { [weak self] fraction in
+                Task { @MainActor in
+                    self?.downloadProgress = fraction
+                    self?.updateDownloadDetail(fraction: fraction)
+                }
+            }
+        )
+    }
+
+    private func prepareStreamingProvider(
+        _ provider: any StreamingTranscriptionProvider,
+        locale: Locale
+    ) async throws {
+        try await provider.prepare(
+            locale: locale,
             onStatus: { [weak self] status in
                 Task { @MainActor in self?.assetStatus = status }
             },
