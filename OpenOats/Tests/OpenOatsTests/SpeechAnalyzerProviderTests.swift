@@ -149,15 +149,11 @@ private extension SpeechAnalyzerProviderTests {
         let session = try await provider.makeSession(locale: locale)
         let stream = makeBriefSilenceStream(sampleRate: 16_000, bufferCount: 3, framesPerBuffer: 1_600)
 
-        let runTask = Task {
-            await session.run(
-                stream: stream,
-                onPartial: { _ in },
-                onFinal: { _ in }
-            )
-        }
-
-        await runTask.value
+        await session.run(
+            stream: stream,
+            onPartial: { _ in },
+            onFinal: { _ in }
+        )
         await session.finish()
     }
 
@@ -183,7 +179,9 @@ private extension SpeechAnalyzerProviderTests {
                         channelData[0][i] = 0
                     }
                 }
-                continuation.yield(buffer)
+                // AVAudioPCMBuffer is not Sendable; mirror production capture taps.
+                nonisolated(unsafe) let unsafeBuffer = buffer
+                continuation.yield(unsafeBuffer)
             }
             continuation.finish()
         }
