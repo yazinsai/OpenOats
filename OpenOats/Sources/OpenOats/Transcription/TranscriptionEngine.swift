@@ -233,6 +233,11 @@ final class TranscriptionEngine {
     private var sysRestartTask: Task<Void, Never>?
     private var pendingMicDeviceID: AudioDeviceID?
     private var pendingSystemAudioRestart = false
+    /// Guards against a stale/transitional default output device (e.g. mid-reconnect
+    /// Bluetooth handoff) leaving the tap silently dead after a restart.
+    private var sysAudioWatchdogTask: Task<Void, Never>?
+    private var sysAudioWatchdogRetries = 0
+    private let sysAudioWatchdogMaxRetries = 2
 
     init(transcriptStore: TranscriptStore, settings: AppSettings, mode: Mode = .live) {
         self.transcriptStore = transcriptStore
@@ -678,6 +683,9 @@ final class TranscriptionEngine {
             guard let self else { return }
             Task { @MainActor in
                 guard self.isRunning else { return }
+                // A genuine device-change notification means the OS has an opinion again;
+                // give the watchdog a fresh budget rather than treating this as an auto-retry.
+                self.sysAudioWatchdogRetries = 0
                 self.restartSystemAudio()
             }
         }
@@ -743,6 +751,9 @@ final class TranscriptionEngine {
         removeDefaultOutputDeviceListener()
         micRestartTask?.cancel()
         sysRestartTask?.cancel()
+        sysAudioWatchdogTask?.cancel()
+        sysAudioWatchdogTask = nil
+        sysAudioWatchdogRetries = 0
         micRestartTask = nil
         sysRestartTask = nil
         pendingMicDeviceID = nil
@@ -799,6 +810,9 @@ final class TranscriptionEngine {
         removeDefaultOutputDeviceListener()
         micRestartTask?.cancel()
         sysRestartTask?.cancel()
+        sysAudioWatchdogTask?.cancel()
+        sysAudioWatchdogTask = nil
+        sysAudioWatchdogRetries = 0
         micRestartTask = nil
         sysRestartTask = nil
         pendingMicDeviceID = nil
@@ -907,6 +921,31 @@ final class TranscriptionEngine {
         await startSystemAudioStream(locale: settings.locale, vadManager: vadManager)
 
         Log.transcription.info("System audio stream restarted")
+        scheduleSystemAudioWatchdog()
+    }
+
+    /// Verifies the system audio tap actually produced frames after a restart. CoreAudio can
+    /// fire the default-output-device notification before a Bluetooth device has finished
+    /// reconnecting, leaving the tap rebuilt against a stale/transitional device with no
+    /// further notification once things settle. If no frames arrive within the window, retry
+    /// the restart (bounded) instead of waiting indefinitely for the user to nudge it manually.
+    private func scheduleSystemAudioWatchdog() {
+        sysAudioWatchdogTask?.cancel()
+        sysAudioWatchdogTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard let self, !Task.isCancelled, self.isRunning else { return }
+            guard !self.systemCapture.hasCapturedFrames else {
+                self.sysAudioWatchdogRetries = 0
+                return
+            }
+            guard self.sysAudioWatchdogRetries < self.sysAudioWatchdogMaxRetries else {
+                Log.transcription.error("System audio watchdog exhausted retries, no frames captured")
+                return
+            }
+            self.sysAudioWatchdogRetries += 1
+            Log.transcription.info("System audio watchdog: no frames after restart, retrying (\(self.sysAudioWatchdogRetries, privacy: .public)/\(self.sysAudioWatchdogMaxRetries, privacy: .public))")
+            self.restartSystemAudio()
+        }
     }
 
     private func startMicStream(
