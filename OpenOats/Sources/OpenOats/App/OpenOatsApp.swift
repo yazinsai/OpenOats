@@ -215,6 +215,9 @@ extension OpenOatsRootApp {
 
         let model = settings.transcriptionModel
         let locale = settings.locale
+        let customVocabulary = settings.transcriptionCustomVocabulary
+        let apiKey = settings.cloudASRApiKey
+        let removeFillerWords = settings.removeFillerWords
         let repo = coordinator.sessionRepository
 
         // Derive start date and duration from file
@@ -252,6 +255,9 @@ extension OpenOatsRootApp {
                 sessionID: sessionID,
                 model: model,
                 locale: locale,
+                customVocabulary: customVocabulary,
+                apiKey: apiKey,
+                removeFillerWords: removeFillerWords,
                 sessionRepository: repo
             )
 

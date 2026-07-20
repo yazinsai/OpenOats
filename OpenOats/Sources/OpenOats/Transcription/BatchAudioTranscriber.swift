@@ -361,6 +361,9 @@ actor BatchAudioTranscriber {
         sessionID: String,
         model: TranscriptionModel,
         locale: Locale,
+        customVocabulary: String,
+        apiKey: String,
+        removeFillerWords: Bool,
         sessionRepository: SessionRepository
     ) async {
         currentTask?.cancel()
@@ -375,6 +378,9 @@ actor BatchAudioTranscriber {
                     sessionID: sessionID,
                     model: model,
                     locale: locale,
+                    customVocabulary: customVocabulary,
+                    apiKey: apiKey,
+                    removeFillerWords: removeFillerWords,
                     sessionRepository: sessionRepository
                 )
             } catch is CancellationError {
@@ -400,6 +406,9 @@ actor BatchAudioTranscriber {
         sessionID: String,
         model: TranscriptionModel,
         locale: Locale,
+        customVocabulary: String,
+        apiKey: String,
+        removeFillerWords: Bool,
         sessionRepository: SessionRepository
     ) async throws {
         Log.batchTranscription.info("Starting audio import for \(sessionID, privacy: .public) from \(url.lastPathComponent, privacy: .public)")
@@ -407,7 +416,11 @@ actor BatchAudioTranscriber {
         status = .loading(model: model.displayName)
 
         // Prepare backend and VAD
-        let backend = model.makeBackend()
+        let backend = model.makeBackend(
+            customVocabulary: customVocabulary,
+            apiKey: apiKey,
+            removeFillerWords: removeFillerWords
+        )
         try await backend.prepare { statusMsg in
             Log.batchTranscription.debug("Backend: \(statusMsg, privacy: .public)")
         }
