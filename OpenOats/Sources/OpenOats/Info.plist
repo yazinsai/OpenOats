@@ -33,6 +33,8 @@
     <string>15.0</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>OpenOats needs microphone access to transcribe your voice in real-time during conversations.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>OpenOats uses on-device speech recognition to transcribe meetings with Apple SpeechAnalyzer.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>OpenOats needs system audio recording access to transcribe other participants in real time.</string>
     <key>NSCalendarsFullAccessUsageDescription</key>
