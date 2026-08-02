@@ -54,6 +54,15 @@ actor SetupDetector {
         nonisolated func modelStatuses() -> [TranscriptionModel: BackendStatus] {
             var result: [TranscriptionModel: BackendStatus] = [:]
             for model in TranscriptionModel.allCases {
+                if model.usesStreamingSession {
+                    // SpeechAnalyzer uses makeStreamingProvider(); sync path cannot await checkStatus.
+                    if model.isSelectableOnCurrentOS {
+                        result[model] = .needsDownload(prompt: model.downloadPrompt)
+                    } else {
+                        result[model] = .error(reason: "Apple SpeechAnalyzer requires macOS 26 or later.")
+                    }
+                    continue
+                }
                 result[model] = model.makeBackend().checkStatus()
             }
             return result
