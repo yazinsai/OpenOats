@@ -967,7 +967,7 @@ enum UpcomingEventSelection {
         var selectedIDs = Set<String>()
         var selected: [CalendarEvent] = []
 
-        for event in earliestPerCalendar(in: sortedEvents) {
+        for event in earliestPerCalendar(in: coverageCandidates(in: sortedEvents)) {
             guard selected.count < limit else { break }
             guard selectedIDs.insert(event.id).inserted else { continue }
             selected.append(event)
@@ -984,6 +984,18 @@ enum UpcomingEventSelection {
 
     static func distinctCalendarCount(in events: [CalendarEvent]) -> Int {
         Set(events.map(calendarIdentity(for:))).count
+    }
+
+    /// Calendar coverage may only compete with chronology among events on the
+    /// nearest day. Callers pass a multi-day window into a handful of slots, so
+    /// seeding across all of it let one event from a rarely-used calendar days
+    /// out displace the next meeting today.
+    private static func coverageCandidates(in sortedEvents: [CalendarEvent]) -> [CalendarEvent] {
+        guard let nearest = sortedEvents.first else { return [] }
+        let calendar = Calendar.current
+        return sortedEvents.filter {
+            calendar.isDate($0.startDate, inSameDayAs: nearest.startDate)
+        }
     }
 
     private static func earliestPerCalendar(in events: [CalendarEvent]) -> [CalendarEvent] {

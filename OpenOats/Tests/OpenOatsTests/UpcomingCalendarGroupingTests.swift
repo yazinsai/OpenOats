@@ -191,6 +191,40 @@ final class UpcomingCalendarGroupingTests: XCTestCase {
         XCTAssertEqual(selected.map(\.id), ["a1", "a2", "b1", "c1"])
     }
 
+    /// Regression for #717: three Google events and one Outlook event on the same
+    /// day, with further events later in the week on other calendars. Seeding one
+    /// event per calendar across the caller's full 7-day window spent every slot
+    /// before the chronological fill reached the 1pm, so the reporter saw only the
+    /// first event from each account.
+    func testSelectionKeepsSameDayEventsAheadOfLaterWeekCalendarCoverage() {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_700_000_000))
+        func todayAt(_ hour: Int) -> Date {
+            calendar.date(byAdding: .hour, value: hour, to: today) ?? today
+        }
+        func daysLater(_ days: Int, hour: Int) -> Date {
+            calendar.date(byAdding: .day, value: days, to: todayAt(hour)) ?? today
+        }
+
+        let events = [
+            makeEvent(id: "g1", title: "Standup", start: todayAt(10), calendarID: "google", calendarTitle: "Work"),
+            makeEvent(id: "g2", title: "Design review", start: todayAt(13), calendarID: "google", calendarTitle: "Work"),
+            makeEvent(id: "g3", title: "1:1", start: todayAt(14), calendarID: "google", calendarTitle: "Work"),
+            makeEvent(id: "o1", title: "Vendor call", start: todayAt(16), calendarID: "outlook", calendarTitle: "Office 365"),
+            makeEvent(id: "b1", title: "Birthday", start: daysLater(2, hour: 9), calendarID: "birthdays", calendarTitle: "Birthdays"),
+            makeEvent(id: "h1", title: "Holiday", start: daysLater(3, hour: 9), calendarID: "holidays", calendarTitle: "Holidays"),
+            makeEvent(id: "p1", title: "Dentist", start: daysLater(4, hour: 9), calendarID: "personal", calendarTitle: "Personal"),
+        ]
+
+        let selected = UpcomingEventSelection.select(from: events, limit: 6)
+
+        XCTAssertEqual(
+            selected.prefix(4).map(\.id),
+            ["g1", "g2", "g3", "o1"],
+            "Every event today must be selected before events later in the week"
+        )
+    }
+
     func testDistinctCalendarCountUsesCalendarIdentity() {
         let base = Date(timeIntervalSince1970: 1_700_000_000)
         let events = [
