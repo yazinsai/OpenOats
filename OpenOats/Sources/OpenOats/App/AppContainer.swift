@@ -71,7 +71,27 @@ final class AppContainer {
                     .appendingPathComponent("Documents/OpenOats", isDirectory: true)
             )
             let settings = AppSettings()
-            let coordinator = AppCoordinator()
+            let sessionRepository = SessionRepository(
+                batchAudioRetention: { settings.retainedBatchAudioRetentionInterval }
+            )
+            let coordinator = AppCoordinator(sessionRepository: sessionRepository)
+            Task {
+                // When the periodic sweep removes retained audio, re-derive the
+                // UI state that depends on it (post-meeting banner, detail pane).
+                await sessionRepository.setRetainedAudioSweepHandler { sessionIDs in
+                    Task { @MainActor in
+                        for sessionID in sessionIDs {
+                            coordinator.liveSessionController?
+                                .retainedBatchAudioWasDeleted(sessionID: sessionID)
+                        }
+                        NotificationCenter.default.post(
+                            name: .retainedBatchAudioSwept,
+                            object: nil,
+                            userInfo: ["sessionIDs": sessionIDs]
+                        )
+                    }
+                }
+            }
             let updaterController = AppUpdaterController()
             return AppLaunchContext(
                 isFirstLaunch: false,

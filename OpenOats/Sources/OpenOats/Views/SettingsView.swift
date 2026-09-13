@@ -437,6 +437,7 @@ private struct GeneralSettingsTab: View {
 
 private struct TranscriptionSettingsTab: View {
     @Bindable var settings: AppSettings
+    @Environment(AppCoordinator.self) private var coordinator
     @State private var inputDevices: [(id: AudioDeviceID, name: String)] = []
     @State private var outputDevices: [(id: AudioDeviceID, name: String)] = []
     @State private var isValidatingElevenLabsKey = false
@@ -651,6 +652,21 @@ private struct TranscriptionSettingsTab: View {
                             }
                         }
                         .font(.system(size: 12))
+
+                        Picker("Keep Audio For", selection: $settings.retainedBatchAudioRetention) {
+                            ForEach(RetainedBatchAudioRetention.allCases) { option in
+                                Text(option.displayName).tag(option)
+                            }
+                        }
+                        .font(.system(size: 12))
+                        .onChange(of: settings.retainedBatchAudioRetention) {
+                            // The copy promises automatic deletion; apply the new
+                            // window now instead of waiting for the next 6h tick.
+                            Task { await coordinator.sessionRepository.sweepExpiredRetainedBatchAudio() }
+                        }
+                        Text("Audio kept for re-transcription can use up to about 23 MB per meeting minute; one real 75-minute meeting measured 1.0 GB. Older audio is deleted automatically; transcripts and notes are never affected.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
                     }
                 }
 

@@ -315,6 +315,11 @@ actor BatchAudioTranscriber {
         activeSessionID = sessionID
         isImporting = false
 
+        // Guard the stems against the retention sweep and user deletion for the
+        // whole run: batchAudioURLs is captured once at the start and sys.caf is
+        // re-read minutes later, so a mid-run removal is unrecoverable.
+        await sessionRepository.beginBatchAudioAccess(sessionID: sessionID)
+
         let task = Task { [weak self] in
             guard let self else { return }
             do {
@@ -341,6 +346,8 @@ actor BatchAudioTranscriber {
         }
         currentTask = task
         await task.value
+
+        await sessionRepository.endBatchAudioAccess(sessionID: sessionID)
     }
 
     func cancel() async {

@@ -1595,6 +1595,13 @@ final class LiveSessionController {
     /// Assigns `value` to `state[keyPath:]` only when it differs, avoiding spurious
     /// @Observable withMutation notifications that would trigger unnecessary layout passes.
     @inline(__always)
+    /// Clears the post-meeting "Re-transcribe" offer when the retained audio
+    /// backing it is deleted (user action or retention sweep).
+    func retainedBatchAudioWasDeleted(sessionID: String) {
+        guard coordinator.lastEndedSession?.id == sessionID else { return }
+        set(\.lastEndedSessionCanRetranscribe, false)
+    }
+
     private func set<T: Equatable>(_ kp: ReferenceWritableKeyPath<LiveSessionState, T>, _ value: T) {
         if state[keyPath: kp] != value { state[keyPath: kp] = value }
     }

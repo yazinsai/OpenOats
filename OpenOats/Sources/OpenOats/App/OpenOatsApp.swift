@@ -291,6 +291,9 @@ extension OpenOatsRootApp {
 
 extension Notification.Name {
     static let toggleSuggestionPanel = Notification.Name("toggleSuggestionPanel")
+    /// Posted after the retention sweep removes retained batch audio.
+    /// `userInfo["sessionIDs"]` carries the affected session IDs as `[String]`.
+    static let retainedBatchAudioSwept = Notification.Name("retainedBatchAudioSwept")
 }
 
 @MainActor
