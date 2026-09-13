@@ -96,6 +96,7 @@ final class MenuBarController {
                 await withCheckedContinuation { continuation in
                     withObservationTracking {
                         _ = self.coordinator.isRecording
+                        _ = self.settings.showMenuBarIcon
                     } onChange: {
                         continuation.resume()
                     }
@@ -105,6 +106,7 @@ final class MenuBarController {
     }
 
     private func updateIcon() {
+        statusItem.isVisible = settings.showMenuBarIcon
         refreshStatusItem()
         statusItem.button?.image = Self.makeConcentricCirclesIcon(filled: coordinator.isRecording)
         statusItem.button?.image?.isTemplate = true

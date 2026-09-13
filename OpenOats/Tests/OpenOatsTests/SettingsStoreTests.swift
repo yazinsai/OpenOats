@@ -521,6 +521,17 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(store.autoRecordDetectedMeetings)
     }
 
+    func testRecordingIndicatorsDefaultToVisibleAndPersist() {
+        let store = makeStore()
+        XCTAssertTrue(store.showMiniBar)
+        XCTAssertTrue(store.showMenuBarIcon)
+
+        store.showMiniBar = false
+        store.showMenuBarIcon = false
+        XCTAssertFalse(store.showMiniBar)
+        XCTAssertFalse(store.showMenuBarIcon)
+    }
+
     func testDefaultDetectionLogEnabled() {
         let store = makeStore()
         XCTAssertFalse(store.detectionLogEnabled)

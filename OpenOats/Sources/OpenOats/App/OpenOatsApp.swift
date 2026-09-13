@@ -487,6 +487,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return .terminateLater
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag, !isUITest else { return true }
+        if let action = showMainWindowAction {
+            action()
+        } else {
+            fallbackShowMainWindow()
+        }
+        return false
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         isUITest
     }
@@ -517,6 +527,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard Bundle.main.bundleIdentifier != nil else { return }
 
         defaults.set(true, forKey: "hasShownBackgroundModeHint")
+        let menuBarIconHidden = settings?.showMenuBarIcon == false
 
         Task {
             let center = UNUserNotificationCenter.current()
@@ -525,7 +536,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
             let content = UNMutableNotificationContent()
             content.title = "OpenOats is still running"
-            content.body = "Meeting detection is active. Click the menu bar icon to access controls."
+            content.body = menuBarIconHidden
+                ? "Meeting detection is active. Open OpenOats again to show its window."
+                : "Meeting detection is active. Click the menu bar icon to access controls."
 
             let request = UNNotificationRequest(
                 identifier: "background-mode-hint",

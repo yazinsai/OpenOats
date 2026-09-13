@@ -520,6 +520,10 @@ struct ContentView: View {
 
     private func showMiniBar(controller: LiveSessionController?, miniBarManager: MiniBarManager?) {
         guard let controller, let miniBarManager else { return }
+        guard settings.showMiniBar else {
+            miniBarManager.hide()
+            return
+        }
         miniBarManager.update(
             audioLevel: controller.state.audioLevel,
             suggestions: controller.state.suggestions,

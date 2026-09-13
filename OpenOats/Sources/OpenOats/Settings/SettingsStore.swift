@@ -852,6 +852,28 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _showMiniBar: Bool
+    var showMiniBar: Bool {
+        get { access(keyPath: \.showMiniBar); return _showMiniBar }
+        set {
+            withMutation(keyPath: \.showMiniBar) {
+                _showMiniBar = newValue
+                defaults.set(newValue, forKey: "showMiniBar")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _showMenuBarIcon: Bool
+    var showMenuBarIcon: Bool {
+        get { access(keyPath: \.showMenuBarIcon); return _showMenuBarIcon }
+        set {
+            withMutation(keyPath: \.showMenuBarIcon) {
+                _showMenuBarIcon = newValue
+                defaults.set(newValue, forKey: "showMenuBarIcon")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _customMeetingAppBundleIDs: [String]
     var customMeetingAppBundleIDs: [String] {
         get { access(keyPath: \.customMeetingAppBundleIDs); return _customMeetingAppBundleIDs }
@@ -1543,6 +1565,8 @@ final class SettingsStore {
             self._meetingAutoDetectEnabled = defaults.bool(forKey: "meetingAutoDetectEnabled")
         }
         self._autoRecordDetectedMeetings = defaults.bool(forKey: "autoRecordDetectedMeetings")
+        self._showMiniBar = defaults.object(forKey: "showMiniBar") as? Bool ?? true
+        self._showMenuBarIcon = defaults.object(forKey: "showMenuBarIcon") as? Bool ?? true
         self._customMeetingAppBundleIDs = Self.normalizedIdentifierList(
             defaults.stringArray(forKey: "customMeetingAppBundleIDs") ?? [],
             caseInsensitive: true

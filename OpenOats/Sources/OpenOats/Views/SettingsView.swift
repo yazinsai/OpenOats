@@ -504,6 +504,18 @@ private struct TranscriptionSettingsTab: View {
                     Text("Reduces duplicate transcription when using speakers and microphone simultaneously. Currently disabled during recording because it conflicts with system audio capture on macOS.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+
+                    Toggle("Show floating recording panel", isOn: $settings.showMiniBar)
+                        .font(.system(size: 12))
+                    Text("The small panel with the audio level that appears while recording.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    Toggle("Show menu bar icon", isOn: $settings.showMenuBarIcon)
+                        .font(.system(size: 12))
+                    Text("When hidden, open OpenOats from Finder, Spotlight or the Dock to bring back its window.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Transcription") {
