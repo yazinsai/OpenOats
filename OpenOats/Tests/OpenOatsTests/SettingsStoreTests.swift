@@ -902,7 +902,24 @@ final class SettingsStoreTests: XCTestCase {
         let store2 = makeStore(defaults: defaults)
         XCTAssertEqual(store2.llmProvider, .mlx)
         XCTAssertEqual(store2.silenceTimeoutSeconds, 42)
-        XCTAssertEqual(store2.transcriptionModel, .qwen3ASR06B)
+        XCTAssertEqual(store2.transcriptionModel, TranscriptionModel.qwen3ASR06B.availableModel)
+    }
+
+    func testSavedUnavailableModelsResolveBeforeRecording() {
+        let suiteName = "com.openoats.test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("qwen3ASR06B", forKey: "transcriptionModel")
+        defaults.set("qwen3ASR06B", forKey: "batchTranscriptionModel")
+        let store = makeStore(defaults: defaults)
+        let expected = TranscriptionModel.qwen3ASR06B.availableModel
+        XCTAssertEqual(store.transcriptionModel, expected)
+        XCTAssertEqual(store.batchTranscriptionModel, expected)
+        XCTAssertEqual(store.transcriptionModelDisplay, expected.displayName)
+        store.transcriptionModel = .qwen3ASR06B
+        store.batchTranscriptionModel = .qwen3ASR06B
+        XCTAssertEqual(defaults.string(forKey: "transcriptionModel"), expected.rawValue)
+        XCTAssertEqual(defaults.string(forKey: "batchTranscriptionModel"), expected.rawValue)
     }
 
     // MARK: - AppSettings Typealias Compatibility

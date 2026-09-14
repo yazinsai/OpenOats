@@ -40,12 +40,14 @@ final class TranscriptionBackendTests: XCTestCase {
 
     // MARK: - Qwen3Backend
 
-    func testQwen3DisplayName() {
+    func testQwen3DisplayName() throws {
+        guard #available(macOS 15, *) else { throw XCTSkip("Qwen3 requires macOS 15") }
         let backend = Qwen3Backend()
         XCTAssertEqual(backend.displayName, "Qwen3 ASR 0.6B")
     }
 
-    func testQwen3CheckStatusReturnsNeedsDownloadOrReady() {
+    func testQwen3CheckStatusReturnsNeedsDownloadOrReady() throws {
+        guard #available(macOS 15, *) else { throw XCTSkip("Qwen3 requires macOS 15") }
         let backend = Qwen3Backend()
         let status = backend.checkStatus()
         switch status {
@@ -56,7 +58,8 @@ final class TranscriptionBackendTests: XCTestCase {
         }
     }
 
-    func testQwen3TranscribeWithoutPrepareThrows() async {
+    func testQwen3TranscribeWithoutPrepareThrows() async throws {
+        guard #available(macOS 15, *) else { throw XCTSkip("Qwen3 requires macOS 15") }
         let backend = Qwen3Backend()
         do {
             _ = try await backend.transcribe([0.0, 0.1, 0.2], locale: Locale(identifier: "en-US"))
@@ -82,7 +85,7 @@ final class TranscriptionBackendTests: XCTestCase {
 
     func testMakeBackendQwen3() {
         let backend = TranscriptionModel.qwen3ASR06B.makeBackend()
-        XCTAssertEqual(backend.displayName, "Qwen3 ASR 0.6B")
+        XCTAssertEqual(backend.displayName, TranscriptionModel.qwen3ASR06B.availableModel.displayName)
     }
 
     func testMakeBackendWhisperBase() {

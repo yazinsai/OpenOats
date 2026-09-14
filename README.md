@@ -99,11 +99,25 @@ The first run downloads the local speech model (~600 MB).
 
 ## What you need
 
-- Apple Silicon Mac, macOS 15+
-- Xcode 26 / Swift 6.2
+- Apple Silicon Mac, macOS 14.2 (Sonoma) or later
+- **Building from source only:** Xcode 26 / Swift 6.2 on a macOS version supported by Xcode. The release app runs on macOS 14.2+; you do not need Xcode to use it.
 - **For cloud mode**: [OpenRouter](https://openrouter.ai/) API key + [Voyage AI](https://www.voyageai.com/) API key
 - **For local mode**: [Ollama](https://ollama.com/) running locally with your preferred models (e.g. `qwen3:8b` for suggestions, `nomic-embed-text` for embeddings)
 - **For OpenAI-compatible embeddings**: any server implementing `/v1/embeddings` (llama.cpp, llamaswap, LiteLLM, vLLM, etc.)
+
+### macOS Sonoma support
+
+Parakeet and Whisper transcription work on macOS 14.2+. Qwen3 ASR requires
+macOS 15+ and is only offered on supported systems. A saved Qwen3 selection
+resolves to Parakeet v2 on Sonoma, including batch transcription; choose a
+multilingual model instead if needed. The selected model's actual name is shown
+in Settings and recorded in session metadata.
+
+Grant both microphone and system audio recording access when macOS asks.
+You can start recording after joining a meeting. Select the output device that
+actually carries the call audio, especially when using headphones or an external
+display. See [macOS compatibility and verification](docs/macos-compatibility.md)
+for build checks and a short system-audio test.
 
 ## Knowledge base
 

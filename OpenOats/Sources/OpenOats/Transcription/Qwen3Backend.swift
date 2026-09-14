@@ -3,6 +3,7 @@ import Foundation
 
 /// Transcription backend for Qwen3 ASR 0.6B (30 languages, explicit language hints).
 /// @unchecked Sendable: qwen3Manager is written once in prepare() before any transcribe() calls.
+@available(macOS 15, *)
 final class Qwen3Backend: TranscriptionBackend, @unchecked Sendable {
     let displayName = "Qwen3 ASR 0.6B"
     private let variant: Qwen3AsrVariant

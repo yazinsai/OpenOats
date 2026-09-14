@@ -53,7 +53,7 @@ actor SetupDetector {
 
         nonisolated func modelStatuses() -> [TranscriptionModel: BackendStatus] {
             var result: [TranscriptionModel: BackendStatus] = [:]
-            for model in TranscriptionModel.allCases {
+            for model in TranscriptionModel.availableCases {
                 result[model] = model.makeBackend().checkStatus()
             }
             return result

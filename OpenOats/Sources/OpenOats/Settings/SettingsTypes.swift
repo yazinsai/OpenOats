@@ -346,6 +346,24 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
     case elevenLabsScribe
     case cohereTranscribeArabic
 
+    /// Qwen3's FluidAudio backend uses macOS 15-only APIs.
+    func isSupported(on version: OperatingSystemVersion) -> Bool {
+        self != .qwen3ASR06B || version.majorVersion >= 15
+    }
+
+    var isAvailable: Bool {
+        isSupported(on: ProcessInfo.processInfo.operatingSystemVersion)
+    }
+
+    static var availableCases: [TranscriptionModel] {
+        allCases.filter(\.isAvailable)
+    }
+
+    /// Resolve saved selections from a newer OS before displaying/starting them.
+    var availableModel: TranscriptionModel {
+        isAvailable ? self : .parakeetV2
+    }
+
     var id: String { rawValue }
 
     var isCloud: Bool {
@@ -450,7 +468,11 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
         switch self {
         case .parakeetV2: return ParakeetBackend(version: .v2, customVocabulary: customVocabulary)
         case .parakeetV3: return ParakeetBackend(version: .v3, customVocabulary: customVocabulary)
-        case .qwen3ASR06B: return Qwen3Backend()
+        case .qwen3ASR06B:
+            if #available(macOS 15, *) {
+                return Qwen3Backend()
+            }
+            return ParakeetBackend(version: .v2, customVocabulary: customVocabulary)
         case .whisperBase: return WhisperKitBackend(variant: .base)
         case .whisperSmall: return WhisperKitBackend(variant: .small)
         case .whisperLargeV3Turbo: return WhisperKitBackend(variant: .largeV3Turbo)
@@ -475,7 +497,7 @@ enum TranscriptionModel: String, CaseIterable, Identifiable {
 
     /// Models suitable for offline batch re-transcription.
     static var batchSuitableModels: [TranscriptionModel] {
-        [.parakeetV2, .parakeetV3, .whisperSmall, .whisperLargeV3Turbo, .qwen3ASR06B]
+        [.parakeetV2, .parakeetV3, .whisperSmall, .whisperLargeV3Turbo, .qwen3ASR06B].filter(\.isAvailable)
     }
 }
 

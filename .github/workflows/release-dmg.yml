@@ -139,6 +139,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           DMG_PATH="dist/OpenOats.dmg"
+          MINIMUM_MACOS_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' dist/OpenOats.app/Contents/Info.plist)
 
           # Extract sign_update from Sparkle build artifacts
           SIGN_UPDATE=$(find OpenOats/.build/artifacts/sparkle -name "sign_update" -type f 2>/dev/null | head -1)
@@ -182,7 +183,7 @@ jobs:
                 <pubDate>${PUB_DATE}</pubDate>
                 <sparkle:version>${RELEASE_VERSION}</sparkle:version>
                 <sparkle:shortVersionString>${RELEASE_VERSION}</sparkle:shortVersionString>
-                <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+                <sparkle:minimumSystemVersion>${MINIMUM_MACOS_VERSION}</sparkle:minimumSystemVersion>
                 <enclosure url="${DMG_URL}"
                            sparkle:edSignature="${ED_SIGNATURE}"
                            length="${DMG_LENGTH}"
@@ -207,12 +208,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           SHA256=$(shasum -a 256 dist/OpenOats.dmg | awk '{print $1}')
+          MINIMUM_MACOS_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' dist/OpenOats.app/Contents/Info.plist)
           REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/yazinsai/OpenOats.git"
 
           git clone --branch main --single-branch "$REPO_URL" /tmp/openoats-main
 
           chmod +x /tmp/openoats-main/scripts/update_homebrew_cask.sh
-          /tmp/openoats-main/scripts/update_homebrew_cask.sh "$RELEASE_VERSION" "$SHA256"
+          /tmp/openoats-main/scripts/update_homebrew_cask.sh "$RELEASE_VERSION" "$SHA256" "$MINIMUM_MACOS_VERSION"
 
           cd /tmp/openoats-main
           git config user.name "github-actions[bot]"

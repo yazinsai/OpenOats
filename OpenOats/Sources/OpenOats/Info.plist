@@ -30,7 +30,7 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
-    <string>15.0</string>
+    <string>14.2</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>OpenOats needs microphone access to transcribe your voice in real-time during conversations.</string>
     <key>NSAudioCaptureUsageDescription</key>

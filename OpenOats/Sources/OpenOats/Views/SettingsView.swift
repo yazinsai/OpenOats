@@ -521,18 +521,24 @@ private struct TranscriptionSettingsTab: View {
                 Section("Transcription") {
                     Picker("Model", selection: $settings.transcriptionModel) {
                         Section("Local") {
-                            ForEach(TranscriptionModel.allCases.filter { !$0.isCloud }) { model in
+                            ForEach(TranscriptionModel.availableCases.filter { !$0.isCloud }) { model in
                                 Text(model.displayName).tag(model)
                             }
                         }
                         Section("Cloud") {
-                            ForEach(TranscriptionModel.allCases.filter { $0.isCloud }) { model in
+                            ForEach(TranscriptionModel.availableCases.filter { $0.isCloud }) { model in
                                 Text(model.displayName).tag(model)
                             }
                         }
                     }
                     .font(.system(size: 12))
                     .accessibilityIdentifier("settings.transcriptionModelPicker")
+
+                    if !TranscriptionModel.qwen3ASR06B.isAvailable {
+                        Text("Qwen3 ASR requires macOS 15 or later. Parakeet and Whisper are available on this Mac.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
 
                     if settings.transcriptionModel.isCloud {
                         switch settings.transcriptionModel {

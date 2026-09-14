@@ -719,8 +719,8 @@ final class SettingsStore {
         get { access(keyPath: \.transcriptionModel); return _transcriptionModel }
         set {
             withMutation(keyPath: \.transcriptionModel) {
-                _transcriptionModel = newValue
-                defaults.set(newValue.rawValue, forKey: "transcriptionModel")
+                _transcriptionModel = newValue.availableModel
+                defaults.set(_transcriptionModel.rawValue, forKey: "transcriptionModel")
             }
         }
     }
@@ -797,8 +797,8 @@ final class SettingsStore {
         get { access(keyPath: \.batchTranscriptionModel); return _batchTranscriptionModel }
         set {
             withMutation(keyPath: \.batchTranscriptionModel) {
-                _batchTranscriptionModel = newValue
-                defaults.set(newValue.rawValue, forKey: "batchTranscriptionModel")
+                _batchTranscriptionModel = newValue.availableModel
+                defaults.set(_batchTranscriptionModel.rawValue, forKey: "batchTranscriptionModel")
             }
         }
     }
@@ -1533,9 +1533,9 @@ final class SettingsStore {
             let name = SystemAudioCapture.availableOutputDevices().first(where: { $0.id == savedOutputID })?.name
             if let name { defaults.set(name, forKey: "outputDeviceName") }
         }
-        self._transcriptionModel = TranscriptionModel(
+        self._transcriptionModel = (TranscriptionModel(
             rawValue: defaults.string(forKey: "transcriptionModel") ?? ""
-        ) ?? .parakeetV2
+        ) ?? .parakeetV2).availableModel
         self._transcriptionLocale = defaults.string(forKey: "transcriptionLocale") ?? "en-US"
         self._transcriptionCustomVocabulary = defaults.string(forKey: "transcriptionCustomVocabulary") ?? ""
         self._removeFillerWords = defaults.bool(forKey: "removeFillerWords")
@@ -1552,9 +1552,9 @@ final class SettingsStore {
         } else {
             self._enableBatchRetranscription = defaults.bool(forKey: "enableBatchRetranscription")
         }
-        self._batchTranscriptionModel = TranscriptionModel(
+        self._batchTranscriptionModel = (TranscriptionModel(
             rawValue: defaults.string(forKey: "batchTranscriptionModel") ?? ""
-        ) ?? .whisperLargeV3Turbo
+        ) ?? .whisperLargeV3Turbo).availableModel
         self._enableDiarization = defaults.bool(forKey: "enableDiarization")
         self._diarizationVariant = defaults.string(forKey: "diarizationVariant") ?? DiarizationVariant.dihard3.rawValue
 

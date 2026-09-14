@@ -245,17 +245,10 @@ final class SystemAudioCapture: @unchecked Sendable {
             }
 
             let tapUUID = UUID()
-            let tapDescription = CATapDescription()
-            tapDescription.name = "OpenOats System Audio"
-            tapDescription.uuid = tapUUID
             let processObjectID = Self.currentProcessObjectID()
-            tapDescription.processes = processObjectID.map { [$0] } ?? []
-            tapDescription.isPrivate = true
-            tapDescription.muteBehavior = .unmuted
-            tapDescription.isMixdown = true
-            tapDescription.isMono = true
-            tapDescription.isExclusive = true
-            tapDescription.deviceUID = outputUID
+            let tapDescription = Self.makeTapDescription(
+                outputUID: outputUID, excludingProcess: processObjectID, uuid: tapUUID
+            )
 
             var tapID = AudioObjectID(kAudioObjectUnknown)
             var status = AudioHardwareCreateProcessTap(tapDescription, &tapID)
@@ -282,6 +275,10 @@ final class SystemAudioCapture: @unchecked Sendable {
             guard status == noErr else {
                 _sysContinuation.withLock { $0?.finish(); $0 = nil }
                 throw CaptureError.tapCreationFailed(status)
+            }
+            guard Self.isValidTapID(tapID) else {
+                lastError = CaptureError.tapCreationFailed(kAudioHardwareBadObjectError)
+                continue
             }
             // Register immediately so a concurrent stop() can clean up this tap
             // even if we're still sleeping inside the format-query retry loop.
@@ -470,6 +467,29 @@ final class SystemAudioCapture: @unchecked Sendable {
         )
         // #endregion
         throw lastError
+    }
+
+    static func makeTapDescription(
+        outputUID: String, excludingProcess processID: AudioObjectID?, uuid: UUID
+    ) -> CATapDescription {
+        let description = CATapDescription()
+        description.name = "OpenOats System Audio"
+        description.uuid = uuid
+        description.processes = processID.map { [$0] } ?? []
+        description.isPrivate = true
+        description.muteBehavior = .unmuted
+        description.isMixdown = true
+        description.isMono = true
+        description.isExclusive = true
+        description.deviceUID = outputUID
+        // A device-bound tap needs a stream index on Sonoma. Otherwise the HAL
+        // reports "Stream out of range for tap" and may return success with ID 0.
+        description.stream = 0
+        return description
+    }
+
+    static func isValidTapID(_ tapID: AudioObjectID) -> Bool {
+        tapID != AudioObjectID(kAudioObjectUnknown)
     }
 
     /// Finish the async stream so consumers exit their for-await loop.
