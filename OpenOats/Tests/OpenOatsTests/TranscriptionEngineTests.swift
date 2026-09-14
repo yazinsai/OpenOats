@@ -97,6 +97,14 @@ final class TranscriptionEngineTests: XCTestCase {
         )
     }
 
+    // MARK: - VAD loading
+
+    func testShouldLoadVADFalseForSpeechAnalyzer() {
+        XCTAssertFalse(TranscriptionEngine.shouldLoadVAD(for: .speechAnalyzer))
+        XCTAssertTrue(TranscriptionEngine.shouldLoadVAD(for: .parakeetV3))
+        XCTAssertTrue(TranscriptionEngine.shouldLoadVAD(for: .whisperBase))
+    }
+
     // MARK: - Diarization Feed Gate
 
     func testDiarizationFeedRelayStopsAfterFirstFailure() async {
