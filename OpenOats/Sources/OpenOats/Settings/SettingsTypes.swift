@@ -335,6 +335,55 @@ enum DiarizationVariant: String, CaseIterable, Identifiable {
     }
 }
 
+/// How long audio retained for batch re-transcription (mic.caf / sys.caf) is
+/// kept before the automatic sweep deletes it. Raw values persist in UserDefaults.
+enum RetainedBatchAudioRetention: String, CaseIterable, Identifiable {
+    case threeDays
+    case sevenDays
+    case fourteenDays
+    case thirtyDays
+    case forever
+
+    static let `default`: RetainedBatchAudioRetention = .sevenDays
+    static let defaultsKey = "retainedBatchAudioRetention"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .threeDays: "3 days"
+        case .sevenDays: "7 days"
+        case .fourteenDays: "14 days"
+        case .thirtyDays: "30 days"
+        case .forever: "Keep forever"
+        }
+    }
+
+    /// Retention window in seconds; `nil` means keep forever.
+    var timeInterval: TimeInterval? {
+        switch self {
+        case .threeDays: 3 * 24 * 3600
+        case .sevenDays: 7 * 24 * 3600
+        case .fourteenDays: 14 * 24 * 3600
+        case .thirtyDays: 30 * 24 * 3600
+        case .forever: nil
+        }
+    }
+
+    /// Decodes the persisted value. Only a genuinely-unset key gets the 7-day
+    /// default; an unknown or non-string value (downgrade path, corruption)
+    /// fails CLOSED to keep-forever — deletion is destructive, so unknown
+    /// state must mean keep, never delete.
+    static func stored(in defaults: UserDefaults) -> RetainedBatchAudioRetention {
+        guard let object = defaults.object(forKey: defaultsKey) else { return .default }
+        guard let raw = object as? String,
+              let value = RetainedBatchAudioRetention(rawValue: raw) else {
+            return .forever
+        }
+        return value
+    }
+}
+
 enum TranscriptionModel: String, CaseIterable, Identifiable {
     case parakeetV2
     case parakeetV3

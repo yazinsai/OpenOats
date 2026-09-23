@@ -218,6 +218,48 @@ final class NotesControllerTests: XCTestCase {
         XCTAssertTrue(controller.state.hasOriginalTranscriptBackup)
     }
 
+    func testRetentionSweepRefreshDoesNotApplyToASessionDeselectedMidRefresh() async throws {
+        let (root, _) = makeTempDirs()
+        let (controller, coordinator) = makeController(root: root)
+        let sessionID = "session_test_sweep_refresh_deselect"
+
+        await seedSession(coordinator: coordinator, sessionID: sessionID)
+
+        let audioDir = coordinator.sessionRepository.sessionsDirectoryURL
+            .appendingPathComponent(sessionID, isDirectory: true)
+            .appendingPathComponent("audio", isDirectory: true)
+        try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+        try Data("sys".utf8).write(to: audioDir.appendingPathComponent("sys.caf"))
+
+        controller.selectSession(sessionID)
+        try? await Task.sleep(for: .milliseconds(200))
+        XCTAssertTrue(controller.state.canRetranscribeSelectedSession)
+        XCTAssertFalse(controller.state.availableAudioSources.isEmpty)
+
+        // The sweep refresh awaits the repository before it writes. One yield
+        // lets it start and park on that hop; the selection then changes while
+        // it is suspended, which is the interleaving the guards must survive.
+        controller.handleRetainedAudioSwept(sessionIDs: [sessionID])
+        await Task.yield()
+        controller.selectSession(nil)
+
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertNil(controller.state.selectedSessionID)
+        XCTAssertTrue(
+            controller.state.availableAudioSources.isEmpty,
+            "Swept session's audio sources leaked into the cleared selection"
+        )
+        XCTAssertNil(
+            controller.state.audioFileURL,
+            "Swept session's audio URL leaked into the cleared selection"
+        )
+        XCTAssertFalse(
+            controller.state.canRetranscribeSelectedSession,
+            "Swept session's re-transcribe availability leaked into the cleared selection"
+        )
+    }
+
     func testRestoreOriginalTranscriptReloadsSelectedSession() async {
         let (root, _) = makeTempDirs()
         let (controller, coordinator) = makeController(root: root)

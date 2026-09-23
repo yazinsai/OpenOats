@@ -334,6 +334,92 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(reopened.enableBatchRetranscription)
     }
 
+    func testDefaultRetainedBatchAudioRetention() {
+        let store = makeStore()
+        XCTAssertEqual(store.retainedBatchAudioRetention, .sevenDays)
+    }
+
+    func testRetainedBatchAudioRetentionDecodeFallbacks() {
+        // Genuinely unset key → the shipped 7-day default.
+        XCTAssertEqual(makeStore().retainedBatchAudioRetention, .sevenDays)
+
+        // Unknown raw value (e.g. written by a newer version) → fail closed
+        // to keep-forever; deletion must never come from unknown state.
+        let garbage = UserDefaults(suiteName: "com.openoats.test.\(UUID().uuidString)")!
+        garbage.set("everyFortnight", forKey: "retainedBatchAudioRetention")
+        XCTAssertEqual(makeStore(defaults: garbage).retainedBatchAudioRetention, .forever)
+
+        // Non-string value → fail closed to keep-forever.
+        let corrupt = UserDefaults(suiteName: "com.openoats.test.\(UUID().uuidString)")!
+        corrupt.set(42, forKey: "retainedBatchAudioRetention")
+        XCTAssertEqual(makeStore(defaults: corrupt).retainedBatchAudioRetention, .forever)
+    }
+
+    func testRetainedBatchAudioRetentionRoundTrip() {
+        let suiteName = "com.openoats.test.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = makeStore(defaults: defaults)
+        store.retainedBatchAudioRetention = .forever
+
+        XCTAssertEqual(defaults.string(forKey: "retainedBatchAudioRetention"), "forever")
+
+        let reopened = makeStore(defaults: defaults)
+        XCTAssertEqual(reopened.retainedBatchAudioRetention, .forever)
+    }
+
+    func testRetainedBatchAudioRetentionIntervalTracksTheSetting() {
+        let store = makeStore()
+        XCTAssertEqual(store.retainedBatchAudioRetentionInterval, 7 * 24 * 3600)
+
+        store.retainedBatchAudioRetention = .thirtyDays
+        XCTAssertEqual(store.retainedBatchAudioRetentionInterval, 30 * 24 * 3600)
+
+        store.retainedBatchAudioRetention = .threeDays
+        XCTAssertEqual(store.retainedBatchAudioRetentionInterval, 3 * 24 * 3600)
+
+        // Keep-forever must reach the sweep as "no retention window".
+        store.retainedBatchAudioRetention = .forever
+        XCTAssertNil(store.retainedBatchAudioRetentionInterval)
+    }
+
+    func testRetainedBatchAudioRetentionIntervalFailsClosedOnUnknownStoredValue() {
+        let garbage = UserDefaults(suiteName: "com.openoats.test.\(UUID().uuidString)")!
+        garbage.set("everyFortnight", forKey: "retainedBatchAudioRetention")
+        XCTAssertNil(makeStore(defaults: garbage).retainedBatchAudioRetentionInterval)
+    }
+
+    /// The repository's sweep reads this off the main actor while the settings
+    /// picker writes it on the main actor. Reading the backing storage without
+    /// synchronisation is a data race on the value, not just a stale read, so
+    /// hammer both sides together. Under `--sanitize=thread` this test is the
+    /// one that reports the race.
+    func testRetainedBatchAudioRetentionIntervalIsSafeToReadOffTheMainActor() async {
+        let store = makeStore()
+        let legalIntervals: Set<TimeInterval> = Set(
+            RetainedBatchAudioRetention.allCases.compactMap(\.timeInterval)
+        )
+
+        let reader = Task.detached {
+            var observed: [TimeInterval?] = []
+            for _ in 0..<2_000 {
+                observed.append(store.retainedBatchAudioRetentionInterval)
+            }
+            return observed
+        }
+
+        let cases = RetainedBatchAudioRetention.allCases
+        for index in 0..<2_000 {
+            store.retainedBatchAudioRetention = cases[index % cases.count]
+        }
+
+        for value in await reader.value {
+            guard let value else { continue }
+            XCTAssertTrue(legalIntervals.contains(value), "Observed a torn retention value: \(value)")
+        }
+    }
+
     func testDiagnosticLoggingRoundTrip() {
         let store = makeStore()
         XCTAssertFalse(store.diagnosticLoggingEnabled)

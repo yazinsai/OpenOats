@@ -179,8 +179,26 @@ struct SessionMetadata: Codable, Sendable {
 /// sessions/<id>/audio/
 /// ```
 actor SessionRepository {
-    /// Retain batch stems/metadata long enough to support true reruns and debugging.
-    private static let retainedBatchAudioLifetime: TimeInterval = 7 * 24 * 3600
+    /// Default retention for batch stems/metadata: long enough to support true reruns and debugging.
+    static let retainedBatchAudioLifetime: TimeInterval = 7 * 24 * 3600
+
+    /// How often the running app re-checks retained batch audio for expiry.
+    /// The init-time sweep alone is not enough for a menu-bar app that stays up for weeks.
+    static let retainedBatchAudioSweepInterval: TimeInterval = 6 * 3600
+
+    /// Returns the current retention window in seconds (`nil` = keep forever).
+    /// Re-read on every sweep so setting changes apply without a relaunch.
+    private let batchAudioRetention: @Sendable () -> TimeInterval?
+
+    /// Repeating background sweep started in `init`, cancelled in `deinit`.
+    private var retainedAudioSweepTask: Task<Void, Never>?
+
+    /// Sessions whose retained audio is currently being read by a batch run,
+    /// with a count so overlapping runs for the same session keep the guard up.
+    private var activeBatchAudioAccessCounts: [String: Int] = [:]
+
+    /// Invoked with the affected session IDs after a sweep removes retained audio.
+    private var onRetainedAudioSwept: (@Sendable ([String]) -> Void)?
 
     private let sessionsDirectory: URL
     private let encoder: JSONEncoder
@@ -216,9 +234,21 @@ actor SessionRepository {
     /// Default minimum interval between retries of a failed mirror.
     static let defaultMirrorRetryBackoff: TimeInterval = 5 * 60
 
-    /// - Parameter mirrorRetryBackoff: Minimum interval between retries of a
-    ///   session whose notes-folder mirror failed. Lowered by tests.
-    init(rootDirectory: URL? = nil, mirrorRetryBackoff: TimeInterval = SessionRepository.defaultMirrorRetryBackoff) {
+    /// - Parameters:
+    ///   - mirrorRetryBackoff: Minimum interval between retries of a session
+    ///     whose notes-folder mirror failed. Lowered by tests.
+    ///   - batchAudioRetention: How long retained batch audio lives. `nil`
+    ///     keeps it forever.
+    init(
+        rootDirectory: URL? = nil,
+        mirrorRetryBackoff: TimeInterval = SessionRepository.defaultMirrorRetryBackoff,
+        // Fail closed: deleting audio is destructive, so a constructor path that
+        // does not wire the retention setting (tests, UI-test bootstrap, future
+        // call sites) must keep forever, never silently become a deleter.
+        batchAudioRetention: @escaping @Sendable () -> TimeInterval? = { nil }
+    ) {
+        self.batchAudioRetention = batchAudioRetention
+
         let baseDirectory: URL
         if let rootDirectory {
             baseDirectory = rootDirectory
@@ -242,9 +272,25 @@ actor SessionRepository {
         try? FileManager.default.createDirectory(at: sessionsDirectory, withIntermediateDirectories: true)
         Self.dropMetadataNeverIndex(in: sessionsDirectory)
 
-        Self.cleanupExpiredRetainedBatchAudio(in: sessionsDirectory)
+        Self.cleanupExpiredRetainedBatchAudio(in: sessionsDirectory, olderThan: batchAudioRetention())
 
         Task { await self.restorePendingMirrors() }
+        Task { [weak self] in await self?.startPeriodicRetainedBatchAudioSweeps() }
+    }
+
+    deinit {
+        retainedAudioSweepTask?.cancel()
+    }
+
+    private func startPeriodicRetainedBatchAudioSweeps() {
+        guard retainedAudioSweepTask == nil else { return }
+        retainedAudioSweepTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.retainedBatchAudioSweepInterval))
+                guard !Task.isCancelled, let self else { break }
+                await self.sweepExpiredRetainedBatchAudio()
+            }
+        }
     }
 
     // MARK: - Configuration
@@ -277,6 +323,12 @@ actor SessionRepository {
     /// Register a callback invoked once per session when a write error occurs.
     func setWriteErrorHandler(_ handler: @escaping @Sendable (String) -> Void) {
         onWriteError = handler
+    }
+
+    /// Register a callback invoked with the affected session IDs after a sweep
+    /// removes retained batch audio, so dependent UI state can re-derive.
+    func setRetainedAudioSweepHandler(_ handler: @escaping @Sendable ([String]) -> Void) {
+        onRetainedAudioSwept = handler
     }
 
     // MARK: - Session Lifecycle
@@ -1558,20 +1610,29 @@ actor SessionRepository {
         return true
     }
 
-    func cleanupBatchAudio(sessionID: String) {
-        let fm = FileManager.default
+    /// Marks a session's retained audio as in use by a batch transcription run,
+    /// which blocks the retention sweep and user deletion for that session.
+    /// Balanced by `endBatchAudioAccess`.
+    func beginBatchAudioAccess(sessionID: String) {
+        activeBatchAudioAccessCounts[sessionID, default: 0] += 1
+    }
 
-        // Clean canonical audio/
-        let audioDir = sessionDirectory(for: sessionID).appendingPathComponent("audio", isDirectory: true)
-        try? fm.removeItem(at: audioDir.appendingPathComponent("mic.caf"))
-        try? fm.removeItem(at: audioDir.appendingPathComponent("sys.caf"))
-        try? fm.removeItem(at: audioDir.appendingPathComponent("batch-meta.json"))
+    func endBatchAudioAccess(sessionID: String) {
+        guard let count = activeBatchAudioAccessCounts[sessionID] else { return }
+        if count <= 1 {
+            activeBatchAudioAccessCounts.removeValue(forKey: sessionID)
+        } else {
+            activeBatchAudioAccessCounts[sessionID] = count - 1
+        }
+    }
 
-        // Clean legacy layout
-        let dir = sessionDirectory(for: sessionID)
-        try? fm.removeItem(at: dir.appendingPathComponent("mic.caf"))
-        try? fm.removeItem(at: dir.appendingPathComponent("sys.caf"))
-        try? fm.removeItem(at: dir.appendingPathComponent("batch-meta.json"))
+    /// Removes retained batch audio for one session. Refuses (returns `false`)
+    /// while a batch run is reading the stems, or when the session's `audio/`
+    /// is a symlink and deleting would reach through it.
+    @discardableResult
+    func cleanupBatchAudio(sessionID: String) -> Bool {
+        guard activeBatchAudioAccessCounts[sessionID] == nil else { return false }
+        return Self.removeRetainedBatchAudio(inSessionDirectory: sessionDirectory(for: sessionID))
     }
 
     func loadBatchMeta(sessionID: String) -> BatchMeta? {
@@ -2329,46 +2390,213 @@ actor SessionRepository {
 
     // MARK: - Orphan Cleanup
 
-    private static func cleanupExpiredRetainedBatchAudio(in sessionsDirectory: URL) {
+    /// Re-evaluates retained batch audio against the current retention setting.
+    /// Sessions with an in-flight batch run are skipped.
+    func sweepExpiredRetainedBatchAudio() {
+        let removed = Self.cleanupExpiredRetainedBatchAudio(
+            in: sessionsDirectory,
+            olderThan: batchAudioRetention(),
+            excluding: Set(activeBatchAudioAccessCounts.keys)
+        )
+        if !removed.isEmpty {
+            onRetainedAudioSwept?(removed)
+        }
+    }
+
+    /// Deletes retained batch audio whose newest artifact is older than `retention`.
+    /// A `nil` retention means keep forever. Returns the affected session IDs.
+    @discardableResult
+    static func cleanupExpiredRetainedBatchAudio(
+        in sessionsDirectory: URL,
+        olderThan retention: TimeInterval?,
+        excluding activeSessionIDs: Set<String> = [],
+        now: Date = Date()
+    ) -> [String] {
+        guard let retention else { return [] }
+
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(
             at: sessionsDirectory,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey]
-        ) else { return }
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        ) else { return [] }
 
-        let cutoff = Date().addingTimeInterval(-retainedBatchAudioLifetime)
+        let cutoff = now.addingTimeInterval(-retention)
+        var removed: [String] = []
 
         for item in contents {
-            guard let values = try? item.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey]),
-                  values.isDirectory == true else { continue }
+            // Skip symlinks: resource values follow links, so a symlink named
+            // session_* would otherwise delete its target's stems.
+            guard let values = try? item.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+                  values.isDirectory == true,
+                  values.isSymbolicLink != true else { continue }
 
             let name = item.lastPathComponent
             guard name.hasPrefix("session_") else { continue }
+            guard !activeSessionIDs.contains(name) else { continue }
 
-            // Check both canonical audio/ and legacy layout
-            let audioDir = item.appendingPathComponent("audio", isDirectory: true)
-            let micCanonical = audioDir.appendingPathComponent("mic.caf")
-            let sysCanonical = audioDir.appendingPathComponent("sys.caf")
-            let micLegacy = item.appendingPathComponent("mic.caf")
-            let sysLegacy = item.appendingPathComponent("sys.caf")
+            let dates = retainedBatchAudioDates(inSessionDirectory: item)
 
-            let hasAudio = fm.fileExists(atPath: micCanonical.path) ||
-                           fm.fileExists(atPath: sysCanonical.path) ||
-                           fm.fileExists(atPath: micLegacy.path) ||
-                           fm.fileExists(atPath: sysLegacy.path)
+            // An artifact whose date could not be read has an unknown age. This
+            // sweep unlinks user audio, so unknown state means keep: without
+            // this guard a present-but-unreadable stem looks identical to an
+            // absent one, and an expired batch-meta.json would delete stems
+            // that were never shown to be old.
+            if dates.hasUnreadable {
+                Log.sessionRepository.info(
+                    "Keeping retained batch audio in \(name, privacy: .public): modification date unreadable"
+                )
+            }
+            guard retainedBatchAudioIsExpired(dates, cutoff: cutoff) else { continue }
 
-            guard hasAudio else { continue }
+            guard removeRetainedBatchAudio(inSessionDirectory: item) else {
+                Log.sessionRepository.info(
+                    "Keeping retained batch audio in \(name, privacy: .public): audio/ is a symlink"
+                )
+                continue
+            }
+            removed.append(name)
+            Log.sessionRepository.info("Cleaned up expired retained batch audio in \(name, privacy: .public)")
+        }
+        return removed
+    }
 
-            if let modDate = values.contentModificationDate, modDate < cutoff {
-                try? fm.removeItem(at: micCanonical)
-                try? fm.removeItem(at: sysCanonical)
-                try? fm.removeItem(at: audioDir.appendingPathComponent("batch-meta.json"))
-                try? fm.removeItem(at: micLegacy)
-                try? fm.removeItem(at: sysLegacy)
-                try? fm.removeItem(at: item.appendingPathComponent("batch-meta.json"))
-                Log.sessionRepository.info("Cleaned up expired retained batch audio in \(name, privacy: .public)")
+    /// The date that decides retained-audio expiry: the newest modification date
+    /// among mic.caf / sys.caf / batch-meta.json in the canonical and legacy
+    /// layouts. The session directory's own date is deliberately ignored —
+    /// unrelated metadata writes (notes edits, speaker renames) bump it and
+    /// would reset the TTL indefinitely. Returns `nil` when the session has no
+    /// retained audio stems.
+    static func newestRetainedBatchAudioModificationDate(inSessionDirectory sessionDirectory: URL) -> Date? {
+        let dates = retainedBatchAudioDates(inSessionDirectory: sessionDirectory)
+        guard !dates.hasUnreadable, let stems = dates.stems else { return nil }
+        return max(stems, dates.metadata ?? stems)
+    }
+
+    /// Whether a session's retained audio has expired, given its artifact dates.
+    /// Pure, so the fail-open rules can be asserted directly rather than through
+    /// filesystem states that are hard to stage without also blocking deletion.
+    static func retainedBatchAudioIsExpired(
+        _ dates: RetainedBatchAudioDates,
+        cutoff: Date
+    ) -> Bool {
+        // An artifact whose date could not be read has an unknown age, and this
+        // sweep unlinks user audio, so unknown means keep. Without this a
+        // present-but-unreadable stem is indistinguishable from an absent one,
+        // and an expired batch-meta.json would delete stems that were never
+        // shown to be old.
+        guard !dates.hasUnreadable else { return false }
+
+        if let stems = dates.stems {
+            return max(stems, dates.metadata ?? stems) < cutoff
+        }
+        if let metadata = dates.metadata {
+            // No stems left: a lone batch-meta.json would otherwise live forever.
+            return metadata < cutoff
+        }
+        return false
+    }
+
+    /// Modification dates of a session's retained audio artifacts.
+    struct RetainedBatchAudioDates {
+        /// Newest date among the mic/sys stems, or `nil` when none are present.
+        var stems: Date?
+        /// Newest date among the batch-meta.json files, or `nil` when absent.
+        var metadata: Date?
+        /// True when an artifact is present but its date could not be read.
+        /// Callers that delete must treat this as "age unknown" and keep.
+        var hasUnreadable: Bool
+    }
+
+    static func retainedBatchAudioDates(
+        inSessionDirectory sessionDirectory: URL
+    ) -> RetainedBatchAudioDates {
+        let audioDir = sessionDirectory.appendingPathComponent("audio", isDirectory: true)
+        let audioStems = [
+            audioDir.appendingPathComponent("mic.caf"),
+            audioDir.appendingPathComponent("sys.caf"),
+            sessionDirectory.appendingPathComponent("mic.caf"),
+            sessionDirectory.appendingPathComponent("sys.caf"),
+        ]
+        let metadataFiles = [
+            audioDir.appendingPathComponent("batch-meta.json"),
+            sessionDirectory.appendingPathComponent("batch-meta.json"),
+        ]
+
+        var result = RetainedBatchAudioDates(stems: nil, metadata: nil, hasUnreadable: false)
+        for url in audioStems {
+            switch modificationDate(of: url) {
+            case .date(let date): result.stems = max(result.stems ?? date, date)
+            case .unreadable: result.hasUnreadable = true
+            case .absent: continue
             }
         }
+        for url in metadataFiles {
+            switch modificationDate(of: url) {
+            case .date(let date): result.metadata = max(result.metadata ?? date, date)
+            case .unreadable: result.hasUnreadable = true
+            case .absent: continue
+            }
+        }
+        return result
+    }
+
+    /// Why a modification date is unavailable, which a plain `Date?` cannot say.
+    /// "Not there" and "there but unreadable" call for opposite decisions when
+    /// the answer drives a deletion.
+    enum ModificationDateResult: Equatable {
+        case date(Date)
+        case absent
+        case unreadable
+    }
+
+    static func modificationDate(of url: URL) -> ModificationDateResult {
+        do {
+            let values = try url.resourceValues(forKeys: [.contentModificationDateKey])
+            guard let date = values.contentModificationDate else { return .unreadable }
+            return .date(date)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile
+            || error.code == .fileNoSuchFile {
+            return .absent
+        } catch {
+            return .unreadable
+        }
+    }
+
+    /// Removes retained batch audio artifacts in both canonical and legacy
+    /// layouts. Returns `false` without deleting anything when `audio/` is a
+    /// symlink.
+    ///
+    /// `removeItem` resolves every path component but the last, so
+    /// `<session>/audio/mic.caf` deletes through a symlinked `audio/` and takes
+    /// the real file on the other volume with it. Relocating `audio/` is exactly
+    /// what a user storing gigabytes per meeting is likely to have done, so the
+    /// canonical removals are refused rather than redirected.
+    @discardableResult
+    static func removeRetainedBatchAudio(inSessionDirectory sessionDirectory: URL) -> Bool {
+        let fm = FileManager.default
+
+        let audioDir = sessionDirectory.appendingPathComponent("audio", isDirectory: true)
+        if isSymbolicLink(audioDir) { return false }
+
+        // Canonical audio/ layout
+        try? fm.removeItem(at: audioDir.appendingPathComponent("mic.caf"))
+        try? fm.removeItem(at: audioDir.appendingPathComponent("sys.caf"))
+        try? fm.removeItem(at: audioDir.appendingPathComponent("batch-meta.json"))
+
+        // Legacy layout (files directly in the session directory)
+        try? fm.removeItem(at: sessionDirectory.appendingPathComponent("mic.caf"))
+        try? fm.removeItem(at: sessionDirectory.appendingPathComponent("sys.caf"))
+        try? fm.removeItem(at: sessionDirectory.appendingPathComponent("batch-meta.json"))
+        return true
+    }
+
+    /// Whether `url` is itself a symlink. Uses the no-follow attribute lookup:
+    /// `resourceValues(forKeys: [.isSymbolicLinkKey])` answers about the link,
+    /// but only when the link resolves.
+    static func isSymbolicLink(_ url: URL) -> Bool {
+        guard let type = try? FileManager.default
+            .attributesOfItem(atPath: url.path)[.type] as? FileAttributeType else { return false }
+        return type == .typeSymbolicLink
     }
 }
 

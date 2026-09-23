@@ -50,6 +50,7 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
     private let sessionFolderMenuItems: (SessionIndex) -> SessionFolderMenuItems
 
     @State private var confirmRestoreOriginalTranscript = false
+    @State private var confirmDeleteRetainedAudio = false
     @State private var appleNotesSyncState: AppleNotesSyncState = .idle
     @State private var appleNotesLastSyncDate: Date? = nil
     @State private var meetingFamilyBottomTab: MeetingFamilyBottomTab = .history
@@ -126,6 +127,18 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This replaces the current transcript with the saved pre-batch version for this session.")
+            }
+            .confirmationDialog(
+                "Delete retained audio?",
+                isPresented: $confirmDeleteRetainedAudio,
+                titleVisibility: .visible
+            ) {
+                Button("Delete Retained Audio", role: .destructive) {
+                    controller.deleteRetainedBatchAudio()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This removes the audio kept for re-transcribing this session. Transcripts and notes are kept, but re-transcription will no longer be available.")
             }
             .sheet(isPresented: $isAddTranscriptPresented) {
                 addTranscriptSheet(controller: controller)
@@ -2051,6 +2064,15 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                     systemImage: settings.enableDiarization ? "person.2" : "person.2.slash"
                 )
                 .foregroundStyle(.secondary)
+
+                Divider()
+
+                Button(role: .destructive) {
+                    confirmDeleteRetainedAudio = true
+                } label: {
+                    Label("Delete retained audio", systemImage: "trash")
+                }
+                .disabled(isBatchBusy)
             }
 
             if state.hasOriginalTranscriptBackup {
