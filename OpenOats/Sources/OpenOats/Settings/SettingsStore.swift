@@ -747,6 +747,19 @@ final class SettingsStore {
         }
     }
 
+    /// Hugging Face Hub-compatible endpoint for local model downloads. Empty means
+    /// HF_ENDPOINT / registry env vars, then huggingface.co. Applied at launch.
+    @ObservationIgnored nonisolated(unsafe) private var _huggingFaceEndpoint: String
+    var huggingFaceEndpoint: String {
+        get { access(keyPath: \.huggingFaceEndpoint); return _huggingFaceEndpoint }
+        set {
+            withMutation(keyPath: \.huggingFaceEndpoint) {
+                _huggingFaceEndpoint = newValue
+                defaults.set(newValue, forKey: "huggingFaceEndpoint")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _removeFillerWords: Bool
     var removeFillerWords: Bool {
         get { access(keyPath: \.removeFillerWords); return _removeFillerWords }
@@ -1538,6 +1551,7 @@ final class SettingsStore {
         ) ?? .parakeetV2
         self._transcriptionLocale = defaults.string(forKey: "transcriptionLocale") ?? "en-US"
         self._transcriptionCustomVocabulary = defaults.string(forKey: "transcriptionCustomVocabulary") ?? ""
+        self._huggingFaceEndpoint = defaults.string(forKey: "huggingFaceEndpoint") ?? ""
         self._removeFillerWords = defaults.bool(forKey: "removeFillerWords")
         self._saveAudioRecording = defaults.bool(forKey: "saveAudioRecording")
 

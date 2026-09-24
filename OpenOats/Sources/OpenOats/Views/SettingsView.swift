@@ -692,6 +692,29 @@ private struct TranscriptionSettingsTab: View {
                         .font(.system(size: 12))
                     }
                 }
+
+                Section("Model Downloads") {
+                    TextField("Hugging Face Hub endpoint", text: $settings.huggingFaceEndpoint, prompt: Text(ModelHubEndpoint.defaultEndpoint))
+                        .font(.system(size: 12))
+                    let resolved = ModelHubEndpoint.resolve(configured: settings.huggingFaceEndpoint)
+                    if let error = ModelHubEndpoint.validationError(resolved.endpoint) {
+                        Text(error)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.red)
+                    } else if resolved.endpoint.lowercased().hasPrefix("http:") {
+                        Text("This endpoint uses plain HTTP. Model files will be downloaded unencrypted.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.orange)
+                    }
+                    Text("Effective endpoint: \(resolved.endpoint) (\(resolved.source.rawValue))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    Text("Used for all local transcription, VAD, and diarization model downloads. Leave blank to use HF_ENDPOINT (then REGISTRY_URL / MODEL_REGISTRY_URL), or huggingface.co when none are set. The mirror must support the Hub API (api/models/…/revision, api/models/…/tree, and …/resolve routes); OpenOats never falls back to huggingface.co. Only use a mirror you trust. Restart OpenOats to apply changes.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .formStyle(.grouped)
         }

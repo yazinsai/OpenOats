@@ -36,7 +36,8 @@ final class WhisperKitManager: @unchecked Sendable {
         // Download with progress reporting, then load from the local folder.
         let modelFolder = try await WhisperKit.download(
             variant: variant.rawValue,
-            from: Variant.modelRepo
+            from: Variant.modelRepo,
+            endpoint: ModelHubEndpoint.current
         ) { progress in
             progressCallback?(progress.fractionCompleted)
         }
@@ -44,6 +45,7 @@ final class WhisperKitManager: @unchecked Sendable {
         let config = WhisperKitConfig(
             model: variant.rawValue,
             modelRepo: Variant.modelRepo,
+            modelEndpoint: ModelHubEndpoint.current,
             modelFolder: modelFolder.path,
             verbose: false,
             prewarm: true,

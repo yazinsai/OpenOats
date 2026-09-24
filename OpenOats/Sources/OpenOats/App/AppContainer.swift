@@ -71,6 +71,7 @@ final class AppContainer {
                     .appendingPathComponent("Documents/OpenOats", isDirectory: true)
             )
             let settings = AppSettings()
+            ModelHubEndpoint.apply(configured: settings.huggingFaceEndpoint)
             let coordinator = AppCoordinator()
             let updaterController = AppUpdaterController()
             return AppLaunchContext(
