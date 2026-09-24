@@ -2,6 +2,19 @@ import XCTest
 @testable import OpenOatsKit
 
 final class OpenRouterClientTests: XCTestCase {
+    func testChatCompletionsURLNormalizesBaseURLs() {
+        func url(_ base: String) -> String? { OpenRouterClient.chatCompletionsURL(from: base)?.absoluteString }
+        XCTAssertEqual(url("http://localhost:4000"), "http://localhost:4000/v1/chat/completions")
+        XCTAssertEqual(url("https://api.openai.com/v1/"), "https://api.openai.com/v1/chat/completions")
+        XCTAssertEqual(url("https://api.openai.com/v1/chat/completions"), "https://api.openai.com/v1/chat/completions")
+        XCTAssertEqual(url("https://openrouter.ai/api"), "https://openrouter.ai/api/v1/chat/completions")
+        XCTAssertEqual(
+            url("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"),
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        )
+        XCTAssertNil(url("not a url"))
+    }
+
     func testPreflightErrorRequiresAPIKeyForOpenRouterHost() throws {
         let url = try XCTUnwrap(URL(string: "https://openrouter.ai/api/v1/chat/completions"))
 

@@ -12,6 +12,8 @@ actor OpenRouterClient {
 
     /// Builds a chat completions URL from a user-provided base URL, stripping
     /// any trailing `/v1` or `/v1/chat/completions` to avoid double-pathing.
+    /// A URL already ending in `/chat/completions` is used as-is, for providers
+    /// whose path is not `/v1` (e.g. Gemini's `/v1beta/openai/chat/completions`).
     static func chatCompletionsURL(from rawBase: String) -> URL? {
         let trimmed = rawBase.trimmingCharacters(in: .whitespacesAndNewlines)
         guard var components = URLComponents(string: trimmed),
@@ -27,18 +29,18 @@ actor OpenRouterClient {
             path.removeLast()
         }
 
-        for suffix in ["/v1/chat/completions", "/v1"] {
-            if path.hasSuffix(suffix) {
-                path.removeLast(suffix.count)
-                break
-            }
+        if path.hasSuffix("/chat/completions") {
+            components.path = path
+            components.query = nil
+            components.fragment = nil
+            return components.url
         }
 
-        if path.isEmpty {
-            components.path = "/v1/chat/completions"
-        } else {
-            components.path = path + "/v1/chat/completions"
+        if path.hasSuffix("/v1") {
+            path.removeLast(3)
         }
+
+        components.path = path + "/v1/chat/completions"
         components.query = nil
         components.fragment = nil
         return components.url
