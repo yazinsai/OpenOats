@@ -76,6 +76,75 @@ final class OpenRouterClientTests: XCTestCase {
         Data(#"{"choices": [{"message": \#(message)}]}"#.utf8)
     }
 
+    func testCompletionResultPreservesPartialAnswerWhenLengthLimited() throws {
+        let data = Data(#"{"choices":[{"finish_reason":"length","message":{"content":"The next action is "}}]}"#.utf8)
+
+        let result = try OpenRouterClient.completionResult(from: data)
+
+        XCTAssertEqual(result.text, "The next action is ")
+        XCTAssertTrue(result.isTruncated)
+        // Existing structured-task callers keep their text-only contract.
+        XCTAssertEqual(try OpenRouterClient.completionText(from: data), result.text)
+    }
+
+    func testCompletionResultDoesNotMarkNormalOrMissingFinishReasonAsTruncated() throws {
+        for reason in [#""stop""#, "null"] {
+            let data = Data("""
+            {"choices":[{"finish_reason":\(reason),"message":{"content":"Done."}}]}
+            """.utf8)
+            XCTAssertFalse(try OpenRouterClient.completionResult(from: data).isTruncated)
+        }
+        let legacyData = completionData(message: #"{"content":"Done."}"#)
+        XCTAssertFalse(try OpenRouterClient.completionResult(from: legacyData).isTruncated)
+    }
+
+    func testCompletionResultUsesFinishReasonRatherThanAnswerPunctuation() throws {
+        let data = Data(#"{"choices":[{"finish_reason":"length","message":{"content":"First point."}}]}"#.utf8)
+        XCTAssertTrue(try OpenRouterClient.completionResult(from: data).isTruncated)
+
+        let stopped = Data(#"{"choices":[{"finish_reason":"stop","message":{"content":"An unfinished thought"}}]}"#.utf8)
+        XCTAssertFalse(try OpenRouterClient.completionResult(from: stopped).isTruncated)
+    }
+
+    func testCompletionResultStillRejectsReasoningOnlyLengthLimitedResponse() {
+        let data = Data(#"{"choices":[{"finish_reason":"length","message":{"content":null,"reasoning":"Thinking..."}}]}"#.utf8)
+
+        XCTAssertThrowsError(try OpenRouterClient.completionResult(from: data)) { error in
+            guard case OpenRouterClient.OpenRouterError.reasoningOnlyResponse = error else {
+                return XCTFail("Expected reasoningOnlyResponse, got \(error)")
+            }
+        }
+    }
+
+    func testAnthropicCompletionResultPreservesPartialTextAndTruncation() throws {
+        let data = Data(#"{"stop_reason":"max_tokens","content":[{"type":"thinking"},{"type":"text","text":"First. "},{"type":"text","text":"Next"}]}"#.utf8)
+
+        let result = try OpenRouterClient.anthropicCompletionResult(from: data)
+
+        XCTAssertEqual(result.text, "First. Next")
+        XCTAssertTrue(result.isTruncated)
+    }
+
+    func testAnthropicCompletionResultMarksContextExhaustionAsTruncated() throws {
+        let data = Data(#"{"stop_reason":"model_context_window_exceeded","content":[{"type":"text","text":"Partial answer"}]}"#.utf8)
+
+        let result = try OpenRouterClient.anthropicCompletionResult(from: data)
+
+        XCTAssertEqual(result.text, "Partial answer")
+        XCTAssertTrue(result.isTruncated)
+    }
+
+    func testAnthropicCompletionResultAcceptsNormalAndMissingStopReason() throws {
+        for reason in [#""end_turn""#, "null"] {
+            let data = Data("""
+            {"stop_reason":\(reason),"content":[{"type":"text","text":"Done."}]}
+            """.utf8)
+            XCTAssertFalse(try OpenRouterClient.anthropicCompletionResult(from: data).isTruncated)
+        }
+        let legacyData = Data(#"{"content":[{"type":"text","text":"Done."}]}"#.utf8)
+        XCTAssertFalse(try OpenRouterClient.anthropicCompletionResult(from: legacyData).isTruncated)
+    }
+
     func testCompletionTextReturnsContentForNormalResponse() throws {
         let data = completionData(message: #"{"role": "assistant", "content": "Meeting notes"}"#)
 
