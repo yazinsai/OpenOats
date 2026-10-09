@@ -1,6 +1,6 @@
 cask "openoats" do
-  version "1.87.1"
-  sha256 "e8c9eacd4c36c4a1811d44b1378e216ab13aa0ce758d29464235c893d952b2af"
+  version "1.88.0"
+  sha256 "15cc08fae32d83b19fcba6141b5335138cb3227eb4ae5223886e7076ef0fa0d9"
 
   url "https://github.com/yazinsai/OpenOats/releases/download/v#{version}/OpenOats.dmg"
   name "OpenOats"
@@ -13,7 +13,7 @@ cask "openoats" do
   end
 
   auto_updates true
-  depends_on macos: :sequoia
+  depends_on macos: ">= 14.2"
 
   app "OpenOats.app"
 
