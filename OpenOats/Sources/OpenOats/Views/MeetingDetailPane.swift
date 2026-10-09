@@ -25,6 +25,7 @@ private struct TranscriptChatMessage: Identifiable, Equatable {
     let id = UUID()
     let role: Role
     let text: String
+    var isTruncated = false
 }
 
 extension SessionIndex {
@@ -2567,6 +2568,19 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                                     .id(message.id)
                             }
 
+                            if askMessages.last?.isTruncated == true {
+                                HStack {
+                                    Label("Answer reached its length limit.", systemImage: "exclamationmark.triangle")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                    Button("Continue") {
+                                        submitAskQuestion(state: state, continuation: true)
+                                    }
+                                    .disabled(askTask != nil)
+                                }
+                                .padding(.horizontal, 4)
+                            }
+
                             if askTask != nil {
                                 HStack(spacing: 8) {
                                     ProgressView()
@@ -3903,12 +3917,15 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
         return flow
     }
 
-    private func submitAskQuestion(state: NotesState) {
-        let question = askQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func submitAskQuestion(state: NotesState, continuation: Bool = false) {
+        let question = continuation ? "Continue from where you stopped without repeating the previous answer."
+            : askQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, askTask == nil else { return }
 
         let history = askMessages
-        askQuestion = ""
+        if !continuation {
+            askQuestion = ""
+        }
         askError = nil
         askMessages.append(TranscriptChatMessage(role: .user, text: question))
 
@@ -3921,15 +3938,21 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
         askTask = Task {
             do {
                 let client = OpenRouterClient()
-                let answer = try await client.complete(
+                let answer = try await client.completeWithMetadata(
                     apiKey: apiKey,
                     model: model,
                     messages: messages,
+                    // Ask needs room for both reasoning and a detailed meeting answer.
+                    maxTokens: 8192,
                     baseURL: baseURL,
                     transport: transport
                 )
                 await MainActor.run {
-                    askMessages.append(TranscriptChatMessage(role: .assistant, text: answer.trimmingCharacters(in: .whitespacesAndNewlines)))
+                    askMessages.append(TranscriptChatMessage(
+                        role: .assistant,
+                        text: answer.text.trimmingCharacters(in: .whitespacesAndNewlines),
+                        isTruncated: answer.isTruncated
+                    ))
                     askTask = nil
                 }
             } catch is CancellationError {
