@@ -296,6 +296,37 @@ actor OpenRouterClient {
         transport: CompletionTransport = .chatCompletions,
         requestTimeout: TimeInterval = 300
     ) async throws -> String {
+        let result = try await completeWithMetadata(
+            apiKey: apiKey,
+            model: model,
+            messages: messages,
+            maxTokens: maxTokens,
+            temperature: temperature,
+            baseURL: baseURL,
+            webSearch: webSearch,
+            transport: transport,
+            requestTimeout: requestTimeout
+        )
+        return result.text
+    }
+
+    struct CompletionResult: Equatable, Sendable {
+        let text: String
+        let isTruncated: Bool
+    }
+
+    /// Non-streaming completion retaining whether the answer exhausted its output budget.
+    func completeWithMetadata(
+        apiKey: String? = nil,
+        model: String,
+        messages: [Message],
+        maxTokens: Int = 512,
+        temperature: Double? = nil,
+        baseURL: URL? = nil,
+        webSearch: Bool = false,
+        transport: CompletionTransport = .chatCompletions,
+        requestTimeout: TimeInterval = 300
+    ) async throws -> CompletionResult {
         if transport == .anthropicMessages {
             return try await completeAnthropic(
                 apiKey: apiKey,
@@ -348,7 +379,7 @@ actor OpenRouterClient {
             )
         }
 
-        return try Self.completionText(from: data)
+        return try Self.completionResult(from: data)
     }
 
     /// Decodes a non-streaming chat completion, tolerating reasoning models
@@ -357,13 +388,18 @@ actor OpenRouterClient {
     /// A response carrying no usable content never resolves to an empty string:
     /// callers get a described error rather than a silently blank answer.
     static func completionText(from data: Data) throws -> String {
+        try completionResult(from: data).text
+    }
+
+    static func completionResult(from data: Data) throws -> CompletionResult {
         let completionResponse = try JSONDecoder().decode(CompletionResponse.self, from: data)
-        let message = completionResponse.choices.first?.message
+        let choice = completionResponse.choices.first
+        let message = choice?.message
         let content = message?.content ?? ""
         // Test emptiness on the trimmed text but return the original, so a
         // response of "\n" plus a full `reasoning` block is not mistaken for an answer.
         guard content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return content
+            return CompletionResult(text: content, isTruncated: choice?.finish_reason == "length")
         }
 
         let reasoning = message?.reasoning?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -471,7 +507,7 @@ actor OpenRouterClient {
         temperature: Double?,
         baseURL: URL?,
         requestTimeout: TimeInterval
-    ) async throws -> String {
+    ) async throws -> CompletionResult {
         let targetURL = baseURL ?? Self.anthropicMessagesURL(from: "https://api.anthropic.com")!
         guard let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw OpenRouterError.missingAPIKey(host: targetURL.host)
@@ -505,8 +541,15 @@ actor OpenRouterClient {
             )
         }
 
+        return try Self.anthropicCompletionResult(from: data)
+    }
+
+    static func anthropicCompletionResult(from data: Data) throws -> CompletionResult {
         let decoded = try JSONDecoder().decode(AnthropicResponse.self, from: data)
-        return decoded.content.compactMap(\.text).joined()
+        return CompletionResult(
+            text: decoded.content.compactMap(\.text).joined(),
+            isTruncated: decoded.stop_reason == "max_tokens" || decoded.stop_reason == "model_context_window_exceeded"
+        )
     }
 
     private static func anthropicSystemPrompt(from messages: [Message]) -> String? {
@@ -581,6 +624,7 @@ actor OpenRouterClient {
         let choices: [CompletionChoice]
 
         struct CompletionChoice: Codable {
+            let finish_reason: String?
             let message: CompletionMessage
         }
 
@@ -615,6 +659,7 @@ actor OpenRouterClient {
     }
 
     private struct AnthropicResponse: Codable {
+        let stop_reason: String?
         let content: [ContentBlock]
 
         struct ContentBlock: Codable {
