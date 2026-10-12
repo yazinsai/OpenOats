@@ -493,4 +493,15 @@ final class MeetingDetectorTests: XCTestCase {
         XCTAssertTrue(MeetingDetector.isBundledMeetingApp("  us.Zoom.xos "))
         XCTAssertFalse(MeetingDetector.isBundledMeetingApp("com.example.custom-meeting-app"))
     }
+
+    func testIsDictationOnlyRequiresEveryHolderToBeDictation() {
+        XCTAssertTrue(MeetingDetector.isDictationOnly(["com.superduper.superwhisper"]))
+        XCTAssertTrue(MeetingDetector.isDictationOnly(["com.electron.wispr-flow.helper", "com.goodsnooze.MacWhisper"]))
+        // A meeting app sharing the mic is a real call.
+        XCTAssertFalse(MeetingDetector.isDictationOnly(["com.superduper.superwhisper", "net.whatsapp.WhatsApp"]))
+        // Unknown state keeps today's behaviour.
+        XCTAssertFalse(MeetingDetector.isDictationOnly(nil))
+        XCTAssertFalse(MeetingDetector.isDictationOnly([]))
+        XCTAssertFalse(MeetingDetector.isDictationOnly([""]))
+    }
 }

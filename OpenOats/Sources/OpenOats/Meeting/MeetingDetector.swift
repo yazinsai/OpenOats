@@ -10,6 +10,12 @@ protocol AudioSignalSource: Sendable {
     var signals: AsyncStream<Bool> { get }
     /// Returns `true` when any monitored device is currently running.
     var isActive: Bool { get }
+    /// Bundle IDs of processes with an active input stream, or nil when unknown.
+    var micHolderBundleIDs: [String]? { get }
+}
+
+extension AudioSignalSource {
+    var micHolderBundleIDs: [String]? { nil }
 }
 
 // MARK: - CoreAudio HAL Signal Source
@@ -28,6 +34,37 @@ final class CoreAudioSignalSource: AudioSignalSource, @unchecked Sendable {
         listenerQueue.sync {
             deviceIDs.contains { Self.isDeviceRunning($0) }
         }
+    }
+
+    /// Reads `kAudioProcessPropertyIsRunningInput` per Core Audio process object (macOS 14+).
+    var micHolderBundleIDs: [String]? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyProcessObjectList,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == kAudioHardwareNoError else { return nil }
+        var processIDs = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &processIDs) == kAudioHardwareNoError else { return nil }
+
+        var holders: [String] = []
+        for processID in processIDs {
+            address.mSelector = kAudioProcessPropertyIsRunningInput
+            var running: UInt32 = 0
+            size = UInt32(MemoryLayout<UInt32>.size)
+            guard AudioObjectGetPropertyData(processID, &address, 0, nil, &size, &running) == kAudioHardwareNoError,
+                  running != 0 else { continue }
+
+            address.mSelector = kAudioProcessPropertyBundleID
+            var bundleID: Unmanaged<CFString>?
+            size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+            let status = AudioObjectGetPropertyData(processID, &address, 0, nil, &size, &bundleID)
+            // An unidentifiable holder must not look like a dictation app.
+            holders.append(status == kAudioHardwareNoError ? (bundleID?.takeRetainedValue() as String?) ?? "" : "")
+        }
+        return holders
     }
 
     init() {
@@ -332,6 +369,9 @@ actor MeetingDetector {
             // If camera already triggered detection, skip
             if isActive { return }
 
+            // A dictation app holding the mic is not a call, even with a meeting app open.
+            if Self.isDictationOnly(audioSource.micHolderBundleIDs) { return }
+
             // Mic alone doesn't trigger — need a meeting app
             let app = await scanForMeetingApp()
             guard app != nil else { return }
@@ -373,6 +413,26 @@ actor MeetingDetector {
         }
         return nil
     }
+
+    // MARK: - Dictation Apps
+
+    /// True only when every process holding the mic is a known dictation app.
+    /// Unknown or empty holder lists fall back to normal detection.
+    static func isDictationOnly(_ holders: [String]?) -> Bool {
+        guard let holders, !holders.isEmpty else { return false }
+        return holders.allSatisfy { holder in
+            let folded = holder.lowercased()
+            // Prefix match so helper processes (e.g. "<id>.helper") count too.
+            return dictationBundleIDPrefixes.contains { folded.hasPrefix($0) }
+        }
+    }
+
+    private static let dictationBundleIDPrefixes: [String] = [
+        "com.superduper.superwhisper",
+        "com.electron.wispr-flow",
+        "com.goodsnooze.macwhisper",
+        "com.prakashjoshipax.voiceink",
+    ]
 
     // MARK: - Default Meeting Apps
 
