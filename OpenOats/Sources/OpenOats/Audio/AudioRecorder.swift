@@ -211,11 +211,11 @@ final class AudioRecorder: @unchecked Sendable {
     ) {
         lock.withLock {
             (
-                micStartDate,
-                sysStartDate,
-                micAnchors,
-                sysAnchors,
-                Self.effectiveSystemSampleRate(
+                micStartDate: micStartDate,
+                sysStartDate: sysStartDate,
+                micAnchors: micAnchors,
+                sysAnchors: sysAnchors,
+                sysEffectiveSampleRate: Self.effectiveSystemSampleRate(
                     startDate: sysStartDate,
                     endDate: sysEndDate,
                     endFrame: sysEndFrame
