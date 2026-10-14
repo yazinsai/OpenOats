@@ -387,6 +387,8 @@ final class SidecastEngine {
             return !settings.openRouterApiKey.isEmpty
         case .requesty:
             return !settings.requestyApiKey.isEmpty && llmBaseURL != nil
+        case .cheaperInference:
+            return !settings.cheaperInferenceApiKey.isEmpty && llmBaseURL != nil
         case .openAI:
             return !settings.openAIApiKey.isEmpty && llmBaseURL != nil
         case .anthropic:
@@ -401,6 +403,8 @@ final class SidecastEngine {
         case .openRouter: settings.openRouterApiKey
         case .requesty:
             settings.requestyApiKey.isEmpty ? nil : settings.requestyApiKey
+        case .cheaperInference:
+            settings.cheaperInferenceApiKey.isEmpty ? nil : settings.cheaperInferenceApiKey
         case .openAI:
             settings.openAIApiKey.isEmpty ? nil : settings.openAIApiKey
         case .anthropic:
@@ -424,6 +428,8 @@ final class SidecastEngine {
         case .openRouter: nil
         case .requesty:
             OpenRouterClient.chatCompletionsURL(from: settings.requestyBaseURL)
+        case .cheaperInference:
+            OpenRouterClient.chatCompletionsURL(from: settings.cheaperInferenceBaseURL)
         case .openAI:
             OpenRouterClient.chatCompletionsURL(from: settings.openAIBaseURL)
         case .anthropic:

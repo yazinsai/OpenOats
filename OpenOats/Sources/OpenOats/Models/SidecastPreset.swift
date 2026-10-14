@@ -79,6 +79,7 @@ struct SidecastPreset: Decodable {
     private static let providerMap: [String: LLMProvider] = [
         "openrouter": .openRouter,
         "requesty": .requesty,
+        "cheaperinference": .cheaperInference,
         "openai": .openAI,
         "anthropic": .anthropic,
         "ollama": .ollama,
@@ -98,6 +99,8 @@ struct SidecastPreset: Decodable {
                     settings.openRouterApiKey = apiKey
                 case .requesty:
                     settings.requestyApiKey = apiKey
+                case .cheaperInference:
+                    settings.cheaperInferenceApiKey = apiKey
                 case .openAI:
                     settings.openAIApiKey = apiKey
                 case .anthropic:
@@ -117,6 +120,8 @@ struct SidecastPreset: Decodable {
                     settings.openAIBaseURL = baseURL
                 case .requesty:
                     settings.requestyBaseURL = baseURL
+                case .cheaperInference:
+                    settings.cheaperInferenceBaseURL = baseURL
                 case .anthropic:
                     settings.anthropicBaseURL = baseURL
                 case .ollama:
@@ -136,6 +141,8 @@ struct SidecastPreset: Decodable {
                     settings.realtimeModel = model
                 case .requesty:
                     settings.requestyModel = model
+                case .cheaperInference:
+                    settings.cheaperInferenceModel = model
                 case .openAI:
                     settings.openAIModel = model
                 case .anthropic:
