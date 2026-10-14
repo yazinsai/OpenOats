@@ -134,6 +134,17 @@ final class NotesEngine {
             baseURL = requestyURL
             model = settings.requestyModel
             transport = settings.activeLLMTransport
+        case .cheaperInference:
+            apiKey = settings.activeLLMApiKey
+            guard let cheaperInferenceURL = OpenRouterClient.chatCompletionsURL(from: settings.cheaperInferenceBaseURL) else {
+                error = "Invalid Cheaper Inference URL: \(settings.cheaperInferenceBaseURL)"
+                isGenerating = false
+                onFinished()
+                return
+            }
+            baseURL = cheaperInferenceURL
+            model = settings.cheaperInferenceModel
+            transport = settings.activeLLMTransport
         case .openAI:
             apiKey = settings.activeLLMApiKey
             guard let openAIURL = settings.activeLLMBaseURL else {
@@ -357,7 +368,7 @@ final class NotesEngine {
         switch provider {
         case .ollama, .lmStudio, .mlx:
             return true
-        case .openRouter, .requesty, .openAI, .anthropic:
+        case .openRouter, .requesty, .cheaperInference, .openAI, .anthropic:
             return allowCloudCalendarContext
         case .openAICompatible:
             if let baseURL, OpenRouterClient.isLocalHost(baseURL) {

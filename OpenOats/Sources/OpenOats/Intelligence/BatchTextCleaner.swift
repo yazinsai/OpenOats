@@ -77,6 +77,16 @@ final class BatchTextCleaner {
             baseURL = requestyURL
             model = settings.requestyModel
             transport = settings.activeLLMTransport
+        case .cheaperInference:
+            apiKey = settings.activeLLMApiKey
+            guard let cheaperInferenceURL = OpenRouterClient.chatCompletionsURL(from: settings.cheaperInferenceBaseURL) else {
+                error = "Invalid Cheaper Inference URL: \(settings.cheaperInferenceBaseURL)"
+                isCleaningUp = false
+                return records
+            }
+            baseURL = cheaperInferenceURL
+            model = settings.cheaperInferenceModel
+            transport = settings.activeLLMTransport
         case .openAI:
             apiKey = settings.activeLLMApiKey
             guard let url = settings.activeLLMBaseURL else {

@@ -225,6 +225,8 @@ final class SuggestionEngine {
             guard !settings.openRouterApiKey.isEmpty else { return }
         case .requesty:
             guard !settings.requestyApiKey.isEmpty, llmBaseURL(forRealtime: true) != nil else { return }
+        case .cheaperInference:
+            guard !settings.cheaperInferenceApiKey.isEmpty, llmBaseURL(forRealtime: true) != nil else { return }
         case .openAI:
             guard !settings.openAIApiKey.isEmpty, llmBaseURL(forRealtime: true) != nil else { return }
         case .anthropic:
@@ -505,6 +507,7 @@ final class SuggestionEngine {
         switch settings.llmProvider {
         case .openRouter: settings.selectedModel
         case .requesty: settings.requestyModel
+        case .cheaperInference: settings.cheaperInferenceModel
         case .openAI: settings.openAIModel
         case .anthropic: settings.anthropicModel
         case .ollama: settings.ollamaLLMModel
@@ -519,6 +522,8 @@ final class SuggestionEngine {
         case .openRouter: settings.openRouterApiKey
         case .requesty:
             settings.requestyApiKey.isEmpty ? nil : settings.requestyApiKey
+        case .cheaperInference:
+            settings.cheaperInferenceApiKey.isEmpty ? nil : settings.cheaperInferenceApiKey
         case .openAI:
             settings.openAIApiKey.isEmpty ? nil : settings.openAIApiKey
         case .anthropic:
@@ -537,6 +542,8 @@ final class SuggestionEngine {
         case .openRouter: return nil
         case .requesty:
             return OpenRouterClient.chatCompletionsURL(from: settings.requestyBaseURL)
+        case .cheaperInference:
+            return OpenRouterClient.chatCompletionsURL(from: settings.cheaperInferenceBaseURL)
         case .openAI:
             return OpenRouterClient.chatCompletionsURL(from: settings.openAIBaseURL)
         case .anthropic:

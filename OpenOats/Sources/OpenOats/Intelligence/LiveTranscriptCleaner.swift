@@ -101,6 +101,9 @@ actor LiveTranscriptCleaner {
         let requestyKey = await MainActor.run { settings.requestyApiKey }
         let requestyURL = await MainActor.run { settings.requestyBaseURL }
         let requestyModelName = await MainActor.run { settings.requestyModel }
+        let cheaperInferenceKey = await MainActor.run { settings.cheaperInferenceApiKey }
+        let cheaperInferenceURL = await MainActor.run { settings.cheaperInferenceBaseURL }
+        let cheaperInferenceModelName = await MainActor.run { settings.cheaperInferenceModel }
         let openAIKey = await MainActor.run { settings.openAIApiKey }
         let openAIURL = await MainActor.run { settings.openAIBaseURL }
         let openAIModel = await MainActor.run { settings.openAIModel }
@@ -132,6 +135,15 @@ actor LiveTranscriptCleaner {
             }
             baseURL = url
             model = requestyModelName
+            transport = .chatCompletions
+        case .cheaperInference:
+            apiKey = cheaperInferenceKey.isEmpty ? nil : cheaperInferenceKey
+            guard let url = OpenRouterClient.chatCompletionsURL(from: cheaperInferenceURL) else {
+                await markFailed(utterance.id)
+                return
+            }
+            baseURL = url
+            model = cheaperInferenceModelName
             transport = .chatCompletions
         case .openAI:
             apiKey = openAIKey.isEmpty ? nil : openAIKey

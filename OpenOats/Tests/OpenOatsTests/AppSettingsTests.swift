@@ -22,9 +22,10 @@ final class AppSettingsTests: XCTestCase {
 
     func testLLMProviderAllCases() {
         let cases = LLMProvider.allCases
-        XCTAssertEqual(cases.count, 8)
+        XCTAssertEqual(cases.count, 9)
         XCTAssertTrue(cases.contains(.openRouter))
         XCTAssertTrue(cases.contains(.requesty))
+        XCTAssertTrue(cases.contains(.cheaperInference))
         XCTAssertTrue(cases.contains(.openAI))
         XCTAssertTrue(cases.contains(.anthropic))
         XCTAssertTrue(cases.contains(.ollama))

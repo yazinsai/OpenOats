@@ -905,6 +905,18 @@ private struct IntelligenceSettingsTab: View {
 
                         Link("Get API key", destination: URL(string: "https://app.requesty.ai/api-keys")!)
                             .font(.system(size: 11))
+                    case .cheaperInference:
+                        TextField("Cheaper Inference URL", text: $settings.cheaperInferenceBaseURL, prompt: Text("https://api.cheaperinference.com/v1"))
+                            .font(.system(size: 12, design: .monospaced))
+
+                        SecureField("Cheaper Inference API Key", text: $settings.cheaperInferenceApiKey)
+                            .font(.system(size: 12, design: .monospaced))
+
+                        TextField("Model", text: $settings.cheaperInferenceModel, prompt: Text("e.g. gpt-5.4-mini"))
+                            .font(.system(size: 12, design: .monospaced))
+
+                        Link("Get API key", destination: URL(string: "https://cheaperinference.com/signup")!)
+                            .font(.system(size: 11))
                     case .openAI:
                         TextField("OpenAI URL", text: $settings.openAIBaseURL, prompt: Text("https://api.openai.com"))
                             .font(.system(size: 12, design: .monospaced))
@@ -1042,6 +1054,12 @@ private struct IntelligenceSettingsTab: View {
                             .foregroundStyle(.secondary)
                     case .requesty:
                         TextField("Speed Model", text: $settings.requestyModel, prompt: Text("e.g. openai/gpt-4o-mini"))
+                            .font(.system(size: 12, design: .monospaced))
+                        Text("A fast model used for real-time suggestion synthesis. Separate from your main model.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    case .cheaperInference:
+                        TextField("Speed Model", text: $settings.cheaperInferenceModel, prompt: Text("e.g. gpt-5.4-mini"))
                             .font(.system(size: 12, design: .monospaced))
                         Text("A fast model used for real-time suggestion synthesis. Separate from your main model.")
                             .font(.system(size: 11))

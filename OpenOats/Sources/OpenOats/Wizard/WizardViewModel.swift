@@ -707,6 +707,8 @@ final class WizardViewModel {
             hasConfiguredLLM = !settings.openRouterApiKey.isEmpty
         case .requesty:
             hasConfiguredLLM = !settings.requestyApiKey.isEmpty
+        case .cheaperInference:
+            hasConfiguredLLM = !settings.cheaperInferenceApiKey.isEmpty
         case .openAI:
             hasConfiguredLLM = !settings.openAIApiKey.isEmpty
         case .anthropic:
@@ -729,7 +731,7 @@ final class WizardViewModel {
         switch settings.llmProvider {
         case .ollama, .lmStudio:
             privacy = .local
-        case .openRouter, .requesty, .openAI, .anthropic, .mlx, .openAICompatible:
+        case .openRouter, .requesty, .cheaperInference, .openAI, .anthropic, .mlx, .openAICompatible:
             privacy = .cloud
         }
     }

@@ -129,6 +129,46 @@ final class SettingsStore {
         }
     }
 
+    @ObservationIgnored nonisolated(unsafe) private var _cheaperInferenceApiKey: String
+    var cheaperInferenceApiKey: String {
+        get {
+            access(keyPath: \.cheaperInferenceApiKey)
+            return loadSecretIfNeeded(key: "cheaperInferenceApiKey", currentValue: _cheaperInferenceApiKey) {
+                _cheaperInferenceApiKey = $0
+            }
+        }
+        set {
+            withMutation(keyPath: \.cheaperInferenceApiKey) {
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                _cheaperInferenceApiKey = trimmed
+                markSecretLoaded("cheaperInferenceApiKey")
+                secretStore.save(key: "cheaperInferenceApiKey", value: trimmed)
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _cheaperInferenceBaseURL: String
+    var cheaperInferenceBaseURL: String {
+        get { access(keyPath: \.cheaperInferenceBaseURL); return _cheaperInferenceBaseURL }
+        set {
+            withMutation(keyPath: \.cheaperInferenceBaseURL) {
+                _cheaperInferenceBaseURL = newValue
+                defaults.set(newValue, forKey: "cheaperInferenceBaseURL")
+            }
+        }
+    }
+
+    @ObservationIgnored nonisolated(unsafe) private var _cheaperInferenceModel: String
+    var cheaperInferenceModel: String {
+        get { access(keyPath: \.cheaperInferenceModel); return _cheaperInferenceModel }
+        set {
+            withMutation(keyPath: \.cheaperInferenceModel) {
+                _cheaperInferenceModel = newValue
+                defaults.set(newValue, forKey: "cheaperInferenceModel")
+            }
+        }
+    }
+
     @ObservationIgnored nonisolated(unsafe) private var _openAIApiKey: String
     var openAIApiKey: String {
         get {
@@ -1481,6 +1521,9 @@ final class SettingsStore {
         self._requestyApiKey = ""
         self._requestyBaseURL = defaults.string(forKey: "requestyBaseURL") ?? "https://router.requesty.ai/v1"
         self._requestyModel = defaults.string(forKey: "requestyModel") ?? "openai/gpt-4o-mini"
+        self._cheaperInferenceApiKey = ""
+        self._cheaperInferenceBaseURL = defaults.string(forKey: "cheaperInferenceBaseURL") ?? "https://api.cheaperinference.com/v1"
+        self._cheaperInferenceModel = defaults.string(forKey: "cheaperInferenceModel") ?? "gpt-5.4-mini"
         self._openAIApiKey = ""
         self._openAIBaseURL = defaults.string(forKey: "openAIBaseURL") ?? "https://api.openai.com"
         self._openAIModel = defaults.string(forKey: "openAIModel") ?? "gpt-4.1-mini"
@@ -1717,6 +1760,8 @@ final class SettingsStore {
             selectedModel
         case .requesty:
             requestyModel
+        case .cheaperInference:
+            cheaperInferenceModel
         case .openAI:
             openAIModel
         case .anthropic:
@@ -1743,6 +1788,8 @@ final class SettingsStore {
             return !openRouterApiKey.isEmpty
         case .requesty:
             return !requestyApiKey.isEmpty && OpenRouterClient.chatCompletionsURL(from: requestyBaseURL) != nil
+        case .cheaperInference:
+            return !cheaperInferenceApiKey.isEmpty && OpenRouterClient.chatCompletionsURL(from: cheaperInferenceBaseURL) != nil
         case .openAI:
             return !openAIApiKey.isEmpty && OpenRouterClient.chatCompletionsURL(from: openAIBaseURL) != nil
         case .anthropic:
@@ -1769,6 +1816,7 @@ final class SettingsStore {
         switch llmProvider {
         case .openRouter: return realtimeModel
         case .requesty: return requestyModel
+        case .cheaperInference: return cheaperInferenceModel
         case .openAI: return openAIModel
         case .anthropic: return anthropicModel
         case .ollama: return realtimeOllamaModel.isEmpty ? ollamaLLMModel : realtimeOllamaModel
@@ -1788,6 +1836,8 @@ final class SettingsStore {
             openRouterApiKey.isEmpty ? nil : openRouterApiKey
         case .requesty:
             requestyApiKey.isEmpty ? nil : requestyApiKey
+        case .cheaperInference:
+            cheaperInferenceApiKey.isEmpty ? nil : cheaperInferenceApiKey
         case .openAI:
             openAIApiKey.isEmpty ? nil : openAIApiKey
         case .anthropic:
@@ -1807,6 +1857,8 @@ final class SettingsStore {
             nil
         case .requesty:
             OpenRouterClient.chatCompletionsURL(from: requestyBaseURL)
+        case .cheaperInference:
+            OpenRouterClient.chatCompletionsURL(from: cheaperInferenceBaseURL)
         case .openAI:
             OpenRouterClient.chatCompletionsURL(from: openAIBaseURL)
         case .anthropic:
