@@ -57,20 +57,12 @@ final class WhisperKitManager: @unchecked Sendable {
 
     /// Transcribe a segment of 16kHz mono Float32 audio samples.
     /// Returns the transcribed text (empty string if nothing recognized).
-    /// - Parameter previousContext: Trailing words from the prior segment, encoded as prompt
-    ///   tokens to prime the Whisper decoder for cross-segment continuity.
+    /// - Parameter previousContext: Ignored. Passing prior words as Whisper prompt
+    ///   tokens makes WhisperKit return empty text for every segment, so after the
+    ///   first sentence of a meeting nothing more was transcribed.
     func transcribe(_ samples: [Float], locale: Locale? = nil, previousContext: String? = nil) async throws -> String {
         guard let pipe else {
             throw WhisperKitManagerError.notInitialized
-        }
-        var promptTokens: [Int]?
-        if let context = previousContext, !context.isEmpty, let tokenizer = pipe.tokenizer {
-            let encoded = tokenizer.encode(text: " " + context).filter {
-                $0 < tokenizer.specialTokens.specialTokenBegin
-            }
-            if !encoded.isEmpty {
-                promptTokens = encoded
-            }
         }
         // Extract 2-letter language code (e.g. "he", "en") from locale.
         // When nil, Whisper auto-detects — but auto-detect often outputs
@@ -79,8 +71,7 @@ final class WhisperKitManager: @unchecked Sendable {
 
         let options = DecodingOptions(
             language: languageCode,
-            wordTimestamps: false,
-            promptTokens: promptTokens
+            wordTimestamps: false
         )
         let results = try await pipe.transcribe(audioArray: samples, decodeOptions: options)
         return results.map { $0.text }.joined(separator: " ")

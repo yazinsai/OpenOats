@@ -94,6 +94,9 @@ final class StreamingTranscriber: @unchecked Sendable {
     // flushInterval is now an instance property, set per-model via TranscriptionModel.flushIntervalSamples
     /// Number of trailing words to carry across segment boundaries for decoder priming.
     private static let contextWordCount = 5
+    /// Partials are cosmetic. Skip them once processing trails live audio by more
+    /// than this, so a slow local model never lets the final transcript fall behind.
+    private static let maxPartialLagSeconds: Double = 1.0
     private static let cloudSegmentDiagnosticsEventName = "live_cloud_segment_transcription"
 
     /// Main loop: reads audio buffers, runs VAD, transcribes speech segments.
@@ -106,14 +109,17 @@ final class StreamingTranscriber: @unchecked Sendable {
         var recentChunks: [[Float]] = []
         var isSpeaking = false
         var bufferCount = 0
-        var lastPartialTime: Date = .distantPast
+        var lastPartialSample = Int.min / 2
+        var partialSpacingSamples = Int(0.4 * 16_000)
         var isRunningPartial = false
         var processedSampleCount = 0
         var speechStartSample: Int?
+        var firstBufferTime: Date?
 
         for await buffer in stream {
             guard !Task.isCancelled else { break }
             bufferCount += 1
+            if firstBufferTime == nil { firstBufferTime = Date() }
             if bufferCount <= 3 {
                 let fmt = buffer.format
                 Log.streaming.debug("[\(self.speaker.storageKey, privacy: .public)] buffer #\(bufferCount, privacy: .public): frames=\(buffer.frameLength, privacy: .public) sr=\(fmt.sampleRate, privacy: .public) ch=\(fmt.channelCount, privacy: .public) interleaved=\(fmt.isInterleaved, privacy: .public) common=\(fmt.commonFormat.rawValue, privacy: .public)")
@@ -201,16 +207,23 @@ final class StreamingTranscriber: @unchecked Sendable {
                         }
                     } else if isSpeaking {
 
-                        // Throttled partial hypothesis every ~400ms.
+                        // Throttled partial hypothesis, spaced by audio time so that
+                        // partials cost at most about half of real time (large Whisper
+                        // models need ~1s per call), and skipped entirely while
+                        // processing lags behind live audio.
                         // Skipped for cloud backends — each call blocks the VAD loop
                         // for seconds while the HTTP round-trip completes.
+                        let lagSeconds = Date().timeIntervalSince(firstBufferTime ?? Date())
+                            - Double(processedSampleCount) / 16_000
                         if !skipPartials,
                            !isRunningPartial,
                            speechSamples.count > Self.minimumSpeechSamples,
-                           Date.now.timeIntervalSince(lastPartialTime) >= 0.4 {
+                           processedSampleCount - lastPartialSample >= partialSpacingSamples,
+                           lagSeconds <= Self.maxPartialLagSeconds {
                             isRunningPartial = true
-                            lastPartialTime = .now
+                            lastPartialSample = processedSampleCount
                             let snapshot = speechSamples
+                            let partialStartedAt = Date()
                             do {
                                 let text = try await backend.transcribe(snapshot, locale: locale, previousContext: nil)
                                 if !text.isEmpty && !Task.isCancelled {
@@ -219,6 +232,8 @@ final class StreamingTranscriber: @unchecked Sendable {
                             } catch {
                                 // Best-effort — ignore
                             }
+                            let partialSeconds = Date().timeIntervalSince(partialStartedAt)
+                            partialSpacingSamples = max(Int(0.4 * 16_000), Int(2 * partialSeconds * 16_000))
                             isRunningPartial = false
                         }
 
