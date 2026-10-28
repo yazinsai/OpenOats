@@ -357,6 +357,58 @@ final class AudioRecorderTests: XCTestCase {
         XCTAssertGreaterThan(peak, 0.4, "Single-channel mic peak should be ≈ 0.5")
     }
 
+    /// Regression: the mic file is created at the first buffer's rate. When the input
+    /// switches mid-session (built-in mic at 48 kHz -> Bluetooth HFP headset at 16 kHz),
+    /// AVAudioFile rejected every later buffer and mic.caf silently stopped at the switch.
+    func testMicSampleRateChangeMidSessionKeepsRecording() {
+        let recorder = AudioRecorder(outputDirectory: outputDir)
+        recorder.startSession()
+
+        // 1s at 48 kHz, then 1s at 16 kHz (as after an HFP switch)
+        for _ in 0..<10 { recorder.writeMicBuffer(makeSineBuffer(sampleRate: 48000, frameCount: 4800)) }
+        for _ in 0..<10 { recorder.writeMicBuffer(makeSineBuffer(sampleRate: 16000, frameCount: 1600)) }
+
+        guard let micURL = recorder.tempFileURLs().mic,
+              let file = try? AVAudioFile(forReading: micURL) else {
+            XCTFail("Mic temp file not produced")
+            return
+        }
+        XCTAssertEqual(file.processingFormat.sampleRate, 48000)
+        // Expect ~2s at the file's 48 kHz rate; allow converter priming/latency slack.
+        XCTAssertGreaterThan(file.length, 48000 + 47000,
+            "Post-switch 16 kHz audio was dropped: file has \(file.length) frames, expected ~96000")
+        XCTAssertLessThan(file.length, 96000 + 1000)
+
+        // The resampled tail must carry signal, not silence.
+        let tailFrames: AVAudioFrameCount = 24000
+        file.framePosition = file.length - AVAudioFramePosition(tailFrames)
+        let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: tailFrames)!
+        try? file.read(into: buf)
+        var peak: Float = 0
+        if let data = buf.floatChannelData?[0] {
+            for i in 0..<Int(buf.frameLength) { peak = max(peak, abs(data[i])) }
+        }
+        XCTAssertGreaterThan(peak, 0.4, "Resampled post-switch audio should keep ≈0.5 peak, got \(peak)")
+    }
+
+    /// A gap in mic writes (engine stalled, then rebuilt) must add a timing anchor so the
+    /// audio after the gap is placed at the right wall-clock time when merging/batching.
+    func testMicGapAddsTimingAnchor() {
+        let recorder = AudioRecorder(outputDirectory: outputDir)
+        recorder.startSession()
+
+        recorder.writeMicBuffer(makeSineBuffer(sampleRate: 48000, frameCount: 4800))
+        recorder.writeMicBuffer(makeSineBuffer(sampleRate: 48000, frameCount: 4800))
+        XCTAssertEqual(recorder.timingAnchors().micAnchors.count, 1)
+
+        Thread.sleep(forTimeInterval: AudioRecorder.micDiscontinuityThreshold + 0.3)
+        recorder.writeMicBuffer(makeSineBuffer(sampleRate: 48000, frameCount: 4800))
+
+        let anchors = recorder.timingAnchors().micAnchors
+        XCTAssertEqual(anchors.count, 2, "Expected a fresh anchor after the capture gap")
+        XCTAssertEqual(anchors.last?.frame, 9600)
+    }
+
     func testDiscardDoesNotProduceOutput() {
         let recorder = AudioRecorder(outputDirectory: outputDir)
         recorder.startSession()

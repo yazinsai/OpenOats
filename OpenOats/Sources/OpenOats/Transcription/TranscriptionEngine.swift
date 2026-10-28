@@ -76,6 +76,15 @@ final class TranscriptionEngine {
         case showNoAudioError
     }
 
+    enum MicStallAction: Equatable {
+        /// Frames are flowing (or the stall is too recent to act on).
+        case none
+        /// The mic went silent mid-session: rebuild the capture engine.
+        case restart
+        /// Restarts did not bring frames back: tell the user.
+        case giveUp
+    }
+
     private struct PreparedCloudStartBackend {
         let model: TranscriptionModel
         let backend: any TranscriptionBackend
@@ -239,6 +248,26 @@ final class TranscriptionEngine {
     private var sysAudioWatchdogRetries = 0
     private let sysAudioWatchdogMaxRetries = 2
 
+    /// Mid-session mic liveness check. The startup health check only runs once, 5s in;
+    /// after that a Bluetooth headset connecting (or switching to HFP when the meeting
+    /// app opens its mic) can leave AVAudioEngine running-but-silent or stopped with a
+    /// stale tap, and nothing ever restarts it. The rest of the meeting is then lost.
+    private var micStallWatchdogTask: Task<Void, Never>?
+    private var micStallRestarts = 0
+    private var micStallReported = false
+    private var pendingMicRestartIsForced = false
+    /// Explicit device for the next restart, bypassing default-device resolution. Used by the
+    /// stall watchdog to move off a mic that went silent without changing the user's selection.
+    private var pendingMicFallbackTarget: AudioDeviceID?
+    /// Mics that went silent this session while following the system default. Skipped when
+    /// picking a fallback; cleared on any real device change, since that may have fixed them.
+    private var micExcludedDeviceIDs: Set<AudioDeviceID> = []
+    static let micStallThreshold: TimeInterval = 4
+    static let micStallMaxRestarts = 3
+    private static let micStallPollInterval: Duration = .seconds(2)
+    /// Startup health check owns the first ~10s (5s check + 5s after its one retry).
+    private static let micStallInitialDelay: Duration = .seconds(12)
+
     init(transcriptStore: TranscriptStore, settings: AppSettings, mode: Mode = .live) {
         self.transcriptStore = transcriptStore
         self.settings = settings
@@ -258,6 +287,56 @@ final class TranscriptionEngine {
     ) -> MicStartupHealthAction {
         guard !hasCapturedFrames, captureError == nil else { return .none }
         return hasRetried ? .showNoAudioError : .retryCapture
+    }
+
+    static func micStallAction(
+        secondsSinceLastActivity: TimeInterval?,
+        restartsSoFar: Int,
+        threshold: TimeInterval = micStallThreshold,
+        maxRestarts: Int = micStallMaxRestarts
+    ) -> MicStallAction {
+        guard let age = secondsSinceLastActivity, age >= threshold else { return .none }
+        return restartsSoFar < maxRestarts ? .restart : .giveUp
+    }
+
+    struct MicCandidate: Equatable {
+        let id: AudioDeviceID
+        let transport: UInt32?
+    }
+
+    /// Pick the mic to move to after `stalled` went silent. Prefers the system default if it
+    /// is still usable, then built-in, then other wired inputs, with Bluetooth and unknown
+    /// transports last. Virtual and aggregate devices (Zoom/Teams loopback drivers) are never
+    /// chosen: they carry meeting audio, not the user's voice. Returns nil if nothing is left,
+    /// in which case the caller retries the stalled device.
+    static func fallbackMicDevice(
+        stalled: AudioDeviceID,
+        defaultID: AudioDeviceID?,
+        candidates: [MicCandidate],
+        excluded: Set<AudioDeviceID>
+    ) -> AudioDeviceID? {
+        let skip = excluded.union([stalled])
+        let usable = candidates.filter { !skip.contains($0.id) && fallbackRank($0.transport) != nil }
+        if let defaultID, usable.contains(where: { $0.id == defaultID }) { return defaultID }
+        // `min(by:)` keeps the first of equal ranks, so device-list order breaks ties.
+        return usable.min { fallbackRank($0.transport)! < fallbackRank($1.transport)! }?.id
+    }
+
+    private static func fallbackRank(_ transport: UInt32?) -> Int? {
+        guard let transport else { return 2 }
+        switch transport {
+        case kAudioDeviceTransportTypeBuiltIn:
+            return 0
+        case kAudioDeviceTransportTypeUSB, kAudioDeviceTransportTypePCI,
+             kAudioDeviceTransportTypeFireWire, kAudioDeviceTransportTypeThunderbolt:
+            return 1
+        case kAudioDeviceTransportTypeVirtual, kAudioDeviceTransportTypeAggregate,
+             kAudioDeviceTransportTypeAutoAggregate:
+            return nil
+        default:
+            // Bluetooth, Continuity (iPhone) mics and unknown transports: usable, last resort.
+            return 2
+        }
     }
 
     func refreshModelAvailability() {
@@ -601,14 +680,18 @@ final class TranscriptionEngine {
         // Install CoreAudio listeners for live device routing changes
         installDefaultDeviceListener()
         installDefaultOutputDeviceListener()
+        startMicStallWatchdog()
     }
 
     /// Restart only the mic capture with a new device, keeping system audio and models intact.
     /// Pass the raw setting value (0 = system default, or a specific AudioDeviceID).
-    func restartMic(inputDeviceID: AudioDeviceID) {
+    /// `force` rebuilds the capture even when the resolved device is unchanged — used when
+    /// the current engine has gone silent on the same device.
+    func restartMic(inputDeviceID: AudioDeviceID, force: Bool = false) {
         if case .scripted = mode { return }
         guard isRunning else { return }
         pendingMicDeviceID = inputDeviceID
+        if force { pendingMicRestartIsForced = true }
 
         if micRestartTask != nil {
             Log.transcription.info("Queued mic restart for device \(inputDeviceID, privacy: .public)")
@@ -621,10 +704,90 @@ final class TranscriptionEngine {
 
             while self.isRunning, let requestedDeviceID = self.pendingMicDeviceID {
                 self.pendingMicDeviceID = nil
-                await self.performMicRestart(inputDeviceID: requestedDeviceID)
+                let force = self.pendingMicRestartIsForced
+                let fallbackTarget = self.pendingMicFallbackTarget
+                self.pendingMicRestartIsForced = false
+                self.pendingMicFallbackTarget = nil
+                await self.performMicRestart(
+                    inputDeviceID: requestedDeviceID,
+                    force: force,
+                    fallbackTarget: fallbackTarget
+                )
             }
         }
     }
+
+    // MARK: - Mic Stall Watchdog
+
+    private func startMicStallWatchdog() {
+        micStallWatchdogTask?.cancel()
+        micStallRestarts = 0
+        micStallReported = false
+        micExcludedDeviceIDs.removeAll()
+        micStallWatchdogTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.micStallInitialDelay)
+            while !Task.isCancelled {
+                // Strong ref is scoped to the check so the task never keeps the engine alive while sleeping.
+                do {
+                    guard let engine = self, engine.isRunning else { return }
+                    engine.checkMicStall()
+                }
+                try? await Task.sleep(for: Self.micStallPollInterval)
+            }
+        }
+    }
+
+    private func checkMicStall() {
+        // A restart in flight resets the activity clock once it starts the new stream.
+        guard micRestartTask == nil else { return }
+
+        let age = micCapture.secondsSinceLastActivity
+        switch Self.micStallAction(secondsSinceLastActivity: age, restartsSoFar: micStallRestarts) {
+        case .none:
+            if let age, age < Self.micStallThreshold, micStallRestarts > 0 || micStallReported {
+                Log.transcription.notice("Mic frames resumed after \(self.micStallRestarts, privacy: .public) watchdog restart(s)")
+                micStallRestarts = 0
+                if micStallReported, lastError == Self.micStalledMessage { lastError = nil }
+                micStallReported = false
+            }
+        case .restart:
+            micStallRestarts += 1
+            let stalled = currentMicDeviceID
+            let fallback = micFallbackTarget(afterStallOn: stalled)
+            // Error level so it is persisted in the unified log and the diagnostics export.
+            Log.transcription.error("Mic stalled: no frames for \(age ?? 0, privacy: .public)s on device \(stalled, privacy: .public), rebuilding capture on \(fallback ?? stalled, privacy: .public) (\(self.micStallRestarts, privacy: .public)/\(Self.micStallMaxRestarts, privacy: .public))")
+            if let fallback { pendingMicFallbackTarget = fallback }
+            restartMic(inputDeviceID: userSelectedDeviceID, force: true)
+        case .giveUp:
+            guard !micStallReported else { return }
+            micStallReported = true
+            Log.transcription.error("Mic stalled: no frames after \(Self.micStallMaxRestarts, privacy: .public) restarts, giving up")
+            lastError = Self.micStalledMessage
+        }
+    }
+
+    /// When following the system default, exclude the stalled mic and pick another one.
+    /// An explicit mic choice in settings is respected: it is retried, never swapped.
+    private func micFallbackTarget(afterStallOn stalled: AudioDeviceID) -> AudioDeviceID? {
+        guard userSelectedDeviceID == 0, stalled != 0 else { return nil }
+        micExcludedDeviceIDs.insert(stalled)
+        let candidates = MicCapture.availableInputDevices().map {
+            MicCandidate(id: $0.id, transport: MicCapture.deviceTransportType(for: $0.id))
+        }
+        let picked = Self.fallbackMicDevice(
+            stalled: stalled,
+            defaultID: MicCapture.defaultInputDeviceID(),
+            candidates: candidates,
+            excluded: micExcludedDeviceIDs
+        )
+        if picked == nil {
+            // Nothing else to try: give every device another chance, starting with this one.
+            micExcludedDeviceIDs.removeAll()
+        }
+        return picked
+    }
+
+    static let micStalledMessage = "Microphone stopped producing audio (device change?). Your side of the conversation is not being recorded."
 
     // MARK: - Default Device Listener
 
@@ -640,7 +803,11 @@ final class TranscriptionEngine {
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             guard let self else { return }
             Task { @MainActor in
-                guard self.isRunning, self.userSelectedDeviceID == 0 else { return }
+                guard self.isRunning else { return }
+                // A genuine device change gives the stall watchdog a fresh budget.
+                self.micStallRestarts = 0
+                self.micExcludedDeviceIDs.removeAll()
+                guard self.userSelectedDeviceID == 0 else { return }
                 self.restartMic(inputDeviceID: 0)
             }
         }
@@ -686,6 +853,9 @@ final class TranscriptionEngine {
                 // A genuine device-change notification means the OS has an opinion again;
                 // give the watchdog a fresh budget rather than treating this as an auto-retry.
                 self.sysAudioWatchdogRetries = 0
+                // Bluetooth output changes (A2DP <-> HFP) also reroute the mic; refresh its budget too.
+                self.micStallRestarts = 0
+                self.micExcludedDeviceIDs.removeAll()
                 self.restartSystemAudio()
             }
         }
@@ -754,6 +924,13 @@ final class TranscriptionEngine {
         sysAudioWatchdogTask?.cancel()
         sysAudioWatchdogTask = nil
         sysAudioWatchdogRetries = 0
+        micStallWatchdogTask?.cancel()
+        micStallWatchdogTask = nil
+        micStallRestarts = 0
+        micStallReported = false
+        pendingMicRestartIsForced = false
+        pendingMicFallbackTarget = nil
+        micExcludedDeviceIDs.removeAll()
         micRestartTask = nil
         sysRestartTask = nil
         pendingMicDeviceID = nil
@@ -813,6 +990,13 @@ final class TranscriptionEngine {
         sysAudioWatchdogTask?.cancel()
         sysAudioWatchdogTask = nil
         sysAudioWatchdogRetries = 0
+        micStallWatchdogTask?.cancel()
+        micStallWatchdogTask = nil
+        micStallRestarts = 0
+        micStallReported = false
+        pendingMicRestartIsForced = false
+        pendingMicFallbackTarget = nil
+        micExcludedDeviceIDs.removeAll()
         micRestartTask = nil
         sysRestartTask = nil
         pendingMicDeviceID = nil
@@ -839,24 +1023,28 @@ final class TranscriptionEngine {
         assetStatus = "Ready"
     }
 
-    private func performMicRestart(inputDeviceID: AudioDeviceID) async {
+    private func performMicRestart(
+        inputDeviceID: AudioDeviceID,
+        force: Bool = false,
+        fallbackTarget: AudioDeviceID? = nil
+    ) async {
         guard isRunning, let vadManager else { return }
 
         userSelectedDeviceID = inputDeviceID
 
-        guard let targetMicID = resolvedMicDeviceID(for: inputDeviceID) else {
+        guard let targetMicID = fallbackTarget ?? resolvedMicDeviceID(for: inputDeviceID) else {
             let msg = unavailableMicMessage(for: inputDeviceID)
             Log.transcription.error("Mic swap failed: \(msg, privacy: .public)")
             lastError = msg
             return
         }
 
-        guard targetMicID != currentMicDeviceID else {
+        guard force || targetMicID != currentMicDeviceID else {
             Log.transcription.debug("Mic swap skipped, same device \(targetMicID, privacy: .public)")
             return
         }
 
-        Log.transcription.info("Switching mic from \(self.currentMicDeviceID, privacy: .public) to \(targetMicID, privacy: .public)")
+        Log.transcription.notice("Switching mic from \(self.currentMicDeviceID, privacy: .public) to \(targetMicID, privacy: .public), force=\(force, privacy: .public)")
 
         micCapture.finishStream()
         await micTask?.value

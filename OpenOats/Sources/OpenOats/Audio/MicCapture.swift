@@ -19,9 +19,22 @@ final class MicCapture: @unchecked Sendable {
     private let _streamContinuation = OSAllocatedUnfairLock<AsyncStream<AVAudioPCMBuffer>.Continuation?>(uncheckedState: nil)
     private let _muted = SyncBool()
     private let _paused = SyncBool()
+    /// `systemUptime` of the most recent tap callback, or of the stream start until the
+    /// first frame arrives. 0 when no stream is active.
+    private let _lastActivityUptime = OSAllocatedUnfairLock<TimeInterval>(initialState: 0)
 
     var audioLevel: Float { (_muted.value || _paused.value) ? 0 : _audioLevel.value }
     var hasCapturedFrames: Bool { _hasCapturedFrames.value }
+
+    /// Seconds since the tap last delivered a buffer (or since the stream started, if it
+    /// has not delivered one yet). nil when no stream is active. The tap fires even while
+    /// muted/paused, so a growing value means the engine itself has gone silent — e.g.
+    /// after a Bluetooth headset switches to HFP mid-session.
+    var secondsSinceLastActivity: TimeInterval? {
+        let last = _lastActivityUptime.withLock { $0 }
+        guard last > 0 else { return nil }
+        return ProcessInfo.processInfo.systemUptime - last
+    }
     var captureError: String? { _error.value }
 
     /// When muted, buffers are not forwarded to the stream and audio level reads as 0.
@@ -67,6 +80,8 @@ final class MicCapture: @unchecked Sendable {
             self._streamContinuation.withLock { $0 = continuation }
             errorHolder.value = nil
             self._hasCapturedFrames.value = false
+            let lastActivityUptime = self._lastActivityUptime
+            lastActivityUptime.withLock { $0 = ProcessInfo.processInfo.systemUptime }
 
             Log.mic.info("bufferStream called, deviceID=\(String(describing: deviceID), privacy: .public)")
 
@@ -160,6 +175,8 @@ final class MicCapture: @unchecked Sendable {
             inputNode.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { buffer, _ in
                 tapCallCount += 1
                 self._hasCapturedFrames.value = true
+                let now = ProcessInfo.processInfo.systemUptime
+                lastActivityUptime.withLock { $0 = now }
                 let rms = Self.normalizedRMS(from: buffer)
                 level.value = min(rms * 25, 1.0)
 
@@ -206,7 +223,13 @@ final class MicCapture: @unchecked Sendable {
             object: engine,
             queue: nil
         ) { [weak self] _ in
-            guard let self, self.engine === engine, self.hasTapInstalled, !engine.isRunning else { return }
+            guard let self, self.engine === engine, self.hasTapInstalled else { return }
+            // Logged at notice level so it survives in the unified log / diagnostics export:
+            // this is the moment a mid-session Bluetooth/HFP switch silently kills the mic.
+            Log.mic.notice("Audio engine configuration changed, isRunning=\(engine.isRunning, privacy: .public)")
+            // Restarting in place keeps the tap's old format, which can leave the engine
+            // running but silent; TranscriptionEngine's mic stall watchdog rebuilds it if so.
+            guard !engine.isRunning else { return }
             Log.mic.info("Audio engine configuration changed while stopped, attempting restart")
             do {
                 try engine.start()
@@ -242,6 +265,7 @@ final class MicCapture: @unchecked Sendable {
         engine.reset()
         _audioLevel.value = 0
         _hasCapturedFrames.value = false
+        _lastActivityUptime.withLock { $0 = 0 }
     }
 
     private func makeFreshEngine() -> AVAudioEngine {
@@ -415,6 +439,19 @@ final class MicCapture: @unchecked Sendable {
         var size = UInt32(MemoryLayout<Float64>.size)
         let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &sampleRate)
         return status == noErr ? sampleRate : nil
+    }
+
+    /// CoreAudio transport type (`kAudioDeviceTransportType*`), e.g. built-in, USB, Bluetooth.
+    static func deviceTransportType(for deviceID: AudioDeviceID) -> UInt32? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var transport: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &transport)
+        return status == noErr ? transport : nil
     }
 
     /// Resolve a stable CoreAudio UID string back to the current AudioDeviceID, if the device is connected.
