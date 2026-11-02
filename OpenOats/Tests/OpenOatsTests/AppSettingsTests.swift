@@ -156,18 +156,18 @@ final class AppSettingsTests: XCTestCase {
 
     func testAppSettingsKbFolderURLWhenEmpty() {
         let settings = makeSettings()
-        let originalPath = settings.kbFolderPath
-        settings.kbFolderPath = ""
-        XCTAssertNil(settings.kbFolderURL)
-        settings.kbFolderPath = originalPath
+        let originalPath = settings.kbFolderPaths
+        settings.kbFolderPaths = []
+        XCTAssertTrue(settings.kbFolderURLs.isEmpty)
+        settings.kbFolderPaths = originalPath
     }
 
     func testAppSettingsKbFolderURLWhenSet() {
         let settings = makeSettings()
-        let originalPath = settings.kbFolderPath
-        settings.kbFolderPath = "/tmp/test-kb"
-        XCTAssertNotNil(settings.kbFolderURL)
-        XCTAssertEqual(settings.kbFolderURL?.path, "/tmp/test-kb")
-        settings.kbFolderPath = originalPath
+        let originalPath = settings.kbFolderPaths
+        settings.kbFolderPaths = ["/tmp/test-kb"]
+        XCTAssertFalse(settings.kbFolderURLs.isEmpty)
+        XCTAssertEqual(settings.kbFolderURLs.map(\.path), [URL(fileURLWithPath: "/tmp/test-kb").resolvingSymlinksInPath().path])
+        settings.kbFolderPaths = originalPath
     }
 }

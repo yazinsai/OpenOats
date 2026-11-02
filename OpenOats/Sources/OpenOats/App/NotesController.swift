@@ -1391,7 +1391,7 @@ final class NotesController {
         cancelMeetingFamilyKnowledgeBaseLoad()
 
         guard let settings,
-              settings.kbFolderURL != nil,
+              !settings.kbFolderURLs.isEmpty,
               let knowledgeBase = coordinator.knowledgeBase else {
             return
         }

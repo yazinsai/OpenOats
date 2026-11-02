@@ -1428,15 +1428,23 @@ final class SettingsStore {
         }
     }
 
-    @ObservationIgnored nonisolated(unsafe) private var _kbFolderPath: String
-    var kbFolderPath: String {
-        get { access(keyPath: \.kbFolderPath); return _kbFolderPath }
+    @ObservationIgnored nonisolated(unsafe) private var _kbFolderPaths: [String]
+    var kbFolderPaths: [String] {
+        get { access(keyPath: \.kbFolderPaths); return _kbFolderPaths }
         set {
-            withMutation(keyPath: \.kbFolderPath) {
-                _kbFolderPath = newValue
-                defaults.set(newValue, forKey: "kbFolderPath")
+            withMutation(keyPath: \.kbFolderPaths) {
+                _kbFolderPaths = Self.normalizedKBFolderPaths(newValue)
+                defaults.set(_kbFolderPaths, forKey: "kbFolderPaths")
+                defaults.removeObject(forKey: "kbFolderPath")
             }
         }
+    }
+
+    private static func normalizedKBFolderPaths(_ paths: [String]) -> [String] {
+        var seen = Set<String>()
+        return paths.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { URL(fileURLWithPath: $0).standardizedFileURL.resolvingSymlinksInPath().path }
+            .filter { seen.insert($0).inserted }
     }
 
     @ObservationIgnored nonisolated(unsafe) private var _hasSeenLaunchAtLoginSuggestion: Bool
@@ -1672,7 +1680,11 @@ final class SettingsStore {
         self._meetingFamilyPreferencesByKey = Self.decodeMeetingFamilyPreferences(
             defaults.data(forKey: "meetingFamilyPreferencesByKey")
         ) ?? [:]
-        self._kbFolderPath = defaults.string(forKey: "kbFolderPath") ?? ""
+        self._kbFolderPaths = Self.normalizedKBFolderPaths(
+            defaults.stringArray(forKey: "kbFolderPaths") ?? [defaults.string(forKey: "kbFolderPath") ?? ""]
+        )
+        defaults.set(_kbFolderPaths, forKey: "kbFolderPaths")
+        defaults.removeObject(forKey: "kbFolderPath")
         self._hasSeenLaunchAtLoginSuggestion = defaults.bool(forKey: "hasSeenLaunchAtLoginSuggestion")
 
         // Ensure notes folder exists
@@ -1697,9 +1709,8 @@ final class SettingsStore {
         }
     }
 
-    var kbFolderURL: URL? {
-        guard !kbFolderPath.isEmpty else { return nil }
-        return URL(fileURLWithPath: kbFolderPath)
+    var kbFolderURLs: [URL] {
+        kbFolderPaths.map { URL(fileURLWithPath: $0) }
     }
 
     var locale: Locale {
@@ -2086,9 +2097,9 @@ extension SettingsStore {
             }
         }
 
-        let activeKB = defaults.string(forKey: "kbFolderPath") ?? ""
+        let activeKB = defaults.stringArray(forKey: "kbFolderPaths") ?? [defaults.string(forKey: "kbFolderPath") ?? ""]
         let activeNotes = defaults.string(forKey: "notesFolderPath") ?? ""
-        if fm.fileExists(atPath: oldDocDir.path) && oldDocDir.path != activeKB && oldDocDir.path != activeNotes {
+        if fm.fileExists(atPath: oldDocDir.path) && !activeKB.contains(oldDocDir.path) && oldDocDir.path != activeNotes {
             try? fm.createDirectory(at: newDocDir, withIntermediateDirectories: true)
             if let files = try? fm.contentsOfDirectory(at: oldDocDir, includingPropertiesForKeys: nil) {
                 for file in files where file.pathExtension == "txt" {

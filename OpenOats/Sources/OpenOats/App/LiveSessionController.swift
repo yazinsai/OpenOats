@@ -194,7 +194,7 @@ final class LiveSessionController {
     private var observedAudioLevel: Float = 0
     private var observedSuggestions: [Suggestion] = []
     private var observedIsGenerating = false
-    private var observedKBFolderPath: String?
+    private var observedKBFolderPaths: [String]?
     private var observedNotesFolderPath = ""
     private var observedMeetingTranscriptDateFolderFormat: MeetingTranscriptDateFolderFormat?
     private var observedEmbeddingProvider: EmbeddingProvider?
@@ -497,19 +497,17 @@ final class LiveSessionController {
     // MARK: - KB Indexing
 
     func indexKBIfNeeded(settings: AppSettings) {
-        guard let url = settings.kbFolderURL, let kb = coordinator.knowledgeBase else { return }
+        guard let kb = coordinator.knowledgeBase else { return }
         Task {
-            // TODO: Coalesce repeated startup/settings-triggered reindex requests into a
-            // single in-flight task. Today ContentView startup, kbFolderPath changes, and
-            // Voyage key changes can all arrive close together and redo the same cold-start scan.
-            kb.clear()
-            await kb.index(folderURL: url)
+            await kb.index(folderURLs: settings.kbFolderURLs)
         }
     }
 
     func loadKBCacheIfAvailable(settings: AppSettings) {
-        guard let url = settings.kbFolderURL, let kb = coordinator.knowledgeBase else { return }
-        _ = kb.loadCachedStateIfAvailable(folderURL: url)
+        guard let kb = coordinator.knowledgeBase else { return }
+        Task {
+            _ = await kb.loadCachedStateIfAvailable(folderURLs: settings.kbFolderURLs)
+        }
     }
 
     // MARK: - External Commands
@@ -1723,18 +1721,18 @@ final class LiveSessionController {
     private func synchronizeDerivedState(settings: AppSettings) {
         let currentState = state
 
-        if let observedKBFolderPath {
-            if settings.kbFolderPath != observedKBFolderPath {
-                self.observedKBFolderPath = settings.kbFolderPath
-                if settings.kbFolderPath.isEmpty {
+        if let observedKBFolderPaths {
+            if settings.kbFolderPaths != observedKBFolderPaths {
+                self.observedKBFolderPaths = settings.kbFolderPaths
+                if settings.kbFolderPaths.isEmpty {
                     coordinator.knowledgeBase?.clear()
                 } else {
                     indexKBIfNeeded(settings: settings)
                 }
             }
         } else {
-            observedKBFolderPath = settings.kbFolderPath
-            if settings.kbFolderPath.isEmpty {
+            observedKBFolderPaths = settings.kbFolderPaths
+            if settings.kbFolderPaths.isEmpty {
                 coordinator.knowledgeBase?.clear()
             } else {
                 loadKBCacheIfAvailable(settings: settings)
@@ -1767,7 +1765,7 @@ final class LiveSessionController {
             }
         }
 
-        if settings.kbFolderPath.isEmpty {
+        if settings.kbFolderPaths.isEmpty {
             observedEmbeddingProvider = nil
             observedVoyageApiKey = nil
         } else {

@@ -867,7 +867,7 @@ private struct IntelligenceSettingsTab: View {
     @Bindable var settings: AppSettings
 
     private var knowledgeBaseConfigured: Bool {
-        !settings.kbFolderPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !settings.kbFolderPaths.isEmpty
     }
 
     var body: some View {
@@ -956,35 +956,33 @@ private struct IntelligenceSettingsTab: View {
                 }
 
                 Section("Knowledge Base") {
-                    Text("Optional. Point this to a folder of reference material such as docs, notes, PRDs, or customer context. OpenOats reads this folder to find relevant background during meetings. It is separate from where your meeting notes are organized.")
+                    Text("Optional. Add folders of reference material such as docs, notes, PRDs, or customer context. OpenOats reads these folders to find relevant background during meetings. It is separate from where your meeting notes are organized.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 
-                    HStack {
-                        Text(settings.kbFolderPath.isEmpty ? "Not set" : settings.kbFolderPath)
-                            .font(.system(size: 12))
-                            .foregroundStyle(settings.kbFolderPath.isEmpty ? .tertiary : .primary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-
-                        Spacer()
-
-                        if !settings.kbFolderPath.isEmpty {
-                            Button("Clear") {
-                                settings.kbFolderPath = ""
+                    ForEach(settings.kbFolderPaths, id: \.self) { path in
+                        HStack {
+                            Text(path)
+                                .font(.system(size: 12))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .help(path)
+                            Spacer()
+                            Button("Remove") {
+                                settings.kbFolderPaths.removeAll { $0 == path }
                             }
-                            .font(.system(size: 12))
+                            .accessibilityLabel("Remove \(path)")
                         }
+                    }
 
-                        Button("Choose...") {
-                            chooseKBFolder()
-                        }
+                    Button("Add Folders...") {
+                        chooseKBFolder()
                     }
                 }
 
                 Section("Knowledge base retrieval") {
                     if knowledgeBaseConfigured {
-                        Text("Choose how OpenOats indexes and searches your Knowledge Base folder. This affects knowledge retrieval during meetings, not note generation. Indexed chunks and vectors are still cached locally on this Mac.")
+                        Text("Choose how OpenOats indexes and searches your Knowledge Base folders. This affects knowledge retrieval during meetings, not note generation. Indexed chunks and vectors are still cached locally on this Mac.")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
 
@@ -1079,11 +1077,11 @@ private struct IntelligenceSettingsTab: View {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a folder containing your knowledge base documents (.md, .txt)"
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose folders containing your knowledge base documents (.md, .txt)"
 
-        if panel.runModal() == .OK, let url = panel.url {
-            settings.kbFolderPath = url.path
+        if panel.runModal() == .OK {
+            settings.kbFolderPaths += panel.urls.map(\.path)
         }
     }
 }

@@ -1530,7 +1530,7 @@ final class LiveSessionControllerTests: XCTestCase {
             saveValue: { _, _ in }
         )
         let settings = makeSettings(notesDirectory: dirs.notes, secretStore: secretStore)
-        settings.kbFolderPath = kbDirectory.path
+        settings.kbFolderPaths = [kbDirectory.path]
         settings.embeddingProvider = .voyageAI
 
         let (controller, coordinator) = makeController(

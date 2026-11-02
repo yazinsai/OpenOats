@@ -36,7 +36,7 @@ OpenOats sits next to your call, transcribes both sides of the conversation in r
 - **Pick any LLM** — use [OpenRouter](https://openrouter.ai/) or [Requesty](https://www.requesty.ai/) for cloud models (GPT-4o, Claude, Gemini) or Ollama for local ones (Llama, Qwen, Mistral)
 - **Live transcript** — see both sides of the conversation as it happens, copy the whole thing with one click
 - **Auto-saved sessions** — every conversation is automatically saved as a plain-text transcript and a structured session log, no manual export needed
-- **Knowledge base search** — point it at a folder of notes and it pulls in what's relevant using [Voyage AI](https://www.voyageai.com/) embeddings, local Ollama embeddings, or any OpenAI-compatible endpoint (llama.cpp, llamaswap, LiteLLM, vLLM, etc.)
+- **Knowledge base search** — point it at folders of notes and it pulls in what's relevant using [Voyage AI](https://www.voyageai.com/) embeddings, local Ollama embeddings, or any OpenAI-compatible endpoint (llama.cpp, llamaswap, LiteLLM, vLLM, etc.)
 
 ## How it works
 
@@ -90,7 +90,7 @@ Or build from source:
    - **Cloud**: add your OpenRouter and Voyage AI API keys
    - **Local**: select Ollama as your LLM and embedding provider (make sure Ollama is running)
    - **OpenAI-compatible**: select "OpenAI Compatible" as your embedding provider and point it at any `/v1/embeddings` endpoint
-4. Point it at a folder of `.md` or `.txt` files — that's your knowledge base
+4. Add folders of `.md` or `.txt` files in Settings — that's your knowledge base
 5. Click **Idle** to go live
 
 The first run downloads the local speech model (~600 MB).
@@ -119,7 +119,9 @@ for build checks and a short system-audio test.
 
 ## Knowledge base
 
-Point the app at a folder of Markdown or plain text files. That's it. OpenOats chunks, embeds, and caches them locally. When the conversation shifts, it searches your notes and only surfaces what's actually relevant.
+Add one or more folders of Markdown or plain text files in Settings. Select several folders at once, add more later, or remove any source independently. Existing single-folder settings migrate automatically. Overlapping folders index each file once. Source labels distinguish files with the same name across folders. OpenOats chunks, embeds, and caches them locally. When the conversation shifts, it searches your notes and only surfaces what's actually relevant.
+
+The cache is validated against the selected folders and current file contents before it is restored. Changing the folder list or embedding configuration rebuilds the index. Existing single-folder caches rebuild once after upgrading.
 
 Works well with meeting prep docs, research notes, pitch decks, competitive analysis, customer briefs — anything you'd want at your fingertips during a call.
 
@@ -138,14 +140,14 @@ When using cloud providers, OpenOats makes the following network requests. **No 
 
 #### 1. Knowledge base indexing — Voyage AI (`api.voyageai.com/v1/embeddings`)
 
-**When:** Each time you index your knowledge base folder (on launch or when files change).
+**When:** Each time you index your knowledge base folders (on launch or when files change).
 
 **What is sent:**
 - Text chunks from your `.md` / `.txt` knowledge base files (split by markdown headings, 80–500 words each, with the header breadcrumb prepended)
 - Model name (`voyage-4-lite`) and requested output dimensions (`256`)
 - Input type (`document`)
 
-Chunks are sent in batches of 32. Only new or changed files are embedded — unchanged files use a local cache.
+Chunks are sent in batches of 32. Only new or changed files are embedded — unchanged files use a local cache when the folder list and embedding configuration stay the same. Source labels and document paths relative to the selected folders are included to identify the evidence.
 
 #### 2. Knowledge base search — Voyage AI (`api.voyageai.com/v1/embeddings`)
 
@@ -207,7 +209,6 @@ Chunks are sent in batches of 32. Only new or changed files are embedded — unc
 #### What is never sent
 
 - **Audio** — transcription is always on-device via Apple Speech
-- **File paths or filenames from your system** (only KB source filenames appear in prompts)
 - **Your API keys to anyone other than the respective provider** (OpenRouter key to OpenRouter, Voyage key to Voyage)
 - **Any data when using Ollama** — all requests go to your local machine
 
@@ -225,6 +226,14 @@ cd OpenOats && swift build -c debug
 ```
 
 Optional env vars for code signing and notarization: `CODESIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`.
+
+To verify knowledge base folder selection and retrieval without API keys or a model download:
+
+```bash
+OPENOATS_KB_PROOF_DIR=/tmp/openoats-kb-proof swift test --package-path OpenOats --filter KnowledgeBaseFoldersTests
+```
+
+These tests start a deterministic Python server on loopback and exercise the real embedding HTTP client, indexing, search, and cache restore. The optional proof directory retains synthetic documents, request logs, and a `proof.json` with retrieval results. Python 3 is required for these tests.
 
 ## Repo layout
 

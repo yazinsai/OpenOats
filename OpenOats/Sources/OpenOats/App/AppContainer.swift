@@ -107,7 +107,7 @@ final class AppContainer {
             defaults.set(false, forKey: "saveAudioRecording")
             defaults.set(false, forKey: "enableLiveTranscriptCleanup")
             defaults.set(notesDirectory.path, forKey: "notesFolderPath")
-            defaults.set("", forKey: "kbFolderPath")
+            defaults.set([String](), forKey: "kbFolderPaths")
 
             let storage = AppSettingsStorage(
                 defaults: defaults,
@@ -143,7 +143,7 @@ final class AppContainer {
     }
 
     func makeViewServices(settings: AppSettings, coordinator: AppCoordinator) -> AppViewServices {
-        let knowledgeBase = KnowledgeBase(settings: settings)
+        let knowledgeBase = KnowledgeBase(settings: settings, cacheFileURL: appSupportDirectory.appendingPathComponent("kb_cache.json"))
         let suggestionEngine = SuggestionEngine(
             transcriptStore: coordinator.transcriptStore,
             knowledgeBase: knowledgeBase,
