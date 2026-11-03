@@ -2013,7 +2013,7 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
 
     @ViewBuilder
     private func transcriptMaintenanceMenu(controller: NotesController, state: NotesState) -> some View {
-        let isBatchBusy = coordinator.batchStatus != .idle
+        let isBatchBusy = coordinator.batchStatus.isInProgress
 
         Menu {
             if state.canRetranscribeSelectedSession {
@@ -2851,7 +2851,7 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                                 Label("Re-transcribe", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
                             }
                             .buttonStyle(.bordered)
-                            .disabled(coordinator.batchStatus != .idle)
+                            .disabled(coordinator.batchStatus.isInProgress)
                         }
 
                         Button {
@@ -2892,7 +2892,7 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                                 Label("Re-transcribe", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
                             }
                             .buttonStyle(.bordered)
-                            .disabled(coordinator.batchStatus != .idle)
+                            .disabled(coordinator.batchStatus.isInProgress)
                         }
 
                         Button {
@@ -3383,7 +3383,7 @@ struct MeetingDetailPane<SessionFolderMenuItems: View>: View {
                         Label("Re-transcribe", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
                     }
                     .buttonStyle(.bordered)
-                    .disabled(coordinator.batchStatus != .idle)
+                    .disabled(coordinator.batchStatus.isInProgress)
                 }
 
                 Button {

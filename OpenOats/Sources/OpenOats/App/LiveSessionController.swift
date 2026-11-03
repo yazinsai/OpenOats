@@ -202,9 +202,9 @@ final class LiveSessionController {
     private var observedTranscriptionModel: TranscriptionModel = .parakeetV2
     private var observedInputDeviceID: AudioDeviceID = 0
     private var observedPendingExternalCommandID: UUID?
-    /// Tracks the session ID we last handled a batch completion for,
-    /// preventing the auto-dismiss → re-poll cycle from re-triggering the notification.
-    private var lastNotifiedBatchSessionID: String?
+    /// Last engine status the polling loop mirrored. The engine keeps its terminal
+    /// status, so mirroring only on change lets the auto-dismiss to idle stick.
+    private var lastPolledBatchStatus: BatchAudioTranscriber.Status = .idle
     private var observedPeakAudioLevelSinceStart: Float = 0
     private var observedSystemHasEverCapturedFrames = false
     private var observedMicHasEverCapturedFrames = false
@@ -235,7 +235,7 @@ final class LiveSessionController {
 
         while !Task.isCancelled {
             let isActive = coordinator.transcriptionEngine?.isRunning == true
-                || coordinator.batchStatus != .idle
+                || coordinator.batchStatus.isInProgress
                 || coordinator.knowledgeBase?.indexingStatus.needsFrequentPolling == true
             try? await Task.sleep(for: isActive ? .milliseconds(250) : .seconds(2))
 
@@ -244,7 +244,8 @@ final class LiveSessionController {
                 let status = await engine.status
                 let importing = await engine.isImporting
                 let activeBatchSessionID = await engine.activeSessionID
-                if status != .idle || coordinator.batchStatus != .idle {
+                if status != lastPolledBatchStatus {
+                    lastPolledBatchStatus = status
                     coordinator.batchStatus = status
                     coordinator.batchIsImporting = importing
 
@@ -308,8 +309,7 @@ final class LiveSessionController {
                         }
                     }
 
-                    if case .completed(let sid) = status, lastNotifiedBatchSessionID != sid {
-                        lastNotifiedBatchSessionID = sid
+                    if case .completed(let sid) = status {
                         if !NSApp.isActive, let notifService = container.notificationService {
                             await notifService.postBatchCompleted(sessionID: sid)
                         }
@@ -327,9 +327,9 @@ final class LiveSessionController {
                             }
                         }
                     }
-
-                    resumePendingAutoNotesIfNeeded(for: status, settings: settings)
                 }
+
+                resumePendingAutoNotesIfNeeded(for: status, settings: settings)
             }
 
             syncProjectedState(settings: settings)
