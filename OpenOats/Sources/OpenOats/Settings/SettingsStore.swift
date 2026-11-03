@@ -1435,7 +1435,8 @@ final class SettingsStore {
             withMutation(keyPath: \.kbFolderPaths) {
                 _kbFolderPaths = Self.normalizedKBFolderPaths(newValue)
                 defaults.set(_kbFolderPaths, forKey: "kbFolderPaths")
-                defaults.removeObject(forKey: "kbFolderPath")
+                // Mirror the first folder so older builds keep a KB folder after a downgrade.
+                defaults.set(_kbFolderPaths.first ?? "", forKey: "kbFolderPath")
             }
         }
     }
@@ -1684,7 +1685,7 @@ final class SettingsStore {
             defaults.stringArray(forKey: "kbFolderPaths") ?? [defaults.string(forKey: "kbFolderPath") ?? ""]
         )
         defaults.set(_kbFolderPaths, forKey: "kbFolderPaths")
-        defaults.removeObject(forKey: "kbFolderPath")
+        defaults.set(_kbFolderPaths.first ?? "", forKey: "kbFolderPath")
         self._hasSeenLaunchAtLoginSuggestion = defaults.bool(forKey: "hasSeenLaunchAtLoginSuggestion")
 
         // Ensure notes folder exists

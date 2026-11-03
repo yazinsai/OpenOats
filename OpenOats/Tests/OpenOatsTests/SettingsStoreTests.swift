@@ -865,7 +865,7 @@ final class SettingsStoreTests: XCTestCase {
         let store = makeStore(defaults: defaults)
         let legacy = URL(fileURLWithPath: "/tmp/legacy-kb").resolvingSymlinksInPath().path
         XCTAssertEqual(store.kbFolderPaths, [legacy])
-        XCTAssertNil(defaults.object(forKey: "kbFolderPath"))
+        XCTAssertEqual(defaults.string(forKey: "kbFolderPath"), legacy, "Legacy key is mirrored for downgrades")
         store.kbFolderPaths += ["/tmp/legacy-kb/../legacy-kb", "", "   ", "/tmp/second-kb"]
         XCTAssertEqual(makeStore(defaults: defaults).kbFolderPaths, [legacy, URL(fileURLWithPath: "/tmp/second-kb").resolvingSymlinksInPath().path])
         store.kbFolderPaths = []

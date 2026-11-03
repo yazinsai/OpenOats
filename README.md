@@ -209,6 +209,7 @@ Chunks are sent in batches of 32. Only new or changed files are embedded — unc
 #### What is never sent
 
 - **Audio** — transcription is always on-device via Apple Speech
+- **Absolute file paths from your system** (only paths relative to your knowledge base folders appear, prefixed with the folder name when you add more than one)
 - **Your API keys to anyone other than the respective provider** (OpenRouter key to OpenRouter, Voyage key to Voyage)
 - **Any data when using Ollama** — all requests go to your local machine
 
