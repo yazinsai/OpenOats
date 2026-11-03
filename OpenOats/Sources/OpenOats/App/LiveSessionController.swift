@@ -235,7 +235,7 @@ final class LiveSessionController {
 
         while !Task.isCancelled {
             let isActive = coordinator.transcriptionEngine?.isRunning == true
-                || coordinator.batchStatus.isInProgress
+                || coordinator.batchStatus != .idle
                 || coordinator.knowledgeBase?.indexingStatus.needsFrequentPolling == true
             try? await Task.sleep(for: isActive ? .milliseconds(250) : .seconds(2))
 
