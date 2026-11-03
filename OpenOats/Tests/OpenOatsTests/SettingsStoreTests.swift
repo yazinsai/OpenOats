@@ -857,15 +857,31 @@ final class SettingsStoreTests: XCTestCase {
         )
     }
 
+    func testKnowledgeFoldersMigrateAndPersistWithoutResurrectingLegacyFolder() {
+        let suiteName = "com.openoats.kb-migration.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("/tmp/legacy-kb", forKey: "kbFolderPath")
+        let store = makeStore(defaults: defaults)
+        let legacy = URL(fileURLWithPath: "/tmp/legacy-kb").resolvingSymlinksInPath().path
+        XCTAssertEqual(store.kbFolderPaths, [legacy])
+        XCTAssertEqual(defaults.string(forKey: "kbFolderPath"), legacy, "Legacy key is mirrored for downgrades")
+        store.kbFolderPaths += ["/tmp/legacy-kb/../legacy-kb", "", "   ", "/tmp/second-kb"]
+        XCTAssertEqual(makeStore(defaults: defaults).kbFolderPaths, [legacy, URL(fileURLWithPath: "/tmp/second-kb").resolvingSymlinksInPath().path])
+        store.kbFolderPaths = []
+        defaults.set("/tmp/legacy-kb", forKey: "kbFolderPath")
+        XCTAssertTrue(makeStore(defaults: defaults).kbFolderPaths.isEmpty)
+    }
+
     func testKbFolderURLWhenEmpty() {
         let store = makeStore()
-        XCTAssertNil(store.kbFolderURL)
+        XCTAssertTrue(store.kbFolderURLs.isEmpty)
     }
 
     func testKbFolderURLWhenSet() {
         let store = makeStore()
-        store.kbFolderPath = "/tmp/test-kb"
-        XCTAssertEqual(store.kbFolderURL?.path, "/tmp/test-kb")
+        store.kbFolderPaths = ["/tmp/test-kb"]
+        XCTAssertEqual(store.kbFolderURLs.map(\.path), [URL(fileURLWithPath: "/tmp/test-kb").resolvingSymlinksInPath().path])
     }
 
     func testLocaleProperty() {

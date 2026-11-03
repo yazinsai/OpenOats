@@ -253,7 +253,7 @@ final class SidecastEngine {
     }
 
     private func loadEvidence(for text: String) async -> [KBContextPack] {
-        guard settings.kbFolderURL != nil else { return [] }
+        guard !settings.kbFolderURLs.isEmpty else { return [] }
         return await knowledgeBase.searchContextPacks(queries: [text], topK: 3)
     }
 

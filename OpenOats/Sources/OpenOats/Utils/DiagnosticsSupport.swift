@@ -44,7 +44,7 @@ struct DiagnosticsSettingsSnapshot: Sendable, Equatable {
         transcriptionModel = settings.transcriptionModel.rawValue
         batchTranscriptionModel = settings.batchTranscriptionModel.rawValue
         knowledgeRetrievalProvider = settings.embeddingProvider.rawValue
-        knowledgeBaseConfigured = settings.kbFolderURL != nil
+        knowledgeBaseConfigured = !settings.kbFolderURLs.isEmpty
         meetingDetectionEnabled = settings.meetingAutoDetectEnabled
         calendarIntegrationEnabled = settings.calendarIntegrationEnabled
         saveAudioRecording = settings.saveAudioRecording

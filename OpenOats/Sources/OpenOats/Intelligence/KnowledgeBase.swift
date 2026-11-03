@@ -6,15 +6,17 @@ import CryptoKit
 struct KBChunk: Codable, Sendable {
     let text: String
     let sourceFile: String
+    let documentID: String
     let headerContext: String
     let embedding: [Float]
     let relativePath: String     // e.g. "sales/pricing.md"
     let folderBreadcrumb: String // e.g. "sales"
     let documentTitle: String    // first H1 or filename sans extension
 
-    init(text: String, sourceFile: String, headerContext: String, embedding: [Float], relativePath: String = "", folderBreadcrumb: String = "", documentTitle: String = "") {
+    init(text: String, sourceFile: String, headerContext: String, embedding: [Float], relativePath: String = "", folderBreadcrumb: String = "", documentTitle: String = "", documentID: String = "") {
         self.text = text
         self.sourceFile = sourceFile
+        self.documentID = documentID.isEmpty ? sourceFile : documentID
         self.headerContext = headerContext
         self.embedding = embedding
         self.relativePath = relativePath
@@ -26,6 +28,7 @@ struct KBChunk: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         text = try container.decode(String.self, forKey: .text)
         sourceFile = try container.decode(String.self, forKey: .sourceFile)
+        documentID = try container.decodeIfPresent(String.self, forKey: .documentID) ?? sourceFile
         headerContext = try container.decode(String.self, forKey: .headerContext)
         embedding = try container.decode([Float].self, forKey: .embedding)
         relativePath = try container.decodeIfPresent(String.self, forKey: .relativePath) ?? sourceFile
@@ -36,12 +39,11 @@ struct KBChunk: Codable, Sendable {
 
 /// Disk cache format for embedded KB chunks.
 private struct KBCache: Codable, Sendable {
-    /// Keyed by "filename:sha256hash"
+    var formatVersion = 1
     var entries: [String: [KBChunk]]
     /// Fingerprint of the embedding config used to produce these vectors.
     var embeddingConfigFingerprint: String?
-    /// Canonical folder path the cache was built from.
-    var folderPath: String?
+    var folderPaths: [String]?
 }
 
 enum KnowledgeBaseIndexingStatus: Equatable, Sendable {
@@ -133,11 +135,11 @@ enum KnowledgeBaseIndexingStatus: Equatable, Sendable {
         case .idle:
             return ""
         case .scanning:
-            return "OpenOats is scanning your Knowledge Base folder so it can prepare meeting context."
+            return "OpenOats is scanning your Knowledge Base folders so it can prepare meeting context."
         case .embedding:
-            return "OpenOats is indexing your Knowledge Base folder so it can surface relevant context during meetings."
+            return "OpenOats is indexing your Knowledge Base folders so it can surface relevant context during meetings."
         case .completed:
-            return "OpenOats finished indexing your Knowledge Base folder and can use it during meetings."
+            return "OpenOats finished indexing your Knowledge Base folders and can use it during meetings."
         case .blocked(let message), .failed(let message):
             return message
         }
@@ -172,6 +174,10 @@ final class KnowledgeBase {
         set { withMutation(keyPath: \.indexingStatus) { _indexingStatus = newValue } }
     }
 
+    private var indexGeneration = UUID()
+    private var indexedFolderPaths: [String] = []
+    private var indexedFingerprint: String?
+    private let cacheFileURL: URL
     private let settings: AppSettings
     private let voyageClient = VoyageClient()
     private let ollamaEmbedClient = OllamaEmbedClient()
@@ -183,69 +189,64 @@ final class KnowledgeBase {
         return dir.appendingPathComponent("kb_cache.json")
     }
 
-    init(settings: AppSettings) {
+    init(settings: AppSettings, cacheFileURL: URL? = nil) {
         self.settings = settings
+        self.cacheFileURL = cacheFileURL ?? Self.cacheURL()
     }
 
-    /// Restore indexed chunks from disk without re-scanning the configured folder.
-    /// Returns true only when the cached embedding config and folder path match.
     @discardableResult
-    func loadCachedStateIfAvailable(folderURL: URL) -> Bool {
-        let cache = loadCache()
+    func loadCachedStateIfAvailable(folderURLs: [URL]) async -> Bool {
+        let generation = indexGeneration
+        let paths = Self.canonicalFolderPaths(folderURLs)
         let fingerprint = embeddingConfigFingerprint()
-        let canonicalFolderPath = Self.canonicalFolderPath(folderURL)
-
+        let cache = loadCache()
         guard cache.embeddingConfigFingerprint == fingerprint,
-              cache.folderPath == canonicalFolderPath else {
-            return false
-        }
-
-        let cachedChunks = cache.entries.values.flatMap { $0 }
-        guard !cachedChunks.isEmpty else {
-            return false
-        }
-
-        finishIndexing(chunks: cachedChunks, fileCount: cache.entries.count)
+              cache.folderPaths == paths else { return false }
+        let scan = await Task.detached {
+            Self.scanFiles(in: folderURLs, cache: cache)
+        }.value
+        guard indexGeneration == generation,
+              paths == Self.canonicalFolderPaths(settings.kbFolderURLs),
+              fingerprint == embeddingConfigFingerprint(),
+              scan.filesToEmbed.isEmpty else { return false }
+        clear()
+        indexedFolderPaths = paths
+        indexedFingerprint = fingerprint
+        finishIndexing(chunks: scan.cachedChunks, fileCount: scan.fileCount)
         indexingStatus = .idle
         return true
     }
 
-    func index(folderURL: URL) async {
-        let provider = settings.embeddingProvider
+    func index(folderURLs: [URL]) async {
+        clear()
+        let generation = indexGeneration
+        let fingerprint = embeddingConfigFingerprint()
+        let paths = Self.canonicalFolderPaths(folderURLs)
+        indexedFolderPaths = paths
+        indexedFingerprint = fingerprint
 
-        // Validate credentials based on provider
-        if provider == .voyageAI {
-            guard !settings.voyageApiKey.isEmpty else {
-                indexingStatus = .blocked(message: "Add a Voyage AI API key in Settings to index your knowledge base.")
-                return
-            }
+        guard !paths.isEmpty else {
+            finishIndexing(chunks: [], fileCount: 0)
+            indexingStatus = .idle
+            return
+        }
+
+        if settings.embeddingProvider == .voyageAI && settings.voyageApiKey.isEmpty {
+            indexingStatus = .blocked(message: "Add a Voyage AI API key in Settings to index your knowledge base.")
+            return
         }
 
         indexingStatus = .scanning
-
-        // Load existing cache; invalidate if embedding config changed
-        let fingerprint = embeddingConfigFingerprint()
-        let canonicalFolderPath = Self.canonicalFolderPath(folderURL)
         var cache = loadCache()
-        if cache.embeddingConfigFingerprint != fingerprint || cache.folderPath != canonicalFolderPath {
-            cache = KBCache(
-                entries: [:],
-                embeddingConfigFingerprint: fingerprint,
-                folderPath: canonicalFolderPath
-            )
+        if cache.embeddingConfigFingerprint != fingerprint || cache.folderPaths != paths {
+            cache = KBCache(entries: [:], embeddingConfigFingerprint: fingerprint, folderPaths: paths)
         }
 
-        // Move all blocking file I/O off the main thread
         let cacheSnapshot = cache
         let scanResult = await Task.detached {
-            Self.scanFiles(in: folderURL, cache: cacheSnapshot)
+            Self.scanFiles(in: folderURLs, cache: cacheSnapshot)
         }.value
-
-        guard !scanResult.fileURLs.isEmpty else {
-            indexingStatus = .idle
-            isIndexed = true
-            return
-        }
+        guard isCurrentIndex(generation) else { return }
 
         var allChunks = scanResult.cachedChunks
         let filesToEmbed = scanResult.filesToEmbed
@@ -263,13 +264,17 @@ final class KnowledgeBase {
             }
 
             guard !allTextsToEmbed.isEmpty else {
+                cache.entries = cache.entries.filter { scanResult.currentCacheKeys.contains($0.key) }
+                for entry in filesToEmbed { cache.entries[entry.key] = [] }
+                saveCache(cache)
                 finishIndexing(chunks: allChunks, fileCount: scanResult.fileCount)
                 return
             }
 
             indexingStatus = .embedding(completed: 0, total: allTextsToEmbed.count, activeRange: nil)
 
-            let result = await embedInBatches(texts: allTextsToEmbed)
+            let result = await embedInBatches(texts: allTextsToEmbed, generation: generation)
+            guard isCurrentIndex(generation) else { return }
             let embeddings = result.embeddings
 
             if embeddings.allSatisfy({ $0 == nil }) {
@@ -289,15 +294,15 @@ final class KnowledgeBase {
                     let trimmed = chunk.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty else { continue }
                     if let embedding = embeddings[offset] {
-                        let fileName = entry.key.components(separatedBy: ":").first ?? ""
                         let kbChunk = KBChunk(
                             text: chunk.text,
-                            sourceFile: fileName,
+                            sourceFile: entry.relativePath,
                             headerContext: chunk.header,
                             embedding: Self.normalizeEmbedding(embedding),
                             relativePath: entry.relativePath,
                             folderBreadcrumb: entry.folderBreadcrumb,
-                            documentTitle: entry.documentTitle
+                            documentTitle: entry.documentTitle,
+                            documentID: entry.documentID
                         )
                         fileChunks.append(kbChunk)
                     } else {
@@ -305,7 +310,7 @@ final class KnowledgeBase {
                     }
                     offset += 1
                 }
-                if !fileChunks.isEmpty {
+                if fileChunks.count == entry.chunks.filter({ !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }).count {
                     cache.entries[entry.key] = fileChunks
                 }
                 allChunks.append(contentsOf: fileChunks)
@@ -314,19 +319,10 @@ final class KnowledgeBase {
             if failedChunkCount > 0 {
                 Log.knowledgeBase.warning("KB indexing: \(failedChunkCount) chunks failed to embed, continuing with partial results")
             }
-
-            // Prune stale cache entries using pre-computed keys
-            let allRelevantKeys = Set(filesToEmbed.map(\.key)).union(scanResult.currentCacheKeys)
-            cache.entries = cache.entries.filter { allRelevantKeys.contains($0.key) }
-
-            saveCache(cache)
-        } else {
-            // All files were cached — still prune stale entries
-            if cache.entries.keys.count != scanResult.currentCacheKeys.count {
-                cache.entries = cache.entries.filter { scanResult.currentCacheKeys.contains($0.key) }
-                saveCache(cache)
-            }
         }
+        let allRelevantKeys = Set(filesToEmbed.map(\.key)).union(scanResult.currentCacheKeys)
+        cache.entries = cache.entries.filter { allRelevantKeys.contains($0.key) }
+        saveCache(cache)
 
         finishIndexing(chunks: allChunks, fileCount: scanResult.fileCount)
     }
@@ -334,7 +330,6 @@ final class KnowledgeBase {
     // MARK: - Background File Scanning
 
     private struct FileScanResult: Sendable {
-        let fileURLs: [URL]
         let fileCount: Int
         let cachedChunks: [KBChunk]
         let filesToEmbed: [FileToEmbed]
@@ -343,53 +338,62 @@ final class KnowledgeBase {
 
     private struct FileToEmbed: Sendable {
         let key: String
+        let documentID: String
         let chunks: [(text: String, header: String)]
         let relativePath: String
         let folderBreadcrumb: String
         let documentTitle: String
     }
 
-    /// Reads all KB files off the main thread. Pure file I/O — no actor-isolated state.
-    private nonisolated static func scanFiles(in folderURL: URL, cache: KBCache) -> FileScanResult {
-        let fileURLs = collectFilesStatic(in: folderURL)
-        guard !fileURLs.isEmpty else {
-            return FileScanResult(fileURLs: [], fileCount: 0, cachedChunks: [], filesToEmbed: [], currentCacheKeys: [])
+    private nonisolated static func scanFiles(in folderURLs: [URL], cache: KBCache) -> FileScanResult {
+        let roots = canonicalFolderPaths(folderURLs).map { URL(fileURLWithPath: $0) }
+        let labels = roots.map { root in
+            var depth = 1
+            while roots.filter({ $0.pathComponents.suffix(depth) == root.pathComponents.suffix(depth) }).count > 1 {
+                depth += 1
+            }
+            return root.pathComponents.suffix(depth).joined(separator: "/")
+                .replacingOccurrences(of: "%", with: "%25")
+                .replacingOccurrences(of: ":", with: "%3A")
         }
-
+        var seen = Set<String>()
+        var fileURLs: [URL] = []
         var cachedChunks: [KBChunk] = []
         var filesToEmbed: [FileToEmbed] = []
-        var fileCount = 0
         var currentCacheKeys = Set<String>()
 
-        for fileURL in fileURLs {
-            guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
-            fileCount += 1
-
-            let fileName = fileURL.lastPathComponent
-            let hash = sha256Static(content)
-            let cacheKey = "\(fileName):\(hash)"
-            currentCacheKeys.insert(cacheKey)
-
-            // Reuse cached embeddings if content hasn't changed
-            if let cached = cache.entries[cacheKey] {
-                cachedChunks.append(contentsOf: cached)
-                continue
+        for (index, root) in roots.enumerated() {
+            for file in collectFilesStatic(in: root).sorted(by: { $0.path < $1.path }) {
+                let fileURL = file.standardizedFileURL.resolvingSymlinksInPath()
+                guard seen.insert(fileURL.path).inserted,
+                      let content = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
+                fileURLs.append(fileURL)
+                let fileName = file.lastPathComponent
+                let documentID = sha256Static(fileURL.path)
+                let cacheKey = documentID + ":" + sha256Static(content)
+                currentCacheKeys.insert(cacheKey)
+                if let cached = cache.entries[cacheKey] {
+                    cachedChunks.append(contentsOf: cached)
+                    continue
+                }
+                let localPath = String(fileURL.path.dropFirst(root.path.count).drop(while: { $0 == "/" }))
+                let relativePath = roots.count > 1 ? labels[index] + " :: " + localPath : localPath
+                let localFolder = (localPath as NSString).deletingLastPathComponent
+                let folderBreadcrumb = roots.count > 1
+                    ? labels[index] + (localFolder.isEmpty ? "" : " :: " + localFolder)
+                    : localFolder
+                let title = extractDocumentTitleStatic(from: content) ?? file.deletingPathExtension().lastPathComponent
+                filesToEmbed.append(FileToEmbed(
+                    key: cacheKey,
+                    documentID: documentID,
+                    chunks: chunkMarkdownStatic(content, sourceFile: fileName),
+                    relativePath: relativePath,
+                    folderBreadcrumb: folderBreadcrumb,
+                    documentTitle: title
+                ))
             }
-
-            let relativePath = fileURL.path.hasPrefix(folderURL.path)
-                ? String(fileURL.path.dropFirst(folderURL.path.count).drop(while: { $0 == "/" }))
-                : fileName
-
-            let folderBreadcrumb = URL(fileURLWithPath: relativePath).deletingLastPathComponent().path
-                .trimmingCharacters(in: CharacterSet(charactersIn: "./"))
-
-            let docTitle = extractDocumentTitleStatic(from: content) ?? fileName.replacingOccurrences(of: ".\(fileURL.pathExtension)", with: "")
-
-            let textChunks = chunkMarkdownStatic(content, sourceFile: fileName)
-            filesToEmbed.append(FileToEmbed(key: cacheKey, chunks: textChunks, relativePath: relativePath, folderBreadcrumb: folderBreadcrumb, documentTitle: docTitle))
         }
-
-        return FileScanResult(fileURLs: fileURLs, fileCount: fileCount, cachedChunks: cachedChunks, filesToEmbed: filesToEmbed, currentCacheKeys: currentCacheKeys)
+        return FileScanResult(fileCount: fileURLs.count, cachedChunks: cachedChunks, filesToEmbed: filesToEmbed, currentCacheKeys: currentCacheKeys)
     }
 
     func search(query: String, topK: Int = 5) async -> [KBResult] {
@@ -405,11 +409,11 @@ final class KnowledgeBase {
     func searchContextPacks(queries: [String], topK: Int = 3) async -> [KBContextPack] {
         let raw = await searchRaw(queries: queries, topK: topK)
         return raw.map { chunkIndex, result in
-            let prevSibling: String? = chunkIndex > 0 && chunks[chunkIndex - 1].sourceFile == result.sourceFile
-                ? chunks[chunkIndex - 1].text : nil
-            let nextSibling: String? = chunkIndex < chunks.count - 1 && chunks[chunkIndex + 1].sourceFile == result.sourceFile
-                ? chunks[chunkIndex + 1].text : nil
             let chunk = chunks[chunkIndex]
+            let prevSibling: String? = chunkIndex > 0 && chunks[chunkIndex - 1].documentID == chunk.documentID
+                ? chunks[chunkIndex - 1].text : nil
+            let nextSibling: String? = chunkIndex < chunks.count - 1 && chunks[chunkIndex + 1].documentID == chunk.documentID
+                ? chunks[chunkIndex + 1].text : nil
             return KBContextPack(
                 matchedText: result.text,
                 relativePath: chunk.relativePath,
@@ -438,6 +442,7 @@ final class KnowledgeBase {
         let validQueries = queries.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !validQueries.isEmpty else { return [] }
 
+        let generation = indexGeneration
         let queryEmbeddings: [[Float]]
         do {
             queryEmbeddings = try await embedTexts(validQueries, inputType: "query")
@@ -445,6 +450,8 @@ final class KnowledgeBase {
             Log.knowledgeBase.error("KB search embed error: \(error, privacy: .public)")
             return []
         }
+
+        guard isCurrentIndex(generation) else { return [] }
 
         // Score fusion: for each chunk, take max cosine similarity across all queries.
         // Query is normalized once per query; chunk embeddings are pre-normalized at index time,
@@ -476,6 +483,7 @@ final class KnowledgeBase {
                     documents: candidateDocs,
                     topN: topK
                 )
+                guard isCurrentIndex(generation) else { return [] }
                 return reranked.map { result in
                     let chunkIndex = topCandidates[result.index].index
                     let chunk = chunks[chunkIndex]
@@ -491,7 +499,7 @@ final class KnowledgeBase {
             }
         }
 
-        // Cosine-similarity fallback (used by Ollama or when Voyage rerank fails)
+        guard isCurrentIndex(generation) else { return [] }
         return topCandidates.prefix(topK).map { candidate in
             let chunk = chunks[candidate.index]
             return (candidate.index, KBResult(
@@ -504,6 +512,9 @@ final class KnowledgeBase {
     }
 
     func clear() {
+        indexGeneration = UUID()
+        indexedFolderPaths = []
+        indexedFingerprint = nil
         chunks.removeAll()
         isIndexed = false
         fileCount = 0
@@ -523,7 +534,8 @@ final class KnowledgeBase {
         var urls: [URL] = []
         for case let fileURL as URL in enumerator {
             let ext = fileURL.pathExtension.lowercased()
-            if ext == "md" || ext == "txt" {
+            if (ext == "md" || ext == "txt"),
+               (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
                 urls.append(fileURL)
             }
         }
@@ -740,30 +752,31 @@ final class KnowledgeBase {
     }
 
     private func showCompletedStatus(total: Int) {
+        let generation = indexGeneration
         let completedStatus = KnowledgeBaseIndexingStatus.completed(total: total)
         indexingStatus = completedStatus
 
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(3))
-            guard let self, self.indexingStatus == completedStatus else { return }
+            guard let self, self.indexGeneration == generation, self.indexingStatus == completedStatus else { return }
             self.indexingStatus = .idle
         }
     }
 
-    private func embedInBatches(texts: [String]) async -> (embeddings: [[Float]?], error: String?) {
+    private func embedInBatches(texts: [String], generation: UUID) async -> (embeddings: [[Float]?], error: String?) {
         let batchSize = 32
         let batches = stride(from: 0, to: texts.count, by: batchSize).map { start in
             Array(texts[start..<min(start + batchSize, texts.count)])
         }
 
         if settings.embeddingProvider == .ollama {
-            return await embedBatchesConcurrently(batches, total: texts.count, batchSize: batchSize)
+            return await embedBatchesConcurrently(batches, total: texts.count, batchSize: batchSize, generation: generation)
         } else {
-            return await embedBatchesSequentially(batches, total: texts.count, batchSize: batchSize)
+            return await embedBatchesSequentially(batches, total: texts.count, batchSize: batchSize, generation: generation)
         }
     }
 
-    private func embedBatchesConcurrently(_ batches: [[String]], total: Int, batchSize: Int) async -> (embeddings: [[Float]?], error: String?) {
+    private func embedBatchesConcurrently(_ batches: [[String]], total: Int, batchSize: Int, generation: UUID) async -> (embeddings: [[Float]?], error: String?) {
         if total > 0 {
             indexingStatus = .embedding(completed: 0, total: total, activeRange: 1...min(batchSize, total))
         }
@@ -773,6 +786,7 @@ final class KnowledgeBase {
                 group.addTask {
                     for attempt in 0..<2 {
                         if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
+                        guard await self.isCurrentIndex(generation) else { return (i, nil, batch.count) }
                         if let embs = try? await self.embedTexts(batch, inputType: "document") {
                             return (i, embs, batch.count)
                         }
@@ -784,7 +798,7 @@ final class KnowledgeBase {
             var completed = 0
             for await r in group {
                 collected.append(r)
-                if let embeddings = r.embeddings {
+                if let embeddings = r.embeddings, isCurrentIndex(generation) {
                     completed += embeddings.count
                     indexingStatus = .embedding(completed: min(completed, total), total: total, activeRange: nil)
                 }
@@ -805,19 +819,22 @@ final class KnowledgeBase {
         return (ordered, lastError)
     }
 
-    private func embedBatchesSequentially(_ batches: [[String]], total: Int, batchSize: Int) async -> (embeddings: [[Float]?], error: String?) {
+    private func embedBatchesSequentially(_ batches: [[String]], total: Int, batchSize: Int, generation: UUID) async -> (embeddings: [[Float]?], error: String?) {
         var allEmbeddings: [[Float]?] = []
         var offset = 0
         var lastError: String?
         for batch in batches {
+            guard isCurrentIndex(generation) else { return (allEmbeddings, nil) }
             let rangeStart = offset + 1
             let rangeEnd = offset + batch.count
             indexingStatus = .embedding(completed: offset, total: total, activeRange: rangeStart...rangeEnd)
             var retried = false
             var succeeded = false
             while true {
+                guard isCurrentIndex(generation) else { return (allEmbeddings, nil) }
                 do {
                     let embeddings = try await embedTexts(batch, inputType: "document")
+                    guard isCurrentIndex(generation) else { return (allEmbeddings, nil) }
                     allEmbeddings.append(contentsOf: embeddings.map { Optional($0) })
                     offset += embeddings.count
                     indexingStatus = .embedding(completed: min(offset, total), total: total, activeRange: nil)
@@ -868,31 +885,36 @@ final class KnowledgeBase {
 
     // MARK: - Cache
 
-    private nonisolated func clearCache() {
-        try? FileManager.default.removeItem(at: Self.cacheURL())
-    }
-
-    private nonisolated func loadCache() -> KBCache {
-        guard let data = try? Data(contentsOf: Self.cacheURL()),
-              let cache = try? JSONDecoder().decode(KBCache.self, from: data) else {
+    private func loadCache() -> KBCache {
+        guard let data = try? Data(contentsOf: cacheFileURL),
+              let cache = try? JSONDecoder().decode(KBCache.self, from: data),
+              cache.formatVersion == 1 else {
             return KBCache(entries: [:])
         }
         return cache
     }
 
-    private nonisolated func saveCache(_ cache: KBCache) {
+    private func saveCache(_ cache: KBCache) {
         guard let data = try? JSONEncoder().encode(cache) else { return }
-        let url = Self.cacheURL()
+        let url = cacheFileURL
         try? data.write(to: url, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
+    private func isCurrentIndex(_ generation: UUID) -> Bool {
+        indexGeneration == generation
+            && indexedFolderPaths == Self.canonicalFolderPaths(settings.kbFolderURLs)
+            && indexedFingerprint == embeddingConfigFingerprint()
+    }
+
     private func ensureSearchReady() async {
-        guard !isIndexed, let folderURL = settings.kbFolderURL else { return }
-        if loadCachedStateIfAvailable(folderURL: folderURL) {
-            return
+        let urls = settings.kbFolderURLs
+        if indexedFolderPaths != Self.canonicalFolderPaths(urls) || indexedFingerprint != embeddingConfigFingerprint() {
+            clear()
         }
-        await index(folderURL: folderURL)
+        guard !isIndexed else { return }
+        if await loadCachedStateIfAvailable(folderURLs: urls) { return }
+        await index(folderURLs: urls)
     }
 
     // MARK: - Hashing
@@ -903,7 +925,7 @@ final class KnowledgeBase {
         return hash.compactMap { String(format: "%02x", $0) }.joined()
     }
 
-    private nonisolated static func canonicalFolderPath(_ url: URL) -> String {
-        url.standardizedFileURL.path
+    private nonisolated static func canonicalFolderPaths(_ urls: [URL]) -> [String] {
+        Array(Set(urls.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })).sorted()
     }
 }
