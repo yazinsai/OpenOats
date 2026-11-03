@@ -497,6 +497,7 @@ final class MeetingDetectorTests: XCTestCase {
     func testIsDictationOnlyRequiresEveryHolderToBeDictation() {
         XCTAssertTrue(MeetingDetector.isDictationOnly(["com.superduper.superwhisper"]))
         XCTAssertTrue(MeetingDetector.isDictationOnly(["com.electron.wispr-flow.helper", "com.goodsnooze.MacWhisper"]))
+        XCTAssertTrue(MeetingDetector.isDictationOnly(["inc.synth.Onit", "com.anthropic.claudefordesktop.helper", "com.openai.codex.helper", "com.google.GeminiMacOS", "com.google.antigravity.helper"]))
         // A meeting app sharing the mic is a real call.
         XCTAssertFalse(MeetingDetector.isDictationOnly(["com.superduper.superwhisper", "net.whatsapp.WhatsApp"]))
         // Unknown state keeps today's behaviour.
