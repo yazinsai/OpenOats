@@ -1,3 +1,4 @@
+import CoreAudio
 import XCTest
 @testable import OpenOatsKit
 
@@ -75,6 +76,102 @@ final class TranscriptionEngineTests: XCTestCase {
                 hasRetried: true
             ),
             .showNoAudioError
+        )
+    }
+
+    // MARK: - Mid-session mic stall watchdog
+
+    func testMicStallIgnoresHealthyOrInactiveStream() {
+        XCTAssertEqual(TranscriptionEngine.micStallAction(secondsSinceLastActivity: nil, restartsSoFar: 0), .none)
+        XCTAssertEqual(TranscriptionEngine.micStallAction(secondsSinceLastActivity: 0.1, restartsSoFar: 0), .none)
+        XCTAssertEqual(
+            TranscriptionEngine.micStallAction(
+                secondsSinceLastActivity: TranscriptionEngine.micStallThreshold - 0.5,
+                restartsSoFar: 0
+            ),
+            .none
+        )
+    }
+
+    /// Regression for the Bluetooth/HFP case: frames stop 25s into a call and never return.
+    func testMicStallRestartsSilentEngineMidSession() {
+        XCTAssertEqual(TranscriptionEngine.micStallAction(secondsSinceLastActivity: 30, restartsSoFar: 0), .restart)
+        XCTAssertEqual(
+            TranscriptionEngine.micStallAction(
+                secondsSinceLastActivity: 30,
+                restartsSoFar: TranscriptionEngine.micStallMaxRestarts - 1
+            ),
+            .restart
+        )
+    }
+
+    func testMicStallGivesUpAfterMaxRestarts() {
+        XCTAssertEqual(
+            TranscriptionEngine.micStallAction(
+                secondsSinceLastActivity: 30,
+                restartsSoFar: TranscriptionEngine.micStallMaxRestarts
+            ),
+            .giveUp
+        )
+    }
+
+    // MARK: - Mic fallback after a stall
+
+    // Mirrors the reporter's machine: Bluetooth headset (default after it connected),
+    // built-in mic, USB mic, Zoom's virtual driver, an iPhone Continuity mic.
+    private let headset = TranscriptionEngine.MicCandidate(id: 10, transport: kAudioDeviceTransportTypeBluetooth)
+    private let builtIn = TranscriptionEngine.MicCandidate(id: 20, transport: kAudioDeviceTransportTypeBuiltIn)
+    private let usbMic = TranscriptionEngine.MicCandidate(id: 30, transport: kAudioDeviceTransportTypeUSB)
+    private let zoomVirtual = TranscriptionEngine.MicCandidate(id: 40, transport: kAudioDeviceTransportTypeVirtual)
+    private let continuity = TranscriptionEngine.MicCandidate(id: 50, transport: kAudioDeviceTransportTypeContinuityCaptureWireless)
+
+    private var allMics: [TranscriptionEngine.MicCandidate] { [headset, zoomVirtual, continuity, usbMic, builtIn] }
+
+    func testFallbackMovesFromStalledBluetoothHeadsetToBuiltInMic() {
+        XCTAssertEqual(
+            TranscriptionEngine.fallbackMicDevice(stalled: headset.id, defaultID: headset.id, candidates: allMics, excluded: []),
+            builtIn.id
+        )
+    }
+
+    func testFallbackPrefersSystemDefaultWhenItIsNotTheStalledDevice() {
+        XCTAssertEqual(
+            TranscriptionEngine.fallbackMicDevice(stalled: builtIn.id, defaultID: usbMic.id, candidates: allMics, excluded: []),
+            usbMic.id
+        )
+    }
+
+    func testFallbackSkipsExcludedDevicesAndRanksWiredBeforeWireless() {
+        XCTAssertEqual(
+            TranscriptionEngine.fallbackMicDevice(
+                stalled: builtIn.id, defaultID: headset.id, candidates: allMics, excluded: [headset.id]
+            ),
+            usbMic.id
+        )
+        XCTAssertEqual(
+            TranscriptionEngine.fallbackMicDevice(
+                stalled: usbMic.id, defaultID: headset.id, candidates: allMics, excluded: [headset.id, builtIn.id]
+            ),
+            continuity.id,
+            "Wireless/unknown transports are a last resort, but still preferred to nothing"
+        )
+    }
+
+    func testFallbackNeverPicksVirtualMeetingDrivers() {
+        XCTAssertNil(
+            TranscriptionEngine.fallbackMicDevice(
+                stalled: headset.id,
+                defaultID: zoomVirtual.id,
+                candidates: [headset, zoomVirtual],
+                excluded: []
+            ),
+            "Zoom/Teams virtual devices carry meeting audio, not the user's voice"
+        )
+    }
+
+    func testFallbackReturnsNilWhenOnlyTheStalledDeviceExists() {
+        XCTAssertNil(
+            TranscriptionEngine.fallbackMicDevice(stalled: builtIn.id, defaultID: builtIn.id, candidates: [builtIn], excluded: [])
         )
     }
 

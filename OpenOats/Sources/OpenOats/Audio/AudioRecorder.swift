@@ -27,6 +27,18 @@ final class AudioRecorder: @unchecked Sendable {
     private(set) var micAnchors: [(frame: Int64, date: Date)] = []
     private(set) var sysAnchors: [(frame: Int64, date: Date)] = []
 
+    /// The mic file is created at the first buffer's sample rate. A mid-session
+    /// device switch (e.g. built-in mic at 48 kHz -> Bluetooth HFP at 16/24 kHz)
+    /// delivers buffers at a different rate, which AVAudioFile refuses to write.
+    /// Those buffers are resampled to the file rate instead of being dropped.
+    private var micConverter: AVAudioConverter?
+    private var lastMicWriteDate: Date?
+
+    /// A wall-clock gap between mic writes longer than this is treated as a
+    /// capture discontinuity (engine restart, device switch) and gets a fresh
+    /// timing anchor so later audio stays aligned with the system track.
+    static let micDiscontinuityThreshold: TimeInterval = 1.0
+
     init(outputDirectory: URL) {
         self.outputDirectory = outputDirectory
     }
@@ -50,6 +62,8 @@ final class AudioRecorder: @unchecked Sendable {
             sysEndFrame = 0
             micAnchors = []
             sysAnchors = []
+            micConverter = nil
+            lastMicWriteDate = nil
 
             let fmt = DateFormatter()
             fmt.dateFormat = "yyyy-MM-dd_HH-mm"
@@ -84,12 +98,17 @@ final class AudioRecorder: @unchecked Sendable {
                 }
             }
 
-            // Record timing anchor on first write
+            // Record timing anchor on first write, and again after any capture gap
+            let now = Date()
             if micStartDate == nil {
-                let now = Date()
                 micStartDate = now
                 micAnchors.append((frame: micFile?.length ?? 0, date: now))
+            } else if let last = lastMicWriteDate,
+                      now.timeIntervalSince(last) > Self.micDiscontinuityThreshold {
+                Log.recorder.info("Mic discontinuity of \(now.timeIntervalSince(last), privacy: .public)s, adding timing anchor")
+                micAnchors.append((frame: micFile?.length ?? 0, date: now))
             }
+            lastMicWriteDate = now
 
             // Downmix to mono inline — handle float32, int16, and int32 formats
             guard let monoFormat = AVAudioFormat(
@@ -153,12 +172,52 @@ final class AudioRecorder: @unchecked Sendable {
                 let peak = Self.peakLevel(monoBuf)
                 Log.recorder.debug("Mic write #\(self.micWriteCount, privacy: .public): frames=\(frames, privacy: .public) peak=\(peak, privacy: .public)")
             }
+            guard let micFile else { return }
+            let fileFormat = micFile.processingFormat
+            var bufferToWrite = monoBuf
+            if monoBuf.format.sampleRate != fileFormat.sampleRate {
+                guard let resampled = resampleMicBuffer(monoBuf, to: fileFormat) else {
+                    Log.recorder.error("Mic write SKIP: resample \(monoBuf.format.sampleRate, privacy: .public)Hz -> \(fileFormat.sampleRate, privacy: .public)Hz failed")
+                    return
+                }
+                bufferToWrite = resampled
+            }
             do {
-                try micFile?.write(from: monoBuf)
+                try micFile.write(from: bufferToWrite)
             } catch {
                 Log.recorder.error("Mic write error: \(error, privacy: .public)")
             }
         }
+    }
+
+    /// Resample a mono float buffer to the mic file's rate. Caller holds `lock`.
+    private func resampleMicBuffer(_ buffer: AVAudioPCMBuffer, to fileFormat: AVAudioFormat) -> AVAudioPCMBuffer? {
+        if micConverter == nil || micConverter?.inputFormat != buffer.format {
+            Log.recorder.info("Mic sample rate changed to \(buffer.format.sampleRate, privacy: .public)Hz, resampling to \(fileFormat.sampleRate, privacy: .public)Hz")
+            micConverter = AVAudioConverter(from: buffer.format, to: fileFormat)
+        }
+        guard let converter = micConverter else { return nil }
+
+        let ratio = fileFormat.sampleRate / buffer.format.sampleRate
+        let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 64
+        guard let output = AVAudioPCMBuffer(pcmFormat: fileFormat, frameCapacity: capacity) else { return nil }
+
+        var error: NSError?
+        nonisolated(unsafe) var consumed = false
+        let status = converter.convert(to: output, error: &error) { _, outStatus in
+            if consumed {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            consumed = true
+            outStatus.pointee = .haveData
+            return buffer
+        }
+        if status == .error || error != nil {
+            Log.recorder.error("Mic resample error: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+        return output.frameLength > 0 ? output : nil
     }
 
     func writeSysBuffer(_ buffer: AVAudioPCMBuffer) {
