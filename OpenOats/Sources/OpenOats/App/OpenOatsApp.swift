@@ -189,10 +189,7 @@ extension OpenOatsRootApp {
     }
 
     private var isBatchEngineBusy: Bool {
-        switch coordinator.batchStatus {
-        case .idle, .completed, .failed, .cancelled: return false
-        default: return true
-        }
+        coordinator.batchStatus.isInProgress
     }
 
     private func importMeetingRecording() {
