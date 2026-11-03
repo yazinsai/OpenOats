@@ -432,6 +432,11 @@ actor MeetingDetector {
         "com.electron.wispr-flow",
         "com.goodsnooze.macwhisper",
         "com.prakashjoshipax.voiceink",
+        "inc.synth.onit",
+        "com.anthropic.claudefordesktop",
+        "com.openai.codex",
+        "com.google.geminimacos",
+        "com.google.antigravity",
     ]
 
     // MARK: - Default Meeting Apps
