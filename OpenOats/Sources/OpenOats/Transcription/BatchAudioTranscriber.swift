@@ -292,6 +292,15 @@ actor BatchAudioTranscriber {
         case completed(sessionID: String)
         case cancelled
         case failed(String)
+
+        /// True while a job is running. Terminal states (completed, cancelled,
+        /// failed) persist on the engine and must not block a new job.
+        var isInProgress: Bool {
+            switch self {
+            case .loading, .transcribing: true
+            case .idle, .completed, .cancelled, .failed: false
+            }
+        }
     }
 
     private(set) var status: Status = .idle
