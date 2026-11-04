@@ -164,6 +164,9 @@ final class AppCoordinator {
     /// Task consuming detection controller events.
     private var detectionEventTask: Task<Void, Never>?
 
+    /// Detection controller whose no-speech watchdog guards every recording.
+    private weak var detectionController: MeetingDetectionController?
+
     init(
         sessionRepository: SessionRepository = SessionRepository(),
         templateStore: TemplateStore = TemplateStore(),
@@ -188,6 +191,18 @@ final class AppCoordinator {
 
         // Only dispatch side effects when the state actually changed
         guard state != oldState else { return }
+
+        // The no-speech backstop covers every recording, manual ones included,
+        // and is disarmed with the session however it ended.
+        switch (oldState, state) {
+        case (.idle, .recording):
+            detectionController?.startSilenceMonitoring()
+        case (.recording, .ending), (.recording, .idle):
+            detectionController?.stopSilenceMonitoring()
+            detectionController?.stopAppExitMonitoring()
+        default:
+            break
+        }
 
         performSideEffects(for: event, settings: resolvedSettings)
     }
@@ -311,6 +326,7 @@ final class AppCoordinator {
     /// Maps detection events to state machine events.
     func startDetectionEventLoop(_ controller: MeetingDetectionController) {
         activeSettings = controller.activeSettings
+        detectionController = controller
         detectionEventTask?.cancel()
         detectionEventTask = Task { [weak self] in
             for await event in controller.events {
@@ -326,10 +342,8 @@ final class AppCoordinator {
                     guard self.state != stateBefore else { break }
                     let signal = metadata.detectionContext?.signal
                     if case .appLaunched(let app) = signal {
-                        controller.startSilenceMonitoring()
                         controller.startAppExitMonitoring(bundleID: app.bundleID)
                     } else if case .cameraActivated = signal {
-                        controller.startSilenceMonitoring()
                         if let app = metadata.detectionContext?.meetingApp {
                             controller.startAppExitMonitoring(bundleID: app.bundleID)
                         }
@@ -351,6 +365,10 @@ final class AppCoordinator {
                             controller.stopAppExitMonitoring()
                             self.handle(.userStopped)
                         } else if case .cameraActivated = signal {
+                            controller.stopSilenceMonitoring()
+                            controller.stopAppExitMonitoring()
+                            self.handle(.userStopped)
+                        } else if case .audioActivity = signal {
                             controller.stopSilenceMonitoring()
                             controller.stopAppExitMonitoring()
                             self.handle(.userStopped)
@@ -377,6 +395,8 @@ final class AppCoordinator {
 
     /// Stop consuming detection events.
     func stopDetectionEventLoop() {
+        detectionController?.stopSilenceMonitoring()
+        detectionController = nil
         detectionEventTask?.cancel()
         detectionEventTask = nil
     }

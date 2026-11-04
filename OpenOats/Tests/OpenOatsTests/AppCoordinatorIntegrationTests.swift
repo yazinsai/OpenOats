@@ -49,6 +49,23 @@ final class AppCoordinatorIntegrationTests: XCTestCase {
         return (coordinator, controller, settings, sessionRepository)
     }
 
+    // MARK: - No-speech backstop
+
+    func testManualSessionArmsAndDisarmsSilenceMonitoring() {
+        let coordinator = AppCoordinator()
+        let controller = MeetingDetectionController()
+        coordinator.startDetectionEventLoop(controller)
+        XCTAssertFalse(controller.isMonitoringSilence)
+
+        coordinator.handle(.userStarted(.manual()))
+        XCTAssertTrue(controller.isMonitoringSilence, "manual sessions get the no-speech backstop too")
+
+        coordinator.handle(.userStopped)
+        XCTAssertFalse(controller.isMonitoringSilence, "stopping disarms it so it cannot outlive the session")
+
+        coordinator.stopDetectionEventLoop()
+    }
+
     private func makeTempDirs() -> (root: URL, notes: URL) {
         let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("OpenOatsCoordinatorTests", isDirectory: true)

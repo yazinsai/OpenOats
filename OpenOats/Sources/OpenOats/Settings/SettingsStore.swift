@@ -1614,7 +1614,7 @@ final class SettingsStore {
         } else if defaults.object(forKey: "silenceTimeoutMinutes") != nil {
             silenceSeconds = defaults.integer(forKey: "silenceTimeoutMinutes") * 60
         } else {
-            silenceSeconds = 900
+            silenceSeconds = 300
         }
         self._silenceTimeoutSeconds = silenceSeconds
         self._silenceTimeoutUnitIsSeconds = defaults.object(forKey: "silenceTimeoutUnitIsSeconds") != nil

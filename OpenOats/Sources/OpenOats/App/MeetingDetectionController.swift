@@ -93,6 +93,10 @@ final class MeetingDetectionController {
     /// Used to suppress detection prompts during active recording.
     var isSessionActive: () -> Bool = { false }
 
+    /// Closure to check whether the recording is paused. A paused session
+    /// produces no utterances on purpose, so it must not count as silence.
+    var isRecordingPaused: () -> Bool = { false }
+
     /// Calendar manager for looking up current events during auto-detected sessions.
     /// Set by the container when calendar integration is enabled.
     var calendarManager: CalendarManager?
@@ -272,7 +276,9 @@ final class MeetingDetectionController {
 
     // MARK: - Silence Monitoring
 
-    /// Start monitoring for silence timeout during an auto-detected session.
+    /// Start monitoring for an utterance-free stretch during a session (manual or
+    /// auto-detected). The audio-level watchdog can be fooled by room noise; this
+    /// one only counts transcribed speech.
     func startSilenceMonitoring() {
         lastUtteranceAt = Date()
         silenceCheckTask?.cancel()
@@ -281,13 +287,18 @@ final class MeetingDetectionController {
         silenceCheckTask = Task { [weak self] in
             while !Task.isCancelled {
                 let timeoutSeconds = self?.activeSettings?.persistedSilenceTimeoutSeconds
-                    ?? self?.activeSettings?.silenceTimeoutSeconds ?? 900
+                    ?? self?.activeSettings?.silenceTimeoutSeconds ?? 300
                 guard timeoutSeconds > 0 else { return }
                 // Poll frequently enough to honor sub-minute timeouts.
                 let pollInterval = max(1, min(timeoutSeconds, 15))
                 try? await Task.sleep(for: .seconds(pollInterval))
                 guard !Task.isCancelled else { break }
                 guard let self else { break }
+
+                if self.isRecordingPaused() {
+                    self.lastUtteranceAt = Date()
+                    continue
+                }
 
                 if let lastUtterance = self.lastUtteranceAt {
                     let elapsed = Date().timeIntervalSince(lastUtterance)

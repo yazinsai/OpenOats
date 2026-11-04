@@ -9,11 +9,26 @@ final class MockAudioSignalSource: AudioSignalSource, @unchecked Sendable {
     private let continuation: AsyncStream<Bool>.Continuation
     private let lock = NSLock()
     private var _isActive = false
+    private var _holders: [String]?
 
     var isActive: Bool {
         lock.lock()
         defer { lock.unlock() }
         return _isActive
+    }
+
+    /// Bundle IDs holding the mic; nil models "holder info unavailable".
+    var micHolderBundleIDs: [String]? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _holders
+        }
+        set {
+            lock.lock()
+            _holders = newValue
+            lock.unlock()
+        }
     }
 
     init() {
@@ -504,5 +519,254 @@ final class MeetingDetectorTests: XCTestCase {
         XCTAssertFalse(MeetingDetector.isDictationOnly(nil))
         XCTAssertFalse(MeetingDetector.isDictationOnly([]))
         XCTAssertFalse(MeetingDetector.isDictationOnly([""]))
+    }
+
+    // MARK: - Per-Process Meeting End
+
+    static let slackID = "com.tinyspeck.slackmacgap"
+
+    /// Detector with Slack "running", a short grace, and a fast holder poll.
+    private func makeHolderDetector(
+        audio: MockAudioSignalSource,
+        camera: MockCameraSignalSource,
+        grace: TimeInterval
+    ) -> MeetingDetector {
+        MeetingDetector(
+            audioSource: audio,
+            cameraSource: camera,
+            meetingEndGraceSeconds: grace,
+            holderPollSeconds: 0.2,
+            runningApps: { [(MeetingDetectorTests.slackID, "Slack")] }
+        )
+    }
+
+    /// Starts a mic+app detection with Slack holding the mic, then waits for it.
+    private func startMeeting(
+        audio: MockAudioSignalSource,
+        detector: MeetingDetector,
+        collector: EventCollector
+    ) async throws -> Task<Void, Never> {
+        let stream = await detector.events
+        let listenTask = Task {
+            for await event in stream {
+                collector.append(event)
+            }
+        }
+        await detector.start()
+        audio.micHolderBundleIDs = [MeetingDetectorTests.slackID]
+        audio.emit(true)
+        try await Task.sleep(for: .seconds(6)) // past the 5s debounce, plus a holder poll
+        return listenTask
+    }
+
+    private func endedCount(_ collector: EventCollector) -> Int {
+        collector.events.filter {
+            if case .ended = $0 { return true }
+            return false
+        }.count
+    }
+
+    func testMeetingEndsAfterGraceWhenOnlyOpenOatsHoldsMic() async throws {
+        let audio = MockAudioSignalSource()
+        let camera = MockCameraSignalSource()
+        let detector = makeHolderDetector(audio: audio, camera: camera, grace: 1.0)
+        let collector = EventCollector()
+        let listenTask = try await startMeeting(audio: audio, detector: detector, collector: collector)
+
+        let detectedApp = await detector.detectedApp
+        XCTAssertEqual(detectedApp?.bundleID, MeetingDetectorTests.slackID)
+        XCTAssertEqual(endedCount(collector), 0)
+
+        // Slack lets go; OpenOats' own capture keeps the device running.
+        audio.micHolderBundleIDs = [Bundle.main.bundleIdentifier ?? "com.openoats.app"]
+        XCTAssertTrue(audio.isActive, "the device is still running; only per-process holders can end this")
+        try await Task.sleep(for: .seconds(2.5))
+
+        XCTAssertEqual(endedCount(collector), 1, "Expected .ended once the grace elapsed")
+        let active = await detector.isActive
+        XCTAssertFalse(active)
+
+        await detector.stop()
+        audio.finish()
+        camera.finish()
+        listenTask.cancel()
+    }
+
+    func testMeetingDoesNotEndBeforeGraceElapses() async throws {
+        let audio = MockAudioSignalSource()
+        let camera = MockCameraSignalSource()
+        let detector = makeHolderDetector(audio: audio, camera: camera, grace: 30)
+        let collector = EventCollector()
+        let listenTask = try await startMeeting(audio: audio, detector: detector, collector: collector)
+
+        audio.micHolderBundleIDs = []
+        try await Task.sleep(for: .seconds(1.5))
+
+        XCTAssertEqual(endedCount(collector), 0, "No .ended inside the grace window")
+
+        await detector.stop()
+        audio.finish()
+        camera.finish()
+        listenTask.cancel()
+    }
+
+    func testReacquiringMicWithinGraceCancelsEnd() async throws {
+        let audio = MockAudioSignalSource()
+        let camera = MockCameraSignalSource()
+        let detector = makeHolderDetector(audio: audio, camera: camera, grace: 2.0)
+        let collector = EventCollector()
+        let listenTask = try await startMeeting(audio: audio, detector: detector, collector: collector)
+
+        audio.micHolderBundleIDs = []
+        try await Task.sleep(for: .seconds(1.0))
+        audio.micHolderBundleIDs = [MeetingDetectorTests.slackID]
+        // Past where the first grace would have fired.
+        try await Task.sleep(for: .seconds(3.0))
+        XCTAssertEqual(endedCount(collector), 0, "Re-acquiring within the grace must not end the meeting")
+
+        // The grace restarts from scratch on the next release.
+        audio.micHolderBundleIDs = []
+        try await Task.sleep(for: .seconds(1.0))
+        XCTAssertEqual(endedCount(collector), 0, "The earlier gap must not count toward the new one")
+
+        await detector.stop()
+        audio.finish()
+        camera.finish()
+        listenTask.cancel()
+    }
+
+    func testUnavailableHolderInfoFallsBackToDeviceSignal() async throws {
+        let audio = MockAudioSignalSource()
+        let camera = MockCameraSignalSource()
+        let detector = makeHolderDetector(audio: audio, camera: camera, grace: 0.5)
+        let collector = EventCollector()
+        let listenTask = try await startMeeting(audio: audio, detector: detector, collector: collector)
+
+        // Holder info disappears: the per-process path must not end anything.
+        audio.micHolderBundleIDs = nil
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertEqual(endedCount(collector), 0)
+
+        // The old any-device path still ends it.
+        audio.emit(false)
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(endedCount(collector), 1)
+
+        await detector.stop()
+        audio.finish()
+        camera.finish()
+        listenTask.cancel()
+    }
+
+    func testMeetingNeverSeenHoldingMicDoesNotEndOnEmptyHolders() async throws {
+        // A call in an unlisted app (e.g. a browser tab) with a listed app merely open:
+        // no meeting holder is ever seen, so empty holders say nothing.
+        let audio = MockAudioSignalSource()
+        let camera = MockCameraSignalSource()
+        let detector = makeHolderDetector(audio: audio, camera: camera, grace: 0.5)
+        let collector = EventCollector()
+        let stream = await detector.events
+        let listenTask = Task {
+            for await event in stream {
+                collector.append(event)
+            }
+        }
+        await detector.start()
+        audio.micHolderBundleIDs = ["com.google.Chrome"]
+        audio.emit(true)
+        try await Task.sleep(for: .seconds(7))
+
+        XCTAssertEqual(endedCount(collector), 0)
+
+        await detector.stop()
+        audio.finish()
+        camera.finish()
+        listenTask.cancel()
+    }
+
+    func testMeetingMicHoldersExcludeSelfAndNonMeetingApps() {
+        let known = MeetingDetector.resolveKnownBundleIDs(
+            custom: ["com.example.custom-meeting-app"],
+            selfID: "com.openoats.app"
+        )
+        let holders = MeetingDetector.meetingMicHolders(
+            ["com.openoats.app", "com.google.Chrome", "", "com.example.Custom-Meeting-App"],
+            knownBundleIDs: known
+        )
+        XCTAssertEqual(holders, ["com.example.Custom-Meeting-App"])
+        XCTAssertEqual(
+            MeetingDetector.meetingMicHolders(["com.openoats.app"], knownBundleIDs: known),
+            [],
+            "OpenOats alone is not a meeting holder"
+        )
+        XCTAssertNil(MeetingDetector.meetingMicHolders(nil, knownBundleIDs: known))
+    }
+
+    func testMeetingMicHoldersMatchHelperProcesses() {
+        let known = MeetingDetector.resolveKnownBundleIDs(custom: [], selfID: "com.openoats.app")
+        XCTAssertEqual(
+            MeetingDetector.meetingMicHolders(["com.tinyspeck.slackmacgap.helper"], knownBundleIDs: known),
+            ["com.tinyspeck.slackmacgap.helper"]
+        )
+        // "teams2" is a different app from "teams", not a helper of it.
+        XCTAssertEqual(
+            MeetingDetector.meetingMicHolders(["com.microsoft.teams2x"], knownBundleIDs: known),
+            []
+        )
+    }
+
+    // MARK: - Slack and Attribution
+
+    func testSlackBundleIDIsRecognised() {
+        XCTAssertTrue(MeetingDetector.isBundledMeetingApp("com.tinyspeck.slackmacgap"))
+        XCTAssertTrue(MeetingDetector.isBundledMeetingApp("com.slack.Slack"), "the old identifier stays")
+        let known = MeetingDetector.resolveKnownBundleIDs(custom: [], selfID: "com.openoats.app")
+        XCTAssertTrue(known.contains("com.tinyspeck.slackmacgap"))
+    }
+
+    func testAttributionPrefersAppHoldingTheMic() {
+        let teams = MeetingApp(bundleID: "com.microsoft.teams2", name: "Microsoft Teams")
+        let slack = MeetingApp(bundleID: "com.tinyspeck.slackmacgap", name: "Slack")
+
+        XCTAssertEqual(
+            MeetingDetector.preferredMeetingApp(
+                candidates: [teams, slack],
+                holders: ["com.tinyspeck.slackmacgap"]
+            ),
+            slack,
+            "a background Teams must not win over the Slack huddle holding the mic"
+        )
+        XCTAssertEqual(
+            MeetingDetector.preferredMeetingApp(
+                candidates: [teams, slack],
+                holders: ["com.tinyspeck.slackmacgap.helper"]
+            ),
+            slack
+        )
+        // No holder info, or no holder among the candidates: first running app, as before.
+        XCTAssertEqual(MeetingDetector.preferredMeetingApp(candidates: [teams, slack], holders: nil), teams)
+        XCTAssertEqual(MeetingDetector.preferredMeetingApp(candidates: [teams, slack], holders: []), teams)
+        XCTAssertNil(MeetingDetector.preferredMeetingApp(candidates: [], holders: ["x"]))
+    }
+
+    func testDetectionAttributesToTheAppHoldingTheMic() async throws {
+        let audio = MockAudioSignalSource()
+        let camera = MockCameraSignalSource()
+        let detector = MeetingDetector(
+            audioSource: audio,
+            cameraSource: camera,
+            runningApps: { [("com.microsoft.teams2", "Microsoft Teams"), (MeetingDetectorTests.slackID, "Slack")] }
+        )
+        await detector.start()
+        audio.micHolderBundleIDs = [MeetingDetectorTests.slackID]
+        audio.emit(true)
+        try await Task.sleep(for: .seconds(6))
+
+        let app = await detector.detectedApp
+        XCTAssertEqual(app?.bundleID, MeetingDetectorTests.slackID)
+
+        await detector.stop()
+        audio.finish()
+        camera.finish()
     }
 }

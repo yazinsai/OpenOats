@@ -194,11 +194,22 @@ actor MeetingDetector {
     private let knownApps: [MeetingAppEntry]
     private let customBundleIDs: [String]
     private let selfBundleID: String
+    /// Running apps as (bundle ID, display name). NSWorkspace unless injected.
+    private let runningApps: @Sendable () async -> [(bundleID: String, name: String?)]
     /// Resolved detection set, case-folded. Built by `resolveKnownBundleIDs`.
     private let knownBundleIDs: Set<String>
 
     /// Set to true once detection is confirmed.
-    private(set) var isActive = false
+    private(set) var isActive = false {
+        didSet {
+            guard isActive != oldValue else { return }
+            if isActive {
+                startHolderMonitor()
+            } else {
+                stopHolderMonitor()
+            }
+        }
+    }
 
     /// The meeting app that was detected, if any.
     private(set) var detectedApp: MeetingApp?
@@ -220,6 +231,20 @@ actor MeetingDetector {
     private let debounceSeconds: TimeInterval = 5.0
     private let cameraHysteresisSeconds: TimeInterval = 3.0
 
+    /// How long every meeting app must have released the mic before the meeting
+    /// counts as over. Covers a brief mute/unmute or a reconnect.
+    static let defaultMeetingEndGraceSeconds: TimeInterval = 30.0
+    private let meetingEndGraceSeconds: TimeInterval
+    private let holderPollSeconds: TimeInterval
+
+    private var holderMonitorTask: Task<Void, Never>?
+    /// True once a meeting app has been seen holding the mic during this detection.
+    /// Without it, a meeting held in an app we cannot attribute (a browser tab)
+    /// would look "released" from the first poll.
+    private var meetingHolderSeen = false
+    /// When the meeting-holder set last became empty; nil while one is present.
+    private var meetingHoldersEmptySince: Date?
+
     enum MeetingDetectionEvent: Sendable {
         case detected(MeetingApp?)
         case ended
@@ -228,8 +253,20 @@ actor MeetingDetector {
     init(
         audioSource: (any AudioSignalSource)? = nil,
         cameraSource: (any CameraSignalSource)? = nil,
-        customBundleIDs: [String] = []
+        customBundleIDs: [String] = [],
+        meetingEndGraceSeconds: TimeInterval = MeetingDetector.defaultMeetingEndGraceSeconds,
+        holderPollSeconds: TimeInterval = 2.0,
+        runningApps: (@Sendable () async -> [(bundleID: String, name: String?)])? = nil
     ) {
+        self.runningApps = runningApps ?? {
+            await MainActor.run {
+                NSWorkspace.shared.runningApplications.compactMap { app in
+                    app.bundleIdentifier.map { ($0, app.localizedName) }
+                }
+            }
+        }
+        self.meetingEndGraceSeconds = meetingEndGraceSeconds
+        self.holderPollSeconds = holderPollSeconds
         self.audioSource = audioSource ?? CoreAudioSignalSource()
         self.cameraSource = cameraSource ?? CoreMediaIOSignalSource()
         self.customBundleIDs = customBundleIDs
@@ -252,6 +289,7 @@ actor MeetingDetector {
         micMonitorTask?.cancel()
         cameraMonitorTask?.cancel()
         cameraHysteresisTask?.cancel()
+        holderMonitorTask?.cancel()
         eventContinuation.finish()
     }
 
@@ -397,21 +435,105 @@ actor MeetingDetector {
     // MARK: - Process Scanning
 
     private func scanForMeetingApp() async -> MeetingApp? {
-        let runningApps = await MainActor.run {
-            NSWorkspace.shared.runningApplications
-        }
-
-        for app in runningApps {
-            guard let bundleID = app.bundleIdentifier else { continue }
+        var candidates: [MeetingApp] = []
+        for app in await runningApps() {
+            let bundleID = app.bundleID
             let folded = bundleID.lowercased()
             if knownBundleIDs.contains(folded) {
-                let name = app.localizedName
+                let name = app.name
                     ?? knownApps.first(where: { $0.bundleID.lowercased() == folded })?.displayName
                     ?? bundleID
-                return MeetingApp(bundleID: bundleID, name: name)
+                candidates.append(MeetingApp(bundleID: bundleID, name: name))
             }
         }
-        return nil
+        return Self.preferredMeetingApp(
+            candidates: candidates,
+            holders: Self.meetingMicHolders(audioSource.micHolderBundleIDs, knownBundleIDs: knownBundleIDs)
+        )
+    }
+
+    /// Of the running meeting apps, the one actually holding the mic wins; with no
+    /// holder information the first running app is used, as before. Otherwise a
+    /// huddle gets attributed to whichever known app happens to be running first.
+    static func preferredMeetingApp(candidates: [MeetingApp], holders: [String]?) -> MeetingApp? {
+        if let holders, let holding = candidates.first(where: { candidate in
+            holders.contains { holderMatches($0, bundleID: candidate.bundleID) }
+        }) {
+            return holding
+        }
+        return candidates.first
+    }
+
+    // MARK: - Meeting Mic Holders
+
+    /// Mic holders that are meeting apps (allowlist plus custom apps, never OpenOats
+    /// itself, which `knownBundleIDs` already excludes). Nil when holder information
+    /// is unavailable, so callers can fall back to the device-level signal.
+    static func meetingMicHolders(_ holders: [String]?, knownBundleIDs: Set<String>) -> [String]? {
+        guard let holders else { return nil }
+        return holders.filter { holder in
+            knownBundleIDs.contains { holderMatches(holder, bundleID: $0) }
+        }
+    }
+
+    /// Exact match, or a helper process of the app ("<id>.helper"), folded.
+    private static func holderMatches(_ holder: String, bundleID: String) -> Bool {
+        let holder = holder.lowercased()
+        let id = bundleID.lowercased()
+        return holder == id || holder.hasPrefix(id + ".")
+    }
+
+    // MARK: - Per-Process Meeting End
+
+    /// OpenOats' own capture keeps the input device "running somewhere", so the
+    /// device-level signal never drops while it records. Watching which processes
+    /// hold the mic instead notices a meeting app letting go.
+    private func startHolderMonitor() {
+        holderMonitorTask?.cancel()
+        meetingHolderSeen = false
+        meetingHoldersEmptySince = nil
+        let interval = holderPollSeconds
+        holderMonitorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.evaluateMeetingHolders()
+                try? await Task.sleep(for: .seconds(interval))
+            }
+        }
+    }
+
+    private func stopHolderMonitor() {
+        holderMonitorTask?.cancel()
+        holderMonitorTask = nil
+        meetingHolderSeen = false
+        meetingHoldersEmptySince = nil
+    }
+
+    private func evaluateMeetingHolders() {
+        guard isActive, detectionTrigger == .micAndApp, !isCameraActive else {
+            meetingHoldersEmptySince = nil
+            return
+        }
+        // Holder info unavailable: the any-device path in handleMicSignal is the fallback.
+        guard let holders = Self.meetingMicHolders(audioSource.micHolderBundleIDs, knownBundleIDs: knownBundleIDs) else {
+            return
+        }
+
+        if !holders.isEmpty {
+            meetingHolderSeen = true
+            meetingHoldersEmptySince = nil
+            return
+        }
+        guard meetingHolderSeen else { return }
+
+        let now = Date()
+        let since = meetingHoldersEmptySince ?? now
+        meetingHoldersEmptySince = since
+        guard now.timeIntervalSince(since) >= meetingEndGraceSeconds else { return }
+
+        isActive = false
+        detectedApp = nil
+        detectionTrigger = nil
+        eventContinuation.yield(.ended)
     }
 
     // MARK: - Dictation Apps
@@ -476,6 +598,8 @@ actor MeetingDetector {
         MeetingAppEntry(bundleID: "app.tuple.app", displayName: "Tuple"),
         MeetingAppEntry(bundleID: "co.around.Around", displayName: "Around"),
         MeetingAppEntry(bundleID: "com.slack.Slack", displayName: "Slack"),
+        // The shipping Slack desktop app's actual bundle identifier.
+        MeetingAppEntry(bundleID: "com.tinyspeck.slackmacgap", displayName: "Slack"),
         MeetingAppEntry(bundleID: "com.hnc.Discord", displayName: "Discord"),
         MeetingAppEntry(bundleID: "net.whatsapp.WhatsApp", displayName: "WhatsApp"),
         MeetingAppEntry(bundleID: "com.google.Chrome.app.kjgfgldnnfobanmcafgkdilakhehfkbm", displayName: "Google Meet (PWA)"),

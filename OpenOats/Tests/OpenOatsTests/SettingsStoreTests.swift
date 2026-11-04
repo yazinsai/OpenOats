@@ -401,7 +401,7 @@ final class SettingsStoreTests: XCTestCase {
 
     func testDefaultSilenceTimeoutSeconds() {
         let store = makeStore()
-        XCTAssertEqual(store.silenceTimeoutSeconds, 900)
+        XCTAssertEqual(store.silenceTimeoutSeconds, 300)
     }
 
     func testSilenceTimeoutSecondsRoundTrip() {
