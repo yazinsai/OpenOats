@@ -238,6 +238,9 @@ final class AppContainer {
             return coordinator.state != .idle
                 || coordinator.liveSessionController?.isStartInFlight == true
         }
+        controller.isRecordingPaused = { [weak coordinator] in
+            coordinator?.transcriptionEngine?.isRecordingPaused == true
+        }
         detectionController = controller
         controller.setup(settings: settings)
         // Expose the notification service for batch completion notifications
