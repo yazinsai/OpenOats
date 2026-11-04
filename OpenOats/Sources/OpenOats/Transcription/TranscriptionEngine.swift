@@ -1217,12 +1217,14 @@ final class TranscriptionEngine {
                 let safeDm = dm
                 var diarizationRelay = DiarizationFeedRelay()
                 var diarBuf: [Float] = []
+                // Tap buffers arrive at the device rate (44.1/48 kHz); the diarizer
+                // is fed as 16 kHz, so resample here like StreamingTranscriber does.
+                let diarConverter = StreamingAudioConverter()
                 for await buffer in originalSysStream {
                     nonisolated(unsafe) let b = buffer
                     diarContinuation.yield(b)
-                    guard let channelData = buffer.floatChannelData else { continue }
-                    let frameCount = Int(buffer.frameLength)
-                    diarBuf.append(contentsOf: UnsafeBufferPointer(start: channelData[0], count: frameCount))
+                    guard let samples = diarConverter.extractSamples(buffer) else { continue }
+                    diarBuf.append(contentsOf: samples)
                     if diarBuf.count >= diarFlushSize {
                         let batch = diarBuf
                         diarBuf.removeAll(keepingCapacity: true)
