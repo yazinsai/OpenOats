@@ -138,7 +138,7 @@ enum RecommendationEngine {
             return LLMConfig(
                 provider: .openRouter,
                 selectedModel: "google/gemini-3-flash-preview",
-                realtimeModel: "google/gemini-3.1-flash-lite-preview",
+                realtimeModel: "google/gemini-3.1-flash-lite",
                 ollamaBaseURL: nil,
                 ollamaLLMModel: nil
             )
