@@ -678,7 +678,7 @@ final class WizardViewModel {
             settings.anthropicApiKey = ""
             settings.voyageApiKey = ""
             settings.selectedModel = "google/gemini-3-flash-preview"
-            settings.realtimeModel = "google/gemini-3.1-flash-lite-preview"
+            settings.realtimeModel = "google/gemini-3.1-flash-lite"
             settings.openAIModel = "gpt-4.1-mini"
             settings.anthropicModel = "claude-sonnet-4-5-20250929"
         }

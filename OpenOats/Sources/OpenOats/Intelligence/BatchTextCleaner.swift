@@ -65,7 +65,7 @@ final class BatchTextCleaner {
         case .openRouter:
             apiKey = settings.activeLLMApiKey
             baseURL = nil
-            model = "openai/gpt-4o-mini"
+            model = "google/gemini-3.1-flash-lite"
             transport = settings.activeLLMTransport
         case .requesty:
             apiKey = settings.activeLLMApiKey

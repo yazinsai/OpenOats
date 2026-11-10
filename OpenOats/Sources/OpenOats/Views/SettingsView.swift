@@ -1033,7 +1033,7 @@ private struct IntelligenceSettingsTab: View {
 
                     switch settings.llmProvider {
                     case .openRouter:
-                        TextField("Speed Model", text: $settings.realtimeModel, prompt: Text("e.g. google/gemini-2.0-flash-001"))
+                        TextField("Speed Model", text: $settings.realtimeModel, prompt: Text("e.g. google/gemini-3.1-flash-lite"))
                             .font(.system(size: 12, design: .monospaced))
                         Text("A fast model used for real-time suggestion synthesis. Separate from your main model.")
                             .font(.system(size: 11))

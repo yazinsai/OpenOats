@@ -102,7 +102,7 @@ interface ModelPreset {
 
 const MODEL_PRESETS: ModelPreset[] = [
   {
-    id: "google/gemini-3.1-flash-lite-preview",
+    id: "google/gemini-3.1-flash-lite",
     tier: "Quick",
     name: "Gemini Flash Lite",
     desc: "Fast & cheap — good for testing",

@@ -77,7 +77,7 @@ final class RecommendationEngineTests: XCTestCase {
         XCTAssertEqual(recommendation.transcriptionModel, .assemblyAI)
         XCTAssertEqual(recommendation.llmProvider, .openRouter)
         XCTAssertEqual(recommendation.selectedModel, "google/gemini-3-flash-preview")
-        XCTAssertEqual(recommendation.realtimeModel, "google/gemini-3.1-flash-lite-preview")
+        XCTAssertEqual(recommendation.realtimeModel, "google/gemini-3.1-flash-lite")
         XCTAssertFalse(recommendation.suggestionPanelEnabled)
     }
 

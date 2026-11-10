@@ -1523,7 +1523,7 @@ final class SettingsStore {
             rawValue: defaults.string(forKey: "suggestionVerbosity") ?? ""
         ) ?? .quiet
         self._enableLiveTranscriptCleanup = defaults.bool(forKey: "enableLiveTranscriptCleanup")
-        self._realtimeModel = defaults.string(forKey: "realtimeModel") ?? "google/gemini-3.1-flash-lite-preview"
+        self._realtimeModel = defaults.string(forKey: "realtimeModel") ?? "google/gemini-3.1-flash-lite"
         self._realtimeOllamaModel = defaults.string(forKey: "realtimeOllamaModel") ?? ""
         if defaults.object(forKey: "suggestionPanelEnabled") == nil {
             self._suggestionPanelEnabled = true
