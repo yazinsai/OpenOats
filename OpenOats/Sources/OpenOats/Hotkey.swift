@@ -9,9 +9,29 @@ struct Hotkey: Codable, Equatable {
     var keyCode: UInt32
     var modifiers: UInt32
 
-    static var saved: Hotkey? {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey) else { return standard }
-        return try? JSONDecoder().decode(Hotkey?.self, from: data) ?? nil
+    @MainActor static var saved: Hotkey? {
+        get {
+            guard let data = AppModel.shared.settings.defaults.data(forKey: defaultsKey) else { return standard }
+            return try? JSONDecoder().decode(Hotkey?.self, from: data) ?? nil
+        }
+        set {
+            AppModel.shared.settings.defaults.set(try? JSONEncoder().encode(newValue), forKey: defaultsKey)
+            HotkeyMonitor.register(newValue)
+        }
+    }
+
+    /// A key-down with at least one of ⌃⌥⌘ (shift alone would swallow typing), or nil.
+    init?(_ event: NSEvent) {
+        let flags = event.modifierFlags
+        let pairs: [(NSEvent.ModifierFlags, Int)] = [(.control, controlKey), (.option, optionKey), (.shift, shiftKey), (.command, cmdKey)]
+        modifiers = UInt32(pairs.filter { flags.contains($0.0) }.reduce(0) { $0 | $1.1 })
+        keyCode = UInt32(event.keyCode)
+        guard !flags.intersection([.control, .option, .command]).isEmpty, Self.keyNames[Int(keyCode)] != nil else { return nil }
+    }
+
+    init(keyCode: UInt32, modifiers: UInt32) {
+        self.keyCode = keyCode
+        self.modifiers = modifiers
     }
 
     /// e.g. "⌃⌥⌘R".

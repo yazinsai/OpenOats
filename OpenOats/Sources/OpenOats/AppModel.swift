@@ -18,7 +18,15 @@ final class AppModel: ObservableObject {
     @Published private(set) var startedAt: Date?
     @Published private(set) var queue: [QueuedMeeting] = []
     @Published private(set) var processingID: String?
+    /// Onboarding's status line for the background `oats download` of the on-device model.
+    @Published private(set) var modelDownload: String?
     private var child: Process?
+
+    /// Onboarding shows until the recording-consent acknowledgement is stored.
+    var onboarded: Bool {
+        get { settings.defaults.object(forKey: "v2.consentAcknowledged") != nil }
+        set { settings.defaults.set(newValue ? Date() : nil, forKey: "v2.consentAcknowledged") }
+    }
 
     /// Migration, then recovery of Interrupted meetings, then the queue.
     func launch() {
@@ -78,15 +86,9 @@ final class AppModel: ObservableObject {
             return QueuedMeeting(id: folder.id, title: status.startedAt.formatted(date: .abbreviated, time: .shortened))
         }
         guard child == nil, let next = queue.first.flatMap({ store.folder(id: $0.id) }) else { return }
-        let process = Process()
-        process.executableURL = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("oats")
-        process.arguments = ["process", next.id]
-        process.environment = ProcessInfo.processInfo.environment.merging(["OATS_APP_CHILD": "1"]) { $1 }
-        process.qualityOfService = .background
+        let process = Self.oatsChild("process", next.id)
         let input = Pipe()
         process.standardInput = input
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
         process.terminationHandler = { _ in Task { @MainActor in AppModel.shared.finished(next) } }
         do {
             try process.run()
@@ -97,6 +99,33 @@ final class AppModel: ObservableObject {
         try? input.fileHandleForWriting.close()
         child = process
         processingID = next.id
+    }
+
+    /// An `oats` child at background priority that exits with the app.
+    private static func oatsChild(_ arguments: String...) -> Process {
+        let process = Process()
+        process.executableURL = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("oats")
+        process.arguments = arguments
+        process.environment = ProcessInfo.processInfo.environment.merging(["OATS_APP_CHILD": "1"]) { $1 }
+        process.qualityOfService = .background
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        return process
+    }
+
+    /// Fetches the on-device model now, so the first Meeting doesn't wait for it.
+    func downloadModel() {
+        guard modelDownload == nil, settings.load().transcription.type == .onDevice else { return }
+        let process = Self.oatsChild("download")
+        process.terminationHandler = { process in
+            let ok = process.terminationStatus == 0
+            Task { @MainActor in
+                AppModel.shared.modelDownload = ok ? "Transcription model ready." : "The transcription model will download with your first Meeting."
+            }
+        }
+        modelDownload = "Downloading the transcription model in the background…"
+        do { try process.run() } catch { modelDownload = nil }
     }
 
     private func finished(_ folder: MeetingFolder) {

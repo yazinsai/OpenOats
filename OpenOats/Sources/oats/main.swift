@@ -9,6 +9,7 @@ usage: oats transcribe <audio> [<system-audio>] [--language <code>] > meeting.md
        oats notes <meeting>
        oats record [--fake-source] [--seconds <n>] [--notes-folder <dir>]
        oats recover [--notes-folder <dir>]
+       oats download
 """
 
 /// `OATS_APP_CHILD=1`: run as the app's Processing child. API keys come on stdin (JSON account → key), so it never
@@ -83,6 +84,7 @@ do {
         guard args.count == 1, let folder = meetingStore.folder(id: args[0]) else { throw CLIError("No Meeting \(args.joined()).") }
         if try folder.readStatus().state == .done { try Processing.prepareReprocess(folder) }
         print(try await run(folder, options))
+    case ("download", 1): try await OnDeviceTranscription(language: settings.load().language).download() // onboarding
     case ("notes", 2): print(try await notesCommand(args[1]), terminator: "")
     case ("recover", _):
         args.removeFirst()
