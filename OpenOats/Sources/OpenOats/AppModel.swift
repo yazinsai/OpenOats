@@ -1,14 +1,15 @@
 import AppKit
 import OatsCapture
 import OatsCore
+import UniformTypeIdentifiers
 
-/// Recording runs in-process; Processing runs in an `oats process <id>` child at background priority, one Meeting at
-/// a time, so CoreML memory never stays in the app. The queue is every Meeting whose `meeting.json` says `processing`.
+/// Recording runs in-process; Processing runs through the shared `ProcessingQueue`, each Meeting in an
+/// `oats process <id>` child at background priority, so CoreML memory never stays in the app.
 @MainActor
 final class AppModel: ObservableObject {
     static let shared = AppModel()
 
-    struct QueuedMeeting { var id: String, title: String }
+    struct QueuedMeeting { var id: String, label: String }
 
     /// `OATS_MEETINGS_DIR` overrides the root (tests); the `oats` child inherits it.
     let store = ProcessInfo.processInfo.environment["OATS_MEETINGS_DIR"].map { MeetingStore(root: URL(fileURLWithPath: $0)) }
@@ -18,23 +19,29 @@ final class AppModel: ObservableObject {
     @Published private(set) var startedAt: Date?
     @Published private(set) var queue: [QueuedMeeting] = []
     @Published private(set) var processingID: String?
+    /// The Meeting selected in the window (a notification click selects its Meeting).
+    @Published var selection: MeetingEntry.ID?
     /// Onboarding's status line for the background `oats download` of the on-device model.
     @Published private(set) var modelDownload: String?
+    private lazy var processing: ProcessingQueue = ProcessingQueue(store: store) { folder in await AppModel.shared.runChild(folder) }
     private var child: Process?
+    private var quitting = false
 
-    /// Onboarding shows until the recording-consent acknowledgement is stored.
     var onboarded: Bool {
-        get { settings.defaults.object(forKey: "v2.consentAcknowledged") != nil }
-        set { settings.defaults.set(newValue ? Date() : nil, forKey: "v2.consentAcknowledged") }
+        get { settings.consentAcknowledged }
+        set { settings.consentAcknowledged = newValue }
     }
 
     /// Migration, then recovery of Interrupted meetings, then the queue.
     func launch() {
         Migration.runIfNeeded(settings)
         for meeting in store.recoverInterruptedMeetings() {
-            Notifier.post(meeting.message, "Its Meeting file will be marked as interrupted.")
+            Notifier.post(meeting.message, "Its Meeting file will be marked as interrupted.", meeting: meeting.folder.id)
         }
-        processNext()
+        Task {
+            await processing.resumePending()
+            refreshQueue()
+        }
     }
 
     func toggleRecording() { recorder == nil ? start() : stop() }
@@ -58,13 +65,33 @@ final class AppModel: ObservableObject {
         self.recorder = nil
         startedAt = nil
         do { try recorder.stop() } catch { Notifier.post("The recording didn't close cleanly", error.localizedDescription) }
-        processNext()
+        enqueue(recorder.folder)
     }
 
-    /// Queues a Meeting (Retry, re-process, import) and starts Processing if idle.
+    /// Queues a Meeting (after Stop, Retry, re-process, import).
     func enqueue(_ folder: MeetingFolder) {
-        _ = try? folder.updateStatus { $0.state = .processing }
-        processNext()
+        Task {
+            try? await processing.enqueue(folder)
+            refreshQueue()
+        }
+    }
+
+    /// Clears the checkpoints and queues the Meeting again, with the current Settings backends.
+    func reprocess(_ entry: MeetingEntry) throws {
+        guard let folder = entry.folder, !entry.isBusy else { return }
+        try Processing.prepareReprocess(folder)
+        enqueue(folder)
+    }
+
+    /// One audio file becomes a Meeting with a single mixed track, labelled `Speaker`, in the saved language.
+    func importAudio(_ urls: [URL]) throws {
+        guard urls.count == 1, let url = urls.first,
+              UTType(filenameExtension: url.pathExtension)?.conforms(to: .audiovisualContent) == true else {
+            throw CocoaError(.fileReadUnsupportedScheme, userInfo: [NSLocalizedDescriptionKey: "Drop a single audio file to import it."])
+        }
+        let folder = try store.importAudio([url], language: settings.load().meetingLanguage)
+        enqueue(folder)
+        selection = folder.id
     }
 
     private func handle(_ event: RecorderEvent) {
@@ -77,30 +104,41 @@ final class AppModel: ObservableObject {
                 startedAt = nil
             }
             Notifier.post("Recording stopped", reason)
-            processNext()
+            enqueue(folder)
         }
     }
 
-    /// Refreshes the queue and starts a child for its first Meeting unless one is running.
-    private func processNext() {
+    private func refreshQueue() {
         queue = store.list().compactMap { folder in
             guard let status = try? folder.readStatus(), status.state == .processing else { return nil }
-            return QueuedMeeting(id: folder.id, title: status.startedAt.formatted(date: .abbreviated, time: .shortened))
+            return QueuedMeeting(id: folder.id, label: status.title ?? status.startedAt.formatted(date: .abbreviated, time: .shortened))
         }
-        guard child == nil, let next = queue.first.flatMap({ store.folder(id: $0.id) }) else { return }
-        let process = Self.oatsChild("process", next.id)
+    }
+
+    /// The queue's runner: an `oats process` child with the API keys on stdin. Returns when it exits.
+    private func runChild(_ folder: MeetingFolder) async {
+        let process = Self.oatsChild("process", folder.id)
         let input = Pipe()
         process.standardInput = input
-        process.terminationHandler = { _ in Task { @MainActor in AppModel.shared.finished(next) } }
-        do {
-            try process.run()
-        } catch {
-            return fail(next, "Couldn't start Processing: \(error.localizedDescription)")
+        processingID = folder.id
+        refreshQueue()
+        var launchError: Error?
+        await withCheckedContinuation { (exited: CheckedContinuation<Void, Never>) in
+            process.terminationHandler = { _ in exited.resume() }
+            do { try process.run() } catch {
+                launchError = error
+                return exited.resume()
+            }
+            child = process
+            // Fails only if the child already exited; its meeting.json then says why.
+            try? input.fileHandleForWriting.write(contentsOf: passedSecrets())
+            try? input.fileHandleForWriting.close()
         }
-        input.fileHandleForWriting.write(passedSecrets())
-        try? input.fileHandleForWriting.close()
-        child = process
-        processingID = next.id
+        child = nil
+        processingID = nil
+        guard !quitting else { return }
+        if let launchError { fail(folder, "Couldn't start Processing: \(launchError.localizedDescription)") } else { finished(folder) }
+        refreshQueue()
     }
 
     /// An `oats` child at background priority that exits with the app.
@@ -131,18 +169,15 @@ final class AppModel: ObservableObject {
     }
 
     private func finished(_ folder: MeetingFolder) {
-        child = nil
-        processingID = nil
         let status = try? folder.readStatus()
         switch status?.state {
         case .done:
-            let file = status?.meetingFile
-            Notifier.post("Meeting file ready", file.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent } ?? "", file: file)
-        case .needsAttention: Notifier.post("A Meeting needs attention", status?.lastError ?? "")
-        case .processing: return fail(folder, "Processing stopped unexpectedly.")
-        default: break
+            let name = status?.meetingFile.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent } ?? ""
+            Notifier.post("Meeting file ready", name, meeting: folder.id)
+        case .needsAttention: Notifier.post("A Meeting needs attention", status?.lastError ?? "", meeting: folder.id)
+        case .processing where !folder.isBusy: fail(folder, "Processing stopped unexpectedly.")
+        default: break // deleted, or another OpenOats (the CLI) is processing it
         }
-        processNext()
     }
 
     private func fail(_ folder: MeetingFolder, _ error: String) {
@@ -150,13 +185,12 @@ final class AppModel: ObservableObject {
             $0.state = .needsAttention
             $0.lastError = error
         }
-        Notifier.post("A Meeting needs attention", error)
-        processNext()
+        Notifier.post("A Meeting needs attention", error, meeting: folder.id)
     }
 
     /// On quit; the Meeting stays `processing` and resumes on next launch.
     func stopProcessingChild() {
-        child?.terminationHandler = nil
+        quitting = true
         child?.terminate()
     }
 

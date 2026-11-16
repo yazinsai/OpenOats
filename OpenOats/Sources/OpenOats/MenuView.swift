@@ -27,7 +27,7 @@ struct MenuView: View {
                 Text("Processing").font(.caption).foregroundStyle(.secondary)
                 ForEach(model.queue, id: \.id) { meeting in
                     HStack {
-                        Text(meeting.title)
+                        Text(meeting.label)
                         Spacer()
                         Text(meeting.id == model.processingID ? "Processing…" : "Waiting").foregroundStyle(.secondary)
                     }

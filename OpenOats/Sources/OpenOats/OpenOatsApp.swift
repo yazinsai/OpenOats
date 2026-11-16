@@ -18,9 +18,9 @@ struct OpenOatsApp: App {
         Window("OpenOats", id: AppActions.mainWindowID) {
             MeetingsWindow(model: model)
         }
-        Window("Welcome to OpenOats", id: OnboardingView.windowID) { OnboardingView() }
+        Window("Welcome to OpenOats", id: OnboardingView.windowID) { OnboardingView(model: .shared) }
             .windowResizability(.contentSize)
-        Settings { SettingsView() }
+        Settings { SettingsView(model: .shared) }
     }
 }
 
@@ -96,24 +96,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions { [.banner, .list] }
 
-    /// A Meeting file notification opens the file; the others open the window.
+    /// A click opens the window, with the notification's Meeting selected.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
     ) async {
-        let file = response.notification.request.content.userInfo["file"] as? String
+        let meeting = response.notification.request.content.userInfo["meeting"] as? String
         await MainActor.run {
-            if let file { NSWorkspace.shared.open(URL(fileURLWithPath: file)) } else { AppActions.openMainWindow() }
+            if let meeting { AppModel.shared.selection = meeting }
+            AppActions.openMainWindow()
         }
     }
 }
 
 enum Notifier {
-    static func post(_ title: String, _ body: String = "", file: String? = nil) {
+    static func post(_ title: String, _ body: String = "", meeting: String? = nil) {
         guard Bundle.main.bundleIdentifier != nil else { return print("\(title): \(body)") }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        if let file { content.userInfo = ["file": file] }
+        if let meeting { content.userInfo = ["meeting": meeting] }
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 }

@@ -1,24 +1,22 @@
 import AppKit
 import OatsCore
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// The window: the meeting list on the left, the rendered Meeting file on the right. Drop an audio file to import it.
 struct MeetingsWindow: View {
     @ObservedObject var model: AppModel
     @State private var entries: [MeetingEntry] = []
-    @State private var selection: MeetingEntry.ID?
     @State private var renaming: MeetingEntry?
     @State private var newTitle = ""
     @State private var deleting: MeetingEntry?
     @State private var problem: String?
 
     private var notesFolder: URL { model.settings.load().notesFolder }
-    private var selected: MeetingEntry? { entries.first { $0.id == selection } }
+    private var selected: MeetingEntry? { entries.first { $0.id == model.selection } }
 
     var body: some View {
         NavigationSplitView {
-            List(entries, selection: $selection) { entry in
+            List(entries, selection: $model.selection) { entry in
                 MeetingRow(entry: entry).contextMenu { actions(entry) }
             }
             .accessibilityIdentifier("meetings.list")
@@ -53,29 +51,22 @@ struct MeetingsWindow: View {
     @ViewBuilder private func actions(_ entry: MeetingEntry) -> some View {
         let file = entry.meetingFile
         let audio = entry.audioFiles
-        let busy = entry.state == .recording || entry.state == .processing
-        Button("Rename…") { newTitle = entry.title; renaming = entry }.disabled(busy && file == nil)
+        let busy = entry.isBusy
+        Button("Rename…") { newTitle = entry.title; renaming = entry }.disabled(busy)
         Button("Copy") { copy(file) }.disabled(file == nil)
         Button("Open in Editor") { file.map { _ = NSWorkspace.shared.open($0) } }.disabled(file == nil)
         Button("Show in Finder") { file.map { NSWorkspace.shared.activateFileViewerSelecting([$0]) } }.disabled(file == nil)
         Button("Show Audio in Finder") { NSWorkspace.shared.activateFileViewerSelecting(audio) }.disabled(audio.isEmpty)
         Divider()
         if case .needsAttention = entry.state { Button("Retry") { retry(entry) } }
-        Button("Re-process") {
-            guard let folder = entry.folder else { return }
-            perform {
-                try Processing.prepareReprocess(folder)
-                model.enqueue(folder)
-            }
-        }
-        .disabled(entry.folder == nil || audio.isEmpty || busy)
+        Button("Re-process") { perform { try model.reprocess(entry) } }.disabled(entry.folder == nil || audio.isEmpty || busy)
         Divider()
-        Button("Delete…", role: .destructive) { deleting = entry }.disabled(entry.state == .recording)
+        Button("Delete…", role: .destructive) { deleting = entry }.disabled(busy)
     }
 
     private func refresh() {
         entries = model.store.entries(notesFolder: notesFolder)
-        if selection == nil || selected == nil { selection = entries.first?.id }
+        if model.selection == nil || selected == nil { model.selection = entries.first?.id }
     }
 
     private func perform(_ action: () throws -> Void) {
@@ -94,19 +85,9 @@ struct MeetingsWindow: View {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    /// One audio file becomes a Meeting with a single mixed track, labelled `Speaker`.
     private func importAudio(_ urls: [URL]) -> Bool {
-        guard urls.count == 1, let url = urls.first,
-              UTType(filenameExtension: url.pathExtension)?.conforms(to: .audiovisualContent) == true else {
-            problem = "Drop a single audio file to import it."
-            return false
-        }
-        perform {
-            let folder = try model.store.importAudio([url], language: model.settings.load().meetingLanguage)
-            model.enqueue(folder)
-            selection = folder.id
-        }
-        return true
+        perform { try model.importAudio(urls) }
+        return problem == nil
     }
 }
 
@@ -118,7 +99,7 @@ struct MeetingRow: View {
             Text(entry.title).lineLimit(1)
             HStack(spacing: 6) {
                 Text(entry.date.formatted(date: .abbreviated, time: .shortened))
-                if let d = entry.duration { Text("\(max(1, Int((d / 60).rounded()))) min") }
+                if let minutes = entry.minutes { Text("\(minutes) min") }
                 if let label = entry.state.label { Text(label).foregroundStyle(entry.state.color) }
             }
             .font(.caption).foregroundStyle(.secondary)
@@ -150,25 +131,32 @@ extension MeetingEntry.State {
 struct MeetingDetail: View {
     let entry: MeetingEntry
     let retry: () -> Void
+    /// The Meeting file, read once per file and state change rather than on every render.
+    @State private var markdown: MarkdownView?
 
     var body: some View {
-        if let file = entry.meetingFile, let text = try? String(contentsOf: file, encoding: .utf8) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if case .needsAttention(let reason) = entry.state { attention(reason).padding(.bottom, 12) }
-                    MarkdownView(markdown: text)
+        Group {
+            if let markdown {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if case .needsAttention(let reason) = entry.state { attention(reason).padding(.bottom, 12) }
+                        markdown
+                    }
+                    .padding(24).frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity)
                 }
-                .padding(24).frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity)
-            }
-        } else {
-            VStack(spacing: 12) {
-                switch entry.state {
-                case .recording: Text("Recording…")
-                case .needsAttention(let reason): attention(reason)
-                default: Text("Processing…")
+            } else {
+                VStack(spacing: 12) {
+                    switch entry.state {
+                    case .recording: Text("Recording…")
+                    case .needsAttention(let reason): attention(reason)
+                    default: Text("Processing…")
+                    }
                 }
+                .foregroundStyle(.secondary)
             }
-            .foregroundStyle(.secondary)
+        }
+        .task(id: entry) {
+            markdown = entry.meetingFile.flatMap { try? String(contentsOf: $0, encoding: .utf8) }.map(MarkdownView.init)
         }
     }
 
@@ -210,8 +198,7 @@ struct MarkdownView: View {
     }
 
     static func parse(_ markdown: String) -> [Block] {
-        var lines = markdown.components(separatedBy: "\n")[...]
-        if lines.first == "---", let end = lines.dropFirst().firstIndex(of: "---") { lines = lines[(end + 1)...] }
+        let lines = Frontmatter.body(markdown).components(separatedBy: "\n")
         var blocks: [Block] = []
         var paragraph: [String] = []
         var code: [String]?
