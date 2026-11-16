@@ -33,10 +33,9 @@ final class AppModel: ObservableObject {
     func start() {
         guard recorder == nil else { return }
         do {
-            recorder = try Recorder.start(store: store, source: LiveCapture { problem in
-                Task { @MainActor in Notifier.post("Recording problem", "\(problem)") }
-            }, language: settings.load().meetingLanguage,
-                                      onEvent: { event in Task { @MainActor in AppModel.shared.handle(event) } })
+            let source = LiveCapture { problem in Task { @MainActor in Notifier.post("Recording problem", "\(problem)") } }
+            recorder = try Recorder.start(store: store, source: source, language: settings.load().meetingLanguage,
+                                          onEvent: { event in Task { @MainActor in AppModel.shared.handle(event) } })
             startedAt = Date()
         } catch {
             Notifier.post("Couldn't start recording", error.localizedDescription)
