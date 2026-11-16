@@ -10,6 +10,12 @@ if [[ ! -d "$APP_PATH" ]]; then
   echo "Run ./scripts/build_swift_app.sh first"
   exit 1
 fi
+for executable in OpenOats oats; do
+  if [[ ! -x "$APP_PATH/Contents/MacOS/$executable" ]]; then
+    echo "Missing $APP_PATH/Contents/MacOS/$executable; rebuild with ./scripts/build_swift_app.sh"
+    exit 1
+  fi
+done
 
 rm -f "$DMG_PATH"
 
@@ -96,5 +102,7 @@ if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_PASSWORD:
     --wait
 
   xcrun stapler staple "$DMG_PATH"
+  xcrun stapler validate "$DMG_PATH"
+  spctl --assess --type open --context context:primary-signature --verbose "$DMG_PATH"
   echo "DMG notarization complete"
 fi

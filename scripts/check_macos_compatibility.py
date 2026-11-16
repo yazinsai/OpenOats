@@ -27,13 +27,14 @@ def check(app=None):
         app = Path(app)
         with (app / 'Contents/Info.plist').open('rb') as file:
             assert plistlib.load(file)['LSMinimumSystemVersion'] == minimum, 'Built bundle differs'
-        binary = app / 'Contents/MacOS/OpenOats'
-        output = subprocess.check_output(['otool', '-l', str(binary)], text=True)
-        binary_minima = re.findall(r'\bminos ([\d.]+)', output)
-        assert binary_minima, 'Executable has no LC_BUILD_VERSION minimum OS'
-        assert all(version(item) <= version(minimum) for item in binary_minima), (
-            f'Executable requires {binary_minima}, bundle advertises {minimum}'
-        )
+        for name in ('OpenOats', 'oats'):
+            binary = app / 'Contents/MacOS' / name
+            output = subprocess.check_output(['otool', '-l', str(binary)], text=True)
+            binary_minima = re.findall(r'\bminos ([\d.]+)', output)
+            assert binary_minima, f'{name} has no LC_BUILD_VERSION minimum OS'
+            assert all(version(item) <= version(minimum) for item in binary_minima), (
+                f'{name} requires {binary_minima}, bundle advertises {minimum}'
+            )
     print(f'macOS deployment metadata verified: {minimum}+')
 
 

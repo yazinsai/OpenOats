@@ -134,8 +134,13 @@ jobs:
           gh release upload "${RELEASE_TAG}" dist/OpenOats.dmg --clobber
 
       - name: Sign DMG and update appcast
+        # Prereleases never reach the feed or the cask; download the DMG from the release instead.
+        if: github.event.release.prerelease != true
         env:
           SPARKLE_EDDSA_KEY: ${{ secrets.SPARKLE_EDDSA_KEY }}
+          # Owner-set repository variables, see docs/release-notes-2.0.md ("Rolling out 2.0").
+          SPARKLE_MAJOR_UPGRADE_APPROVED: ${{ vars.SPARKLE_MAJOR_UPGRADE_APPROVED }}
+          SPARKLE_PHASED_ROLLOUT_INTERVAL: ${{ vars.SPARKLE_PHASED_ROLLOUT_INTERVAL }}
           GH_TOKEN: ${{ github.token }}
         run: |
           DMG_PATH="dist/OpenOats.dmg"
@@ -163,38 +168,16 @@ jobs:
           echo "EdDSA signature: $ED_SIGNATURE"
           echo "DMG length: $DMG_LENGTH"
 
-          DMG_URL="https://github.com/yazinsai/OpenOats/releases/download/${RELEASE_TAG}/OpenOats.dmg"
-          PUB_DATE=$(date -u +"%a, %d %b %Y %H:%M:%S %z")
+          # Release notes shown in the Sparkle update dialog
+          NOTES_FILE=$(mktemp)
+          gh release view "${RELEASE_TAG}" --json body --jq .body > "$NOTES_FILE"
 
           # Clone gh-pages branch
           git clone --branch gh-pages --single-branch "https://x-access-token:${GH_TOKEN}@github.com/yazinsai/OpenOats.git" /tmp/gh-pages
 
-          # Generate appcast.xml
-          cat > /tmp/gh-pages/appcast.xml <<APPCAST_EOF
-          <?xml version="1.0" encoding="utf-8"?>
-          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
-            <channel>
-              <title>OpenOats Updates</title>
-              <link>https://raw.githubusercontent.com/yazinsai/OpenOats/gh-pages/appcast.xml</link>
-              <description>Most recent updates to OpenOats</description>
-              <language>en</language>
-              <item>
-                <title>Version ${RELEASE_VERSION}</title>
-                <pubDate>${PUB_DATE}</pubDate>
-                <sparkle:version>${RELEASE_VERSION}</sparkle:version>
-                <sparkle:shortVersionString>${RELEASE_VERSION}</sparkle:shortVersionString>
-                <sparkle:minimumSystemVersion>${MINIMUM_MACOS_VERSION}</sparkle:minimumSystemVersion>
-                <enclosure url="${DMG_URL}"
-                           sparkle:edSignature="${ED_SIGNATURE}"
-                           length="${DMG_LENGTH}"
-                           type="application/octet-stream" />
-              </item>
-            </channel>
-          </rss>
-          APPCAST_EOF
-
-          # Remove leading whitespace from heredoc (macOS sed)
-          sed -i '' 's/^          //' /tmp/gh-pages/appcast.xml
+          # Regenerate appcast.xml (left untouched for an unapproved new major version)
+          python3 scripts/write_appcast.py /tmp/gh-pages/appcast.xml "$RELEASE_VERSION" "$RELEASE_TAG" \
+            "$MINIMUM_MACOS_VERSION" "$ED_SIGNATURE" "$DMG_LENGTH" "$NOTES_FILE"
 
           cd /tmp/gh-pages
           git config user.name "github-actions[bot]"
@@ -204,6 +187,7 @@ jobs:
           git push origin gh-pages
 
       - name: Update Homebrew cask
+        if: github.event.release.prerelease != true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

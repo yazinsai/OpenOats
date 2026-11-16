@@ -4,7 +4,7 @@ cask "openoats" do
 
   url "https://github.com/yazinsai/OpenOats/releases/download/v#{version}/OpenOats.dmg"
   name "OpenOats"
-  desc "Real-time meeting copilot"
+  desc "Meeting recorder that turns calls into markdown notes and transcripts"
   homepage "https://github.com/yazinsai/OpenOats"
 
   livecheck do
@@ -18,6 +18,8 @@ cask "openoats" do
 
   app "OpenOats.app"
 
+  # Application Support/OpenOats holds the Meetings working folders (audio) and on-device models.
+  # Meeting files in the notes folder (~/Documents/OpenOats by default) are user data and stay.
   zap trash: [
     "~/Library/Application Support/OpenOats",
     "~/Library/Caches/com.openoats.app",

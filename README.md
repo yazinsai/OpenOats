@@ -216,32 +216,38 @@ Chunks are sent in batches of 32. Only new or changed files are embedded — unc
 ## Build
 
 ```bash
-# Full build → sign → install to /Applications
+# Full build: compile, assemble dist/OpenOats.app (with the bundled oats CLI), sign, install to /Applications
 ./scripts/build_swift_app.sh
 
-# Dev build only
-cd OpenOats && swift build -c debug
+# Build and sign into dist/ only, or skip signing too
+SKIP_INSTALL=1 ./scripts/build_swift_app.sh
+SKIP_SIGN=1 SKIP_INSTALL=1 ./scripts/build_swift_app.sh
 
-# Package DMG
+# Dev build and tests
+cd OpenOats && swift build && swift test
+
+# Package DMG (needs dist/OpenOats.app)
 ./scripts/make_dmg.sh
 ```
 
-Optional env vars for code signing and notarization: `CODESIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`.
+Optional env vars for code signing and notarization: `CODESIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`. `APP_VERSION` overrides the bundle version (default: latest git tag).
 
-To verify knowledge base folder selection and retrieval without API keys or a model download:
-
-```bash
-OPENOATS_KB_PROOF_DIR=/tmp/openoats-kb-proof swift test --package-path OpenOats --filter KnowledgeBaseFoldersTests
-```
-
-These tests start a deterministic Python server on loopback and exercise the real embedding HTTP client, indexing, search, and cache restore. The optional proof directory retains synthetic documents, request logs, and a `proof.json` with retrieval results. Python 3 is required for these tests.
+The on-device golden tests (`OnDeviceGoldenTests`) are skipped unless a recording exists at `OATS_GOLDEN_CLIP` (default `/tmp/oatbench/clip.wav`).
 
 ## Repo layout
 
 ```
-OpenOats/             SwiftUI app (Swift Package)
-scripts/              Build, sign, and package scripts
-assets/               Screenshot and app icon source
+OpenOats/                     Swift package
+  Sources/OatsCore/           Recorder, Processing pipeline, backends, Meeting store, settings, 1.x migration
+  Sources/OatsOnDevice/       On-device transcription (Parakeet v3, Whisper large-v3-turbo)
+  Sources/OatsCapture/        Mic track and System track capture
+  Sources/oats/               CLI, also the app's Processing child (Contents/MacOS/oats)
+  Sources/OpenOats/           SwiftUI menu bar app, Info.plist, entitlements, icon
+  Tests/OatsCoreTests/        Core tests (fake backends, stubbed HTTP)
+  Tests/OnDeviceGoldenTests/  Opt-in golden tests on a real recording
+UITests/                      UI smoke suite (Xcode host project)
+scripts/                      Build, sign, package, appcast and cask scripts
+docs/                         Meeting file format, ADRs, release notes
 ```
 
 ## License
