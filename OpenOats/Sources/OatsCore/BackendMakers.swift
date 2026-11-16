@@ -17,6 +17,12 @@ public struct BackendSetup<Kind: Sendable>: Sendable {
         self.contextTokens = contextTokens
     }
 
+    /// Cloud APIs 128k. A local server's context is unknown, so 4096, except Ollama, which is sent `num_ctx` 8192.
+    static func contextTokens(_ address: String?) -> Int {
+        guard isLocal(address) else { return 128_000 }
+        return address.flatMap(URLComponents.init(string:))?.port == 11434 ? 8_192 : 4_096
+    }
+
     static func isLocal(_ address: String?) -> Bool {
         guard let host = address.flatMap(URL.init(string:))?.host()?.lowercased() else { return false }
         return host == "localhost" || host == "::1" || host == "0.0.0.0" || host.hasSuffix(".local")
