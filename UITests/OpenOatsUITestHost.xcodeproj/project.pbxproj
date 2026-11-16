@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		A10000000000000000000020 /* OpenOatsUITestHostApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000010 /* OpenOatsUITestHostApp.swift */; };
 		A10000000000000000000021 /* SmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000012 /* SmokeTests.swift */; };
-		A10000000000000000000022 /* OpenOatsKit in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000007 /* OpenOatsKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -35,7 +34,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10000000000000000000022 /* OpenOatsKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -101,7 +99,6 @@
 			);
 			name = OpenOatsUITestHost;
 			packageProductDependencies = (
-				A10000000000000000000007 /* OpenOatsKit */,
 			);
 			productName = OpenOatsUITestHost;
 			productReference = A10000000000000000000013 /* OpenOatsUITestHost.app */;
@@ -156,9 +153,6 @@
 				Base,
 			);
 			mainGroup = A10000000000000000000002;
-			packageReferences = (
-				A10000000000000000000006 /* XCLocalSwiftPackageReference "../OpenOats" */,
-			);
 			productRefGroup = A10000000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -338,20 +332,6 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		A10000000000000000000006 /* XCLocalSwiftPackageReference "../OpenOats" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../OpenOats;
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		A10000000000000000000007 /* OpenOatsKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A10000000000000000000006 /* XCLocalSwiftPackageReference "../OpenOats" */;
-			productName = OpenOatsKit;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A10000000000000000000001 /* Project object */;
 }

@@ -1,0 +1,95 @@
+import Foundation
+
+/// Seam 3 HTTP stub: a URLSession whose requests go to `respond` instead of the network.
+/// Each stub gets its own host, so tests using it can run in parallel.
+final class StubHTTP: @unchecked Sendable {
+    typealias Respond = @Sendable (URLRequest, Int) throws -> (Int, [String: String], Data)
+    let host = "\(UUID().uuidString.lowercased()).test"
+    let respond: Respond
+    private let lock = NSLock()
+    private var _requests: [URLRequest] = []
+    var requests: [URLRequest] { lock.withLock { _requests } }
+    var base: String { "https://\(host)/v1" }
+
+    /// `respond(request, attempt)` returns status, headers and body; throw a `URLError` to simulate a dropped connection.
+    init(_ respond: @escaping Respond) {
+        self.respond = respond
+        StubProtocol.lock.withLock { StubProtocol.stubs[host] = self }
+    }
+
+    deinit { StubProtocol.lock.withLock { StubProtocol.stubs[host] = nil } }
+
+    var session: URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubProtocol.self]
+        return URLSession(configuration: config)
+    }
+
+    fileprivate func handle(_ request: URLRequest) throws -> (Int, [String: String], Data) {
+        let attempt = lock.withLock { _requests.append(request); return _requests.count }
+        return try respond(request, attempt)
+    }
+}
+
+private final class StubProtocol: URLProtocol, @unchecked Sendable {
+    static let lock = NSLock()
+    nonisolated(unsafe) static var stubs: [String: StubHTTP] = [:]
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        var request = self.request
+        if request.httpBody == nil, let stream = request.httpBodyStream {
+            var body = Data()
+            var buffer = [UInt8](repeating: 0, count: 65_536)
+            stream.open()
+            while case let n = stream.read(&buffer, maxLength: buffer.count), n > 0 { body.append(buffer, count: n) }
+            stream.close()
+            request.httpBody = body
+        }
+        let stub = Self.lock.withLock { Self.stubs[request.url?.host ?? ""] }
+        do {
+            guard let stub else { throw URLError(.cannotFindHost) }
+            let (status, headers, data) = try stub.handle(request)
+            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+}
+
+/// One part of a `multipart/form-data` body.
+struct FormPart {
+    var name: String
+    var filename: String?
+    var data: Data
+    var text: String { String(decoding: data, as: UTF8.self) }
+}
+
+func formParts(of request: URLRequest) -> [FormPart] {
+    guard let type = request.value(forHTTPHeaderField: "Content-Type"),
+          let boundary = type.components(separatedBy: "boundary=").last, let body = request.httpBody else { return [] }
+    let delimiter = Data("--\(boundary)".utf8), separator = Data("\r\n\r\n".utf8)
+    var parts: [FormPart] = []
+    var rest = body[...]
+    while let start = rest.range(of: delimiter) {
+        rest = rest[start.upperBound...]
+        guard let headerEnd = rest.range(of: separator), let next = rest.range(of: delimiter) else { break }
+        let headers = String(decoding: rest[..<headerEnd.lowerBound], as: UTF8.self)
+        func field(_ key: String) -> String? {
+            headers.components(separatedBy: "\(key)=\"").dropFirst().first?.components(separatedBy: "\"").first
+        }
+        parts.append(FormPart(name: field("name") ?? "", filename: field("filename"), data: Data(rest[headerEnd.upperBound..<next.lowerBound].dropLast(2))))
+        rest = rest[next.lowerBound...]
+    }
+    return parts
+}
+
+extension [FormPart] {
+    subscript(_ name: String) -> String? { first { $0.name == name }?.text }
+}

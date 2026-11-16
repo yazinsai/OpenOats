@@ -6,55 +6,36 @@ let package = Package(
     name: "OpenOats",
     platforms: [.macOS("14.2")],
     products: [
-        .library(
-            name: "OpenOatsKit",
-            targets: ["OpenOatsKit"]
-        ),
-        .executable(
-            name: "OpenOats",
-            targets: ["OpenOatsAppExecutable"]
-        ),
-        .executable(
-            name: "Benchmark",
-            targets: ["Benchmark"]
-        ),
+        .library(name: "OatsCore", targets: ["OatsCore"]),
+        .library(name: "OatsOnDevice", targets: ["OatsOnDevice"]),
+        .library(name: "OatsCapture", targets: ["OatsCapture"]),
+        .executable(name: "oats", targets: ["oats"]),
+        .executable(name: "OpenOats", targets: ["OpenOats"]),
     ],
     dependencies: [
-        // FluidAudio has made source-breaking API changes in patch releases.
-        // Pin exactly so SwiftPM and Xcode smoke builds resolve the same SDK.
+        // FluidAudio breaks source in patch releases; pin exactly.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.13.5"),
+        .package(url: "https://github.com/argmaxinc/WhisperKit.git", .upToNextMinor(from: "0.17.0")),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.7.0"),
-        .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.9.0"),
-        .package(url: "https://github.com/sindresorhus/LaunchAtLogin-Modern", from: "1.1.0"),
     ],
     targets: [
+        .target(name: "OatsCore"),
         .target(
-            name: "OpenOatsKit",
+            name: "OatsOnDevice",
             dependencies: [
+                "OatsCore",
                 .product(name: "FluidAudio", package: "FluidAudio"),
-                .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "WhisperKit", package: "WhisperKit"),
-                .product(name: "LaunchAtLogin", package: "LaunchAtLogin-Modern"),
-            ],
-            path: "Sources/OpenOats",
-            exclude: ["Info.plist", "OpenOats.entitlements", "Assets", "Resources"]
+            ]
         ),
+        .target(name: "OatsCapture", dependencies: ["OatsCore"]),
+        .executableTarget(name: "oats", dependencies: ["OatsCore", "OatsOnDevice", "OatsCapture"]),
         .executableTarget(
-            name: "OpenOatsAppExecutable",
-            dependencies: ["OpenOatsKit"],
-            path: "Sources/OpenOatsApp"
+            name: "OpenOats",
+            dependencies: ["OatsCore", "OatsCapture", .product(name: "Sparkle", package: "Sparkle")],
+            exclude: ["Info.plist", "OpenOats.entitlements", "Assets"]
         ),
-        .executableTarget(
-            name: "Benchmark",
-            dependencies: [
-                .product(name: "WhisperKit", package: "WhisperKit"),
-            ],
-            path: "Sources/Benchmark"
-        ),
-        .testTarget(
-            name: "OpenOatsTests",
-            dependencies: ["OpenOatsKit"],
-            path: "Tests/OpenOatsTests"
-        ),
+        .testTarget(name: "OatsCoreTests", dependencies: ["OatsCore"]),
+        .testTarget(name: "OnDeviceGoldenTests", dependencies: ["OatsCore", "OatsOnDevice"]),
     ]
 )

@@ -99,6 +99,7 @@ Every file starts with a YAML frontmatter block.
 | `language` | string | No | BCP 47 language code (e.g., `en`, `pl`, `de`). Defaults to `en` if omitted. |
 | `engine` | string | No | ASR backend used for transcription (e.g., `parakeet-tdt-v2`, `qwen3-asr`, `whisper-large-v3`, `11labs-scribe-2`). |
 | `app` | string | No | Detected meeting application, lowercase (e.g., `zoom`, `teams`, `meet`, `slack`, `facetime`). Omit if not detected. |
+| `interrupted` | boolean | No | OpenOats field, not under `x_` because ADR 0004 binds its name: `true` when the recording ended without Stop (crash, power loss) and was recovered, so the end of the meeting may be missing. Omitted otherwise. |
 | `x_*` | any | No | Extension namespace. Any field prefixed with `x_` is valid. See Extensibility. |
 
 ### Frontmatter Rules
@@ -352,7 +353,9 @@ OpenOats captures two audio streams:
 
 There is no diarization between multiple remote speakers. All remote audio is attributed to `Them`.
 
-In Stage 1+2 output, `participants` is always `["You", "Them"]` and the transcript uses `**You:**` and `**Them:**`.
+In Stage 1+2 output, `participants` lists `You` and `Them` (whichever spoke; `["You"]` if nobody did) and the transcript uses `**You:**` and `**Them:**`.
+
+A single imported audio file holds everyone in one track, so its speech can't be split into You and Them. Its lines use the neutral label `Speaker` (`participants: ["Speaker"]`), unless the Transcription backend separates speakers itself, in which case its labels (e.g. `Speaker 1`, `Speaker 2`) are used.
 
 ### Future State: Named Participants
 
