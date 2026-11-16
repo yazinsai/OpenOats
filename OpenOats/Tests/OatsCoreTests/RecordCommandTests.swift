@@ -85,4 +85,34 @@ import Testing
         #expect(file.contains("**Them:** System audio, 3."))
         #expect(state(folder) == "done")
     }
+
+    /// How the app drains its queue: `oats process <id>` as a child, API keys on stdin.
+    @Test(.enabled(if: oats != nil)) func processChildWritesTheMeetingFileForAQueuedMeeting() throws {
+        let (recording, out) = try launch(["record", "--fake-source", "--seconds", "2"], fakeDelay: 30)
+        let (folder, _) = try recordingStarted(out)
+        while state(folder) != "processing" { Thread.sleep(forTimeInterval: 0.05) }
+        kill(recording.processIdentifier, SIGKILL)
+        recording.waitUntilExit()
+
+        let process = Process()
+        process.executableURL = Self.oats
+        process.arguments = ["process", folder.lastPathComponent, "--notes-folder", root.appendingPathComponent("Notes").path]
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            ["OATS_MEETINGS_DIR": root.appendingPathComponent("Meetings").path, "OATS_FAKE_TRANSCRIPTION": "0", "OATS_APP_CHILD": "1"]
+        ) { $1 }
+        let input = Pipe(), output = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        input.fileHandleForWriting.write(Data("{}".utf8))
+        try input.fileHandleForWriting.close()
+        let path = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        let file = try String(contentsOfFile: path.trimmingCharacters(in: .newlines), encoding: .utf8)
+        #expect(file.contains("**You:** Mic track lasted 2."))
+        #expect(state(folder) == "done")
+    }
 }

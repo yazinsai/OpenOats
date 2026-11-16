@@ -15,6 +15,7 @@ let package = Package(
         // FluidAudio breaks source in patch releases; pin exactly.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.13.5"),
         .package(url: "https://github.com/argmaxinc/WhisperKit.git", .upToNextMinor(from: "0.17.0")),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.7.0"),
     ],
     targets: [
         .target(name: "OatsCore"),
@@ -29,7 +30,7 @@ let package = Package(
         .executableTarget(name: "oats", dependencies: ["OatsCore", "OatsOnDevice"]),
         .executableTarget(
             name: "OpenOats",
-            dependencies: ["OatsCore"],
+            dependencies: ["OatsCore", .product(name: "Sparkle", package: "Sparkle")],
             exclude: ["Info.plist", "OpenOats.entitlements", "Assets"]
         ),
         .testTarget(name: "OatsCoreTests", dependencies: ["OatsCore"]),
