@@ -34,7 +34,7 @@ import Testing
 
     @Test func uploadsTheTrackToTheAddressWithKeyModelAndLanguage() async throws {
         let stub = StubHTTP { _, _ in Self.oneSegment }
-        let backend = try OpenAIStyleTranscription(address: stub.base, model: "whisper-large-v3", apiKey: "sk-test", session: stub.session)
+        let backend = OpenAIStyleTranscription(address: stub.base, model: "whisper-large-v3", apiKey: "sk-test", session: stub.session)
 
         let segments = try await backend.transcribe(try track(seconds: 2), language: "en-US")
 
@@ -56,7 +56,7 @@ import Testing
 
     @Test func selfHostedServerWithoutKeyGetsNoAuthorizationOrLanguage() async throws {
         let stub = StubHTTP { _, _ in Self.oneSegment }
-        let backend = try OpenAIStyleTranscription(address: stub.base, apiKey: "", session: stub.session)
+        let backend = OpenAIStyleTranscription(address: stub.base, apiKey: "", session: stub.session)
 
         _ = try await backend.transcribe(try track(seconds: 1), language: nil)
 
@@ -66,13 +66,14 @@ import Testing
         #expect(formParts(of: request)["model"] == "whisper-1")
     }
 
-    @Test func rejectsANonHTTPAddress() {
-        #expect(throws: CloudError.badAddress("ftp://x")) { try OpenAIStyleTranscription(address: "ftp://x", apiKey: nil) }
+    @Test func rejectsANonHTTPAddress() async throws {
+        let backend = OpenAIStyleTranscription(address: "ftp://x", apiKey: nil)
+        await #expect(throws: CloudError.badAddress("ftp://x")) { try await backend.transcribe(try self.track(seconds: 1), language: nil) }
     }
 
     @Test func longTrackIsChunkedAtQuietPointsAndSegmentsShiftedByChunkOffset() async throws {
         let stub = StubHTTP { _, _ in Self.oneSegment }
-        var backend = try OpenAIStyleTranscription(address: stub.base, apiKey: "k", session: stub.session)
+        var backend = OpenAIStyleTranscription(address: stub.base, apiKey: "k", session: stub.session)
         backend.chunkSeconds = 2
 
         let segments = try await backend.transcribe(try track(seconds: 5, silentAt: [1.85, 3.85]), language: "en")
@@ -90,7 +91,7 @@ import Testing
 
     @Test func textOnlyModelAsksForJSONAndSpansTheChunk() async throws {
         let stub = StubHTTP { _, _ in Self.json(["text": " Just text. "]) }
-        let backend = try OpenAIStyleTranscription(address: stub.base, model: "gpt-4o-mini-transcribe", apiKey: "k", session: stub.session)
+        let backend = OpenAIStyleTranscription(address: stub.base, model: "gpt-4o-mini-transcribe", apiKey: "k", session: stub.session)
 
         let segments = try await backend.transcribe(try track(seconds: 2), language: "en")
 
@@ -111,7 +112,7 @@ import Testing
             }
         }
         let sleeps = SleepLog()
-        var backend = try OpenAIStyleTranscription(address: stub.base, apiKey: "k", session: stub.session)
+        var backend = OpenAIStyleTranscription(address: stub.base, apiKey: "k", session: stub.session)
         backend.client.sleep = { await sleeps.add($0) }
 
         let segments = try await backend.transcribe(try track(seconds: 1), language: nil)
@@ -123,7 +124,7 @@ import Testing
 
     @Test func givesUpAfterFiveServerErrors() async throws {
         let stub = StubHTTP { _, _ in Self.json(["error": ["message": "overloaded"]], status: 500) }
-        var backend = try OpenAIStyleTranscription(address: stub.base, apiKey: "k", session: stub.session)
+        var backend = OpenAIStyleTranscription(address: stub.base, apiKey: "k", session: stub.session)
         backend.client.sleep = { _ in }
 
         await #expect(throws: CloudError.http(backend: stub.host, status: 500, message: "overloaded")) {
@@ -135,8 +136,8 @@ import Testing
     @Test func rejectedKeyAndBadRequestFailWithoutRetry() async throws {
         let unauthorized = StubHTTP { _, _ in Self.json(["error": ["message": "Incorrect API key provided: sk-…"]], status: 401) }
         let badRequest = StubHTTP { _, _ in Self.json(["error": ["message": "model 'nope' not found"]], status: 400) }
-        var a = try OpenAIStyleTranscription(address: unauthorized.base, apiKey: "k", session: unauthorized.session)
-        var b = try OpenAIStyleTranscription(address: badRequest.base, model: "nope", apiKey: "k", session: badRequest.session)
+        var a = OpenAIStyleTranscription(address: unauthorized.base, apiKey: "k", session: unauthorized.session)
+        var b = OpenAIStyleTranscription(address: badRequest.base, model: "nope", apiKey: "k", session: badRequest.session)
         a.client.sleep = { _ in }
         b.client.sleep = { _ in }
         let audio = try track(seconds: 1)
@@ -150,7 +151,7 @@ import Testing
 
     @Test func unreadableReplyIsABadResponse() async throws {
         let stub = StubHTTP { _, _ in (200, [:], Data("<html>".utf8)) }
-        let backend = try OpenAIStyleTranscription(address: stub.base, apiKey: "k", session: stub.session)
+        let backend = OpenAIStyleTranscription(address: stub.base, apiKey: "k", session: stub.session)
         await #expect(throws: CloudError.badResponse(backend: stub.host)) { try await backend.transcribe(try self.track(seconds: 1), language: nil) }
     }
 }

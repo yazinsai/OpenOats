@@ -4,7 +4,7 @@ import Foundation
 /// Uploads the track as m4a chunks under the 25 MB cap and shifts each chunk's segments by its offset.
 public struct OpenAIStyleTranscription: TranscriptionBackend {
     public static let defaultAddress = "https://api.openai.com/v1"
-    public var address: URL
+    public var address: String
     public var model: String
     public var apiKey: String?
     public var client: CloudClient
@@ -14,24 +14,26 @@ public struct OpenAIStyleTranscription: TranscriptionBackend {
     public var name: String { "openai-style:\(model)" }
     var timed: Bool { !model.hasPrefix("gpt-") }
 
-    public init(address: String? = nil, model: String = "whisper-1", apiKey: String?, session: URLSession = URLSession(configuration: .ephemeral)) throws {
-        guard let url = URL(string: address ?? Self.defaultAddress), url.scheme?.hasPrefix("http") == true else {
-            throw CloudError.badAddress(address ?? "")
-        }
-        self.address = url
-        self.model = model
+    public init(address: String? = nil, model: String? = nil, apiKey: String?, session: URLSession = URLSession(configuration: .ephemeral)) {
+        self.address = address ?? Self.defaultAddress
+        self.model = model ?? "whisper-1"
         self.apiKey = apiKey?.isEmpty == false ? apiKey : nil
-        client = CloudClient(backend: url.host ?? "Transcription backend", session: session)
-        chunkSeconds = model.hasPrefix("gpt-") ? 30 : 20 * 60
+        client = CloudClient(backend: URL(string: self.address)?.host ?? "Transcription backend", session: session)
+        chunkSeconds = self.model.hasPrefix("gpt-") ? 30 : 20 * 60
+    }
+
+    public init(_ setup: BackendSetup<TranscriptionBackendType>) {
+        self.init(address: setup.address, model: setup.model, apiKey: setup.apiKey)
     }
 
     public func transcribe(_ audio: URL, language: String?) async throws -> [TimedSegment] {
+        guard let url = URL(string: address), url.scheme?.hasPrefix("http") == true else { throw CloudError.badAddress(address) }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("oats-upload-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         var segments: [TimedSegment] = []
         for chunk in try TrackAudio.compressedChunks(of: audio, maxSeconds: chunkSeconds, in: directory) {
             let duration = TrackAudio.duration(of: chunk.url)
-            for s in try await transcribe(chunk, language: language) {
+            for s in try await transcribe(chunk, to: url, language: language) {
                 segments.append(TimedSegment(start: chunk.offset + (s.start ?? 0), end: chunk.offset + (s.end ?? duration), text: s.text))
             }
         }
@@ -44,7 +46,7 @@ public struct OpenAIStyleTranscription: TranscriptionBackend {
         var segments: [Segment]?
     }
 
-    private func transcribe(_ chunk: AudioChunk, language: String?) async throws -> [Response.Segment] {
+    private func transcribe(_ chunk: AudioChunk, to address: URL, language: String?) async throws -> [Response.Segment] {
         var form = Multipart()
         form.add("model", model)
         if let language = language?.split(separator: "-").first { form.add("language", String(language)) }
