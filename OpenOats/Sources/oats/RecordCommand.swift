@@ -60,6 +60,6 @@ struct FakeTranscription: TranscriptionBackend {
     func transcribe(_ audio: URL, language: String?) async throws -> [TimedSegment] {
         try await Task.sleep(for: .seconds(delay))
         let seconds = TrackAudio.duration(of: audio)
-        return [TimedSegment(start: 0, end: seconds, text: (audio.lastPathComponent.hasPrefix("mic") ? "Mic track lasted " : "System audio, ") + String(format: "%.2f s", seconds))]
+        return [TimedSegment(start: 0, end: seconds, text: (audio.lastPathComponent.hasPrefix(Track.mic.rawValue) ? "Mic track lasted " : "System audio, ") + String(format: "%.2f s", seconds))]
     }
 }

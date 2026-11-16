@@ -28,7 +28,7 @@ public struct AssemblyAITranscription: TranscriptionBackend {
     public func transcribe(_ audio: URL, language: String?) async throws -> [TimedSegment] {
         guard let url = URL(string: address), url.scheme?.hasPrefix("http") == true else { throw CloudError.badAddress(address) }
         guard apiKey != nil else { throw CloudError.invalidKey(backend: client.backend) }
-        let diarize = audio.deletingPathExtension().lastPathComponent == "mixed"
+        let diarize = audio.deletingPathExtension().lastPathComponent == Track.mixed.rawValue
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("oats-upload-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         var segments: [TimedSegment] = []
