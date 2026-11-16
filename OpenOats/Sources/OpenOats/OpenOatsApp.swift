@@ -17,7 +17,7 @@ struct OpenOatsApp: App {
         .menuBarExtraStyle(.window)
         // Placeholders: the meeting window is #762, Settings and onboarding #763.
         Window("OpenOats", id: AppActions.mainWindowID) {
-            Text("Your Meetings will appear here.").frame(minWidth: 640, minHeight: 400)
+            MeetingsWindow(model: model)
         }
         Settings {
             Text("Settings").frame(width: 480, height: 320)

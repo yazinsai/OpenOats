@@ -159,7 +159,7 @@ public enum Processing {
     static func writeMeetingFile(_ folder: MeetingFolder, _ status: inout MeetingStatus, turns: [Turn], options: ProcessingOptions) throws {
         let notes = folder.readCheckpoint("notes", as: Notes.self)
         let content = MeetingFileWriter.Content(
-            meetingID: folder.id, title: notes?.title, startedAt: status.startedAt,
+            meetingID: folder.id, title: status.title ?? notes?.title, startedAt: status.startedAt,
             duration: status.duration ?? status.endedAt.map { $0.timeIntervalSince(status.startedAt) } ?? 60,
             language: status.language, engine: status.transcriptionBackend, interrupted: status.interrupted,
             notes: notes?.markdown, turns: notes?.turns ?? turns
@@ -172,7 +172,7 @@ public enum Processing {
             try fm.removeItem(at: previous)
         }
         try fm.createDirectory(at: options.notesFolder, withIntermediateDirectories: true)
-        let base = MeetingFileWriter.baseName(title: notes?.title, startedAt: status.startedAt)
+        let base = MeetingFileWriter.baseName(title: status.title ?? notes?.title, startedAt: status.startedAt)
         let url = MeetingFileWriter.freeURL(base: base, in: options.notesFolder)
         try data.write(to: url, options: .atomic)
         status.meetingFile = url.path
