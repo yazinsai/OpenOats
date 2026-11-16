@@ -56,3 +56,11 @@ _Avoid_: Provider, integration
 **Vocabulary**:
 The user's list of names and terms that the Transcript should spell correctly.
 _Avoid_: Custom words, dictionary, keywords
+
+**Interrupted meeting**:
+A Meeting whose recording ended without Stop (crash, power loss) and was recovered on next launch.
+_Avoid_: Crashed session, orphan
+
+**Needs attention**:
+The state of a Meeting whose Processing failed and is waiting for Retry.
+_Avoid_: Failed, error state
