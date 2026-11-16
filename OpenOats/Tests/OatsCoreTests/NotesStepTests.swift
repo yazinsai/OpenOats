@@ -221,7 +221,7 @@ let isVocabularyRequest: @Sendable (String) -> Bool = { $0.contains("JSON array"
         #expect(Preset<TranscriptionBackendType>.all.allSatisfy { $0.type != .onDevice })
         let names = Set(Preset<NotesBackendType>.all.map(\.name))
         #expect(names.isSuperset(of: ["OpenAI", "OpenRouter", "Requesty", "Ollama", "LM Studio", "MLX", "llama.cpp"]))
-        #expect(Set(Preset<TranscriptionBackendType>.all.map(\.name)) == ["OpenAI", "Groq", "Self-hosted Whisper"])
+        #expect(Set(Preset<TranscriptionBackendType>.all.map(\.name)) == ["OpenAI", "Groq", "Self-hosted Whisper", "ElevenLabs"])
     }
 }
 

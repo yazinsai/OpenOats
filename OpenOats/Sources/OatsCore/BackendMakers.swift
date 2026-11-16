@@ -39,6 +39,7 @@ public struct BackendMakers: Sendable {
     public static let builtIn = BackendMakers(
         transcription: [
             .openAIStyle: { OpenAIStyleTranscription($0) },
+            .elevenLabs: { ElevenLabsTranscription($0) },
         ],
         notes: [:]
     )
