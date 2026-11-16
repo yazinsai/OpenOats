@@ -3,8 +3,8 @@ import Foundation
 import OatsCore
 import WhisperKit
 
-/// The On-device Transcription backend: Parakeet v3 for its 25 European languages, Whisper large-v3-turbo for the rest.
-/// The model loads on the first track of a Meeting and stays until Processing calls `unload()`.
+/// The On-device Transcription backend: Parakeet v3 for its 25 European languages, Whisper large-v3-turbo for the rest,
+/// picked per Meeting from its language. The model loads on the first track and stays until Processing calls `unload()`.
 /// @unchecked Sendable: Processing transcribes one track at a time, so the loaded models are never shared.
 public final class OnDeviceTranscription: TranscriptionBackend, @unchecked Sendable {
     public enum Model: String, Sendable { case parakeet = "parakeet-tdt-v3", whisper = "whisper-large-v3-turbo" }
@@ -21,7 +21,8 @@ public final class OnDeviceTranscription: TranscriptionBackend, @unchecked Senda
             .appendingPathComponent("OpenOats/Models/Transcription", isDirectory: true)
     }
 
-    public let model: Model
+    /// The model for the language of the last (or next) Meeting.
+    public private(set) var model: Model
     public var name: String { model.rawValue }
     let language: String
     let modelsRoot: URL
@@ -29,12 +30,16 @@ public final class OnDeviceTranscription: TranscriptionBackend, @unchecked Senda
     private var parakeet: AsrManager?
     private var whisper: WhisperKit?
 
-    /// `language` is the language setting (BCP 47; nil = system language). `progress` reports model download (0…1).
-    public init(language: String?, modelsRoot: URL = defaultModelsRoot, progress: (@Sendable (Double) -> Void)? = nil) {
+    /// `language` (BCP 47; nil = system language) is used when a Meeting has none. `progress` reports model download (0…1).
+    public init(language: String? = nil, modelsRoot: URL = defaultModelsRoot, progress: (@Sendable (Double) -> Void)? = nil) {
         self.language = Self.languageCode(language)
-        model = Self.parakeetLanguages.contains(self.language) ? .parakeet : .whisper
+        model = Self.model(for: self.language)
         self.modelsRoot = modelsRoot
         self.progress = progress
+    }
+
+    public static func model(for language: String?) -> Model {
+        parakeetLanguages.contains(languageCode(language)) ? .parakeet : .whisper
     }
 
     static func languageCode(_ language: String?) -> String {
@@ -69,6 +74,8 @@ public final class OnDeviceTranscription: TranscriptionBackend, @unchecked Senda
     }
 
     public func transcribe(_ audio: URL, language: String?) async throws -> [TimedSegment] {
+        let language = Self.languageCode(language ?? self.language)
+        model = Self.model(for: language)
         let samples = try TrackAudio.samples(of: audio)
         guard samples.count >= 16_000 else { return [] } // both models reject < 1 s
         try await download()
@@ -98,7 +105,7 @@ public final class OnDeviceTranscription: TranscriptionBackend, @unchecked Senda
             }
             // Always pass the language: auto-detect transliterates non-Latin scripts.
             // Word timings give real start times (segment starts snap to the chunk start after silence).
-            let options = DecodingOptions(language: Self.languageCode(language ?? self.language),
+            let options = DecodingOptions(language: language,
                                           skipSpecialTokens: true, wordTimestamps: true, chunkingStrategy: .vad)
             let results = try await whisper!.transcribe(audioArray: samples, decodeOptions: options)
             return results.flatMap(\.segments).map {
@@ -167,5 +174,14 @@ public final class OnDeviceTranscription: TranscriptionBackend, @unchecked Senda
         if let current { out.append(current) }
         return out.map { TimedSegment(start: $0.start, end: $0.end, text: $0.text.trimmingCharacters(in: .whitespaces)) }
             .filter { !$0.text.isEmpty }
+    }
+}
+
+extension BackendMakers {
+    /// `builtIn` plus the On-device backend, which lives outside OatsCore because of its model packages.
+    public static func withOnDevice(progress: (@Sendable (Double) -> Void)? = nil) -> BackendMakers {
+        var makers = builtIn
+        makers.transcription[.onDevice] = { _ in OnDeviceTranscription(progress: progress) }
+        return makers
     }
 }

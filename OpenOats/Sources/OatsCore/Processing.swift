@@ -148,15 +148,13 @@ public enum Processing {
         }
     }
 
-    /// The minimal Notes step used until #755: one prompt, title on the first line.
-    public static let defaultNotesStep: NotesStep = { turns, backend in
-        let system = """
-        You write concise meeting notes in Markdown from a transcript. Reply with a first line `Title: <short title>`, \
-        then `## Summary`, `## Decisions`, `## Action Items` (as `- [ ] task [owner:: You]`) and `## Open Questions`. \
-        Leave out empty sections.
-        """
-        return Notes(reply: try await backend.complete(system: system, user: turns.plainText))
+    /// Clears the Notes so the next run writes them again (`oats notes`, or after changing the Notes backend).
+    public static func prepareNotes(_ folder: MeetingFolder) throws {
+        try? FileManager.default.removeItem(at: folder.checkpointURL("notes"))
+        try folder.updateStatus { $0.completedSteps.removeAll { $0 == .notes } }
     }
+
+    public static let defaultNotesStep = NotesWriter.step()
 
     static func writeMeetingFile(_ folder: MeetingFolder, _ status: inout MeetingStatus, turns: [Turn], options: ProcessingOptions) throws {
         let notes = folder.readCheckpoint("notes", as: Notes.self)
