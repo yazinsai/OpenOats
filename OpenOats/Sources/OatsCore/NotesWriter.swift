@@ -16,11 +16,11 @@ public enum NotesWriter {
     ## Summary
     One to three short paragraphs, past tense, no bullet points: what was discussed and decided.
 
-    ## Action Items
-    One line per task: `- [ ] task [owner:: You]` (owner only if known, You or Them; add `[due:: YYYY-MM-DD]` only if a date was set).
-
     ## Decisions
     A flat bullet list of decisions made.
+
+    ## Action Items
+    One line per task: `- [ ] task [owner:: You]` (owner only if known, You or Them; add `[due:: YYYY-MM-DD]` only if a date was set).
 
     ## Open Questions
     A bullet list of unresolved questions that need follow-up.
