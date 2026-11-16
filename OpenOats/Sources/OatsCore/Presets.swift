@@ -36,5 +36,7 @@ extension Preset where Kind == TranscriptionBackendType {
         Preset(name: "Self-hosted Whisper", type: .openAIStyle, address: "http://localhost:8000/v1", model: "whisper-1", needsKey: false),
         Preset(name: "ElevenLabs", type: .elevenLabs, address: "https://api.elevenlabs.io/v1", model: "scribe_v2", needsKey: true),
         Preset(name: "AssemblyAI", type: .assemblyAI, address: "https://api.assemblyai.com/v2", model: nil, needsKey: true),
+        Preset(name: "Gemini", type: .gemini, address: "https://generativelanguage.googleapis.com/v1beta",
+               model: "gemini-3-flash-preview", needsKey: true),
     ]
 }
