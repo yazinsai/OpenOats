@@ -1,4 +1,5 @@
 import Foundation
+import OatsCapture
 import OatsCore
 import OatsOnDevice
 
@@ -6,7 +7,7 @@ let usage = """
 usage: oats transcribe <audio> [<system-audio>] [--language <code>] > meeting.md
        oats process <meeting-id> [--notes-folder <dir>]
        oats notes <meeting>
-       oats record --fake-source [--seconds <n>] [--notes-folder <dir>]
+       oats record [--fake-source] [--seconds <n>] [--notes-folder <dir>]
        oats recover [--notes-folder <dir>]
 """
 
@@ -87,12 +88,12 @@ do {
         args.removeFirst()
         try await recoverCommand(options: recordingOptions(&args))
     case ("record", _):
-        // Live capture arrives with #760; until then only the deterministic test source.
+        // Mic and system audio, or with --fake-source a deterministic test tone.
         args.removeFirst()
         let options = recordingOptions(&args)
-        guard args.first == "--fake-source" else { throw CLIError(usage) }
         let seconds = args.firstIndex(of: "--seconds").flatMap { $0 + 1 < args.count ? Double(args[$0 + 1]) : nil }
-        try await recordCommand(seconds: seconds, options: options)
+        let source: any CaptureSource = args.contains("--fake-source") ? ToneSource() : LiveCapture(onProblem: log)
+        try await recordCommand(source: source, seconds: seconds, options: options)
     default:
         FileHandle.standardError.write(Data("\(usage)\n".utf8))
         exit(2)

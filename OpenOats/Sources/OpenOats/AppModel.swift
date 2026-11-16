@@ -1,4 +1,5 @@
 import AppKit
+import OatsCapture
 import OatsCore
 
 /// Recording runs in-process; Processing runs in an `oats process <id>` child at background priority, one Meeting at
@@ -136,24 +137,4 @@ final class AppModel: ObservableObject {
         keys[SettingsStore.keyAccount(for: s.notes)] = settings.apiKey(for: s.notes)
         return (try? JSONEncoder().encode(keys)) ?? Data("{}".utf8)
     }
-}
-
-/// Placeholder until real capture (#760, `OatsCapture.LiveCapture`, same initializer): silence on both tracks, in real time.
-final class LiveCapture: CaptureSource, @unchecked Sendable {
-    init(onProblem: @escaping @Sendable (String) -> Void) {}
-    private let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "openoats.capture"))
-
-    func start(_ deliver: @escaping @Sendable (CapturedAudio) -> Void) throws {
-        var sent = ProcessInfo.processInfo.systemUptime
-        timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
-        timer.setEventHandler {
-            let now = ProcessInfo.processInfo.systemUptime
-            let silence = [Int16](repeating: 0, count: Int((now - sent) * TrackAudio.sampleRate))
-            for track in Track.allCases { deliver(CapturedAudio(track: track, samples: silence, hostTime: sent)) }
-            sent = now
-        }
-        timer.resume()
-    }
-
-    func stop() { timer.cancel() }
 }
