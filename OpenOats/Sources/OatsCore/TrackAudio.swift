@@ -62,7 +62,7 @@ public enum TrackAudio {
         var finished = false
         while !finished {
             let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk)!
-            var readError: Error?
+            nonisolated(unsafe) var readError: Error?
             let status = converter.convert(to: output, error: nil) { _, inputStatus in
                 guard file.framePosition < file.length else {
                     inputStatus.pointee = .endOfStream

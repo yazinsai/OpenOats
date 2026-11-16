@@ -27,7 +27,7 @@ final class Resampler: @unchecked Sendable {
         }
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * TrackAudio.sampleRate / rate) + 64
         guard let converter, let out = AVAudioPCMBuffer(pcmFormat: Self.target, frameCapacity: capacity) else { return }
-        var fed = false
+        nonisolated(unsafe) var fed = false
         _ = converter.convert(to: out, error: nil) { _, status in
             status.pointee = fed ? .noDataNow : .haveData
             defer { fed = true }
