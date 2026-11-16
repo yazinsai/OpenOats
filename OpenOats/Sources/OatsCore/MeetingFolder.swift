@@ -28,6 +28,32 @@ public struct MeetingStatus: Codable, Sendable, Equatable {
         self.startedAt = startedAt
         self.language = language
     }
+
+    /// The Meeting's length: the longest track once processed, else the time from start to end.
+    public var length: TimeInterval? { duration ?? endedAt.map { $0.timeIntervalSince(startedAt) } }
+}
+
+public enum MeetingError: LocalizedError {
+    case busy
+
+    public var errorDescription: String? { "This Meeting is being recorded or processed by another OpenOats." }
+}
+
+/// An exclusive `flock` on a Meeting folder, held by whoever records or processes it. The system drops it when the
+/// holder exits, even on a crash, so a recovered Meeting is never held by a dead process.
+public final class MeetingLock: Sendable {
+    private let fd: Int32
+
+    init?(_ url: URL) {
+        fd = open(url.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            close(fd)
+            return nil
+        }
+    }
+
+    deinit { close(fd) }
 }
 
 /// One Meeting's working folder: tracks, `meeting.json` and checkpoints.
@@ -60,10 +86,21 @@ public struct MeetingFolder: Sendable, Hashable {
         return status
     }
 
-    /// Audio files of a track role (`mic`, `system`, `mixed`), whatever the extension.
-    func trackFiles(_ role: String) -> [URL] {
+    /// Takes the Meeting's lock, or throws `MeetingError.busy` if another recorder or Processing holds it.
+    public func lock() throws -> MeetingLock {
+        guard let lock = MeetingLock(url) else {
+            throw FileManager.default.fileExists(atPath: url.path) ? MeetingError.busy : CocoaError(.fileNoSuchFile)
+        }
+        return lock
+    }
+
+    /// True while another recorder or Processing holds the Meeting.
+    public var isBusy: Bool { FileManager.default.fileExists(atPath: url.path) && MeetingLock(url) == nil }
+
+    /// Audio files of a track, whatever the extension.
+    func trackFiles(_ track: Track) -> [URL] {
         let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []
-        return files.filter { $0.deletingPathExtension().lastPathComponent == role && $0.pathExtension != "json" }
+        return files.filter { $0.deletingPathExtension().lastPathComponent == track.rawValue && $0.pathExtension != "json" }
             .sorted { ($0.pathExtension == "pcm" ? 0 : 1) < ($1.pathExtension == "pcm" ? 0 : 1) }
     }
 
@@ -101,17 +138,17 @@ public struct MeetingStore: Sendable {
 
     /// Imports audio as a Meeting in state `processing`: one file is a single mixed track, two are Mic track then System track.
     public func importAudio(_ files: [URL], startedAt: Date? = nil, language: String? = nil) throws -> MeetingFolder {
-        let roles: [String]
+        let tracks: [Track]
         switch files.count {
-        case 1: roles = ["mixed"]
-        case 2: roles = ["mic", "system"]
+        case 1: tracks = [.mixed]
+        case 2: tracks = [.mic, .system]
         default: throw ProcessingError.noTracks
         }
         let start = startedAt ?? ((try? files[0].resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? Date())
         let folder = try create(startedAt: start, language: language)
-        for (file, role) in zip(files, roles) {
+        for (file, track) in zip(files, tracks) {
             let ext = file.pathExtension.isEmpty ? "audio" : file.pathExtension.lowercased()
-            try FileManager.default.copyItem(at: file, to: folder.url.appendingPathComponent("\(role).\(ext)"))
+            try FileManager.default.copyItem(at: file, to: folder.url.appendingPathComponent("\(track.rawValue).\(ext)"))
         }
         try folder.updateStatus { $0.state = .processing }
         return folder

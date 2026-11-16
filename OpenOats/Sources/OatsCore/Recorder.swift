@@ -1,6 +1,8 @@
 import Foundation
+import os
 
-public enum Track: String, Sendable, CaseIterable { case mic, system }
+/// A Meeting's audio tracks: the Mic track and System track the Recorder writes, or one mixed track from an import.
+public enum Track: String, Sendable, CaseIterable { case mic, system, mixed }
 
 /// 16 kHz mono audio from one track. `hostTime` is when the first sample was captured, in seconds on the
 /// Recorder's clock (default `ProcessInfo.systemUptime`, i.e. mach host time).
@@ -63,7 +65,9 @@ public final class Recorder: @unchecked Sendable {
     private var timer: DispatchSourceTimer?
     private var startTime: TimeInterval = 0
     private var writers: [Track: Writer] = [:]
-    private var trackLevels: [Track: Float] = [:]
+    private var lock: MeetingLock?
+    /// Written on the recorder queue, read by the level meters without waiting on it.
+    private let trackLevels = OSAllocatedUnfairLock(initialState: [Track: Float]())
     private var warned = false
     private var finished = false
 
@@ -74,7 +78,8 @@ public final class Recorder: @unchecked Sendable {
         var position: Int { written + pending.count }
     }
 
-    /// Creates a Meeting in state `recording` and starts capturing into it.
+    /// Creates a Meeting in state `recording` and starts capturing into it. If capture can't start, the new Meeting
+    /// folder is removed again.
     public static func start(
         store: MeetingStore, source: any CaptureSource, language: String?, flushInterval: TimeInterval = 2,
         clock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -85,9 +90,14 @@ public final class Recorder: @unchecked Sendable {
         let free = freeSpace(store.root)
         guard free >= startMinimum else { throw RecorderError.notEnoughDisk(freeBytes: free) }
         let folder = try store.create(language: language)
-        let recorder = try Recorder(folder: folder, source: source, clock: clock, freeSpace: freeSpace, onEvent: onEvent)
-        try recorder.begin(flushInterval: flushInterval)
-        return recorder
+        do {
+            let recorder = try Recorder(folder: folder, source: source, clock: clock, freeSpace: freeSpace, onEvent: onEvent)
+            try recorder.begin(flushInterval: flushInterval)
+            return recorder
+        } catch {
+            try? FileManager.default.removeItem(at: folder.url)
+            throw error
+        }
     }
 
     private init(folder: MeetingFolder, source: any CaptureSource, clock: @escaping @Sendable () -> TimeInterval,
@@ -97,6 +107,7 @@ public final class Recorder: @unchecked Sendable {
         self.clock = clock
         self.freeSpace = freeSpace
         self.onEvent = onEvent
+        lock = try folder.lock()
         for (track, url) in [(Track.mic, folder.micTrackURL), (.system, folder.systemTrackURL)] {
             FileManager.default.createFile(atPath: url.path, contents: nil)
             writers[track] = Writer(handle: try FileHandle(forWritingTo: url))
@@ -113,13 +124,19 @@ public final class Recorder: @unchecked Sendable {
         do {
             try source.start { [weak self] chunk in self?.queue.async { self?.append(chunk) } }
         } catch {
-            _ = try? stop()
+            source.stop()
+            queue.sync {
+                finished = true
+                timer.cancel()
+                writers.values.forEach { try? $0.handle.close() }
+                lock = nil
+            }
             throw error
         }
     }
 
     /// Current RMS level per track, 0…1, for the level meters.
-    public var levels: [Track: Float] { queue.sync { trackLevels } }
+    public var levels: [Track: Float] { trackLevels.withLock { $0 } }
 
     /// Stops capture, writes what's left, and moves the Meeting to `processing` (queue it next).
     @discardableResult
@@ -141,7 +158,8 @@ public final class Recorder: @unchecked Sendable {
         writer.pending += samples
         writers[chunk.track] = writer
         let squares = chunk.samples.reduce(Float(0)) { $0 + Float($1) * Float($1) }
-        trackLevels[chunk.track] = min(1, (squares / Float(max(1, chunk.samples.count))).squareRoot() / 32768 * 25)
+        let level = min(1, (squares / Float(max(1, chunk.samples.count))).squareRoot() / 32768 * 25)
+        trackLevels.withLock { $0[chunk.track] = level }
     }
 
     private func flush() {
@@ -177,7 +195,10 @@ public final class Recorder: @unchecked Sendable {
         guard !finished else { return }
         finished = true
         timer?.cancel()
-        defer { writers.values.forEach { try? $0.handle.close() } }
+        defer {
+            writers.values.forEach { try? $0.handle.close() }
+            lock = nil
+        }
         try write()
         try folder.updateStatus {
             $0.state = .processing
@@ -208,11 +229,12 @@ public struct RecoveredMeeting: Sendable, Equatable {
 }
 
 extension MeetingStore {
-    /// On launch, before `ProcessingQueue.resumePending()` and before any Recorder starts: closes Meetings left in
-    /// `recording` at their last flushed sample, marks them Interrupted and moves them to `processing`.
+    /// On launch, before `ProcessingQueue.resumePending()`: closes Meetings left in `recording` at their last flushed
+    /// sample, marks them Interrupted and moves them to `processing`. Skips Meetings another process is still recording.
     public func recoverInterruptedMeetings() -> [RecoveredMeeting] {
         list().compactMap { folder in
-            guard let status = try? folder.readStatus(), status.state == .recording else { return nil }
+            guard let status = try? folder.readStatus(), status.state == .recording, let lock = try? folder.lock() else { return nil }
+            defer { withExtendedLifetime(lock) {} }
             var duration: TimeInterval = 0
             for url in [folder.micTrackURL, folder.systemTrackURL] {
                 guard let handle = try? FileHandle(forWritingTo: url) else { continue }

@@ -5,29 +5,29 @@ struct FakeError: LocalizedError {
     var errorDescription: String? { "service unavailable" }
 }
 
-/// Returns set segments per track (`mic`, `system`, `mixed`); tracks in `failing` throw.
+/// Returns set segments per track; tracks in `failing` throw. `during` runs inside each call, while Processing holds the Meeting.
 struct FakeTranscription: TranscriptionBackend {
-    var name = "fake-asr"
-    var segments: [String: [TimedSegment]]
-    var failing: Set<String> = []
+    var name = "fake-transcription"
+    var segments: [Track: [TimedSegment]]
+    var failing: Set<Track> = []
     var separatesSpeakers = false
-    var calls: CallLog? = nil
+    var during: (@Sendable (URL) async -> Void)? = nil
 
     func transcribe(_ audio: URL, language: String?) async throws -> [TimedSegment] {
-        let role = audio.deletingPathExtension().lastPathComponent
-        await calls?.begin()
+        let track = Track(rawValue: audio.deletingPathExtension().lastPathComponent)!
         try? await Task.sleep(for: .milliseconds(20))
-        await calls?.end()
-        if failing.contains(role) { throw FakeError() }
-        return segments[role] ?? []
+        await during?(audio)
+        if failing.contains(track) { throw FakeError() }
+        return segments[track] ?? []
     }
 }
 
-actor CallLog {
-    private(set) var active = 0
-    private(set) var maxActive = 0
-    func begin() { active += 1; maxActive = max(maxActive, active) }
-    func end() { active -= 1 }
+/// Thread-safe list of what a fake observed.
+final class Log<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _items: [T] = []
+    func add(_ item: T) { lock.withLock { _items.append(item) } }
+    var items: [T] { lock.withLock { _items } }
 }
 
 struct FakeNotes: NotesBackend {
@@ -73,8 +73,8 @@ struct Workspace {
         return data
     }
 
-    func options(_ asr: FakeTranscription, notes: FakeNotes? = nil, keepAudio: Bool = true) -> ProcessingOptions {
-        ProcessingOptions(transcription: asr, notes: notes, notesFolder: notesFolder, keepAudio: keepAudio)
+    func options(_ transcription: FakeTranscription, notes: FakeNotes? = nil, keepAudio: Bool = true) -> ProcessingOptions {
+        ProcessingOptions(transcription: transcription, notes: notes, notesFolder: notesFolder, keepAudio: keepAudio)
     }
 
     var meetingFiles: [URL] {
@@ -98,7 +98,7 @@ struct Workspace {
     }
 }
 
-let basicTracks: [String: [TimedSegment]] = [
-    "mic": [seg(0, 2, "Hi there, thanks for joining."), seg(6, 8, "Let's start with the roadmap.")],
-    "system": [seg(3, 5, "Happy to be here.")],
+let basicTracks: [Track: [TimedSegment]] = [
+    .mic: [seg(0, 2, "Hi there, thanks for joining."), seg(6, 8, "Let's start with the roadmap.")],
+    .system: [seg(3, 5, "Happy to be here.")],
 ]

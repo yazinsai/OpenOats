@@ -7,9 +7,9 @@ import Testing
     let ws = Workspace()
     deinit { try? FileManager.default.removeItem(at: ws.root) }
 
-    func run(_ folder: MeetingFolder, _ asr: FakeTranscription = FakeTranscription(segments: basicTracks),
+    func run(_ folder: MeetingFolder, _ transcription: FakeTranscription = FakeTranscription(segments: basicTracks),
              notes: FakeNotes? = nil, keepAudio: Bool = true) async throws {
-        try await Processing.run(folder, options: ws.options(asr, notes: notes, keepAudio: keepAudio))
+        try await Processing.run(folder, options: ws.options(transcription, notes: notes, keepAudio: keepAudio))
     }
 
     func writeNote(_ name: String, _ text: String) throws -> URL {
@@ -40,7 +40,7 @@ import Testing
         let done = try ws.recordedMeeting(start: Workspace.start)
         try await run(done, notes: FakeNotes(reply: "Title: Roadmap review\n\n## Summary\nShipped."))
         let failed = try ws.recordedMeeting(start: Workspace.start + 3600)
-        try await run(failed, FakeTranscription(segments: basicTracks, failing: ["mic"]))
+        try await run(failed, FakeTranscription(segments: basicTracks, failing: [.mic]))
         let interrupted = try ws.recordedMeeting(interrupted: true, start: Workspace.start + 7200)
         try await run(interrupted)
         let queued = try ws.recordedMeeting(start: Workspace.start + 10800)
@@ -87,7 +87,7 @@ import Testing
         #expect(ws.store.entries(notesFolder: ws.notesFolder).first?.title == "Budget: Q3 / Q4")
 
         try Processing.prepareReprocess(folder)
-        try await run(folder, FakeTranscription(segments: ["mic": [seg(0, 1, "Again.")]]), notes: FakeNotes(reply: "Title: Other\n\nx"))
+        try await run(folder, FakeTranscription(segments: [.mic: [seg(0, 1, "Again.")]]), notes: FakeNotes(reply: "Title: Other\n\nx"))
         #expect(ws.meetingFiles.map(\.lastPathComponent) == ["\(ws.datePrefix)-budget-q3-q4.md"])
         #expect(try ws.onlyMeetingFile().contains("**You:** Again."))
     }
@@ -113,6 +113,23 @@ import Testing
         #expect(ws.meetingFiles.map(\.lastPathComponent) == ["\(ws.datePrefix)-sync-2.md", "\(ws.datePrefix)-sync.md"])
     }
 
+    @Test func renameAndDeleteAreRefusedWhileAMeetingIsProcessed() async throws {
+        let folder = try ws.recordedMeeting()
+        try await run(folder)
+        try Processing.prepareReprocess(folder)
+        let refused = Log<Bool>()
+        let transcription = FakeTranscription(segments: basicTracks, during: { [ws] _ in
+            guard let entry = ws.store.entries(notesFolder: ws.notesFolder).first else { return }
+            refused.add((try? ws.store.rename(entry, to: "New title")) == nil)
+            refused.add((try? ws.store.delete(entry)) == nil)
+        })
+        try await run(folder, transcription)
+
+        #expect(refused.items == [true, true, true, true])
+        #expect(try folder.readStatus().state == .done)
+        #expect(ws.meetingFiles.map(\.lastPathComponent) == ["\(ws.datePrefix)-meeting.md"])
+    }
+
     @Test func deleteRemovesMeetingFileAndFolder() async throws {
         let folder = try ws.recordedMeeting()
         try await run(folder)
@@ -129,7 +146,7 @@ import Testing
         try await run(kept)
         let dropped = try ws.recordedMeeting(start: Workspace.start + 60)
         try await run(dropped, keepAudio: false)
-        let input = ws.root.appendingPathComponent("call.wav")
+        let input = ws.root.appendingPathComponent("import.wav")
         try ws.pcm(seconds: 1).write(to: input)
         let imported = try ws.store.importAudio([input], startedAt: Workspace.start + 120)
 

@@ -13,7 +13,12 @@ enum MeetingFileWriter {
         var interrupted: Bool
         var notes: String?
         var turns: [Turn]
+        /// The participant when nobody spoke (`participants` must not be empty): `You`, or `Speaker` for a mixed import.
+        var defaultSpeaker: String
     }
+
+    /// `YYYY-MM-DD-HHMM` at the start of a Meeting file name (2.0 and 1.x).
+    static let datePrefix = #"^\d{4}-\d{2}-\d{2}-\d{4}"#
 
     /// Title when the Notes backend gave none: the Meeting's date and time.
     static func fallbackTitle(_ date: Date) -> String {
@@ -29,10 +34,9 @@ enum MeetingFileWriter {
         }
         var lines = [
             "---", "schema: openoats/v1", "title: \(quote(title))", "date: \(iso.string(from: c.startedAt))",
-            "duration: \(max(1, Int((c.duration / 60).rounded())))",
+            "duration: \(minutes(c.duration))", "participants:",
         ]
-        lines.append(speakers.isEmpty ? "participants: []" : "participants:")
-        lines += speakers.map { "  - \($0)" }
+        lines += (speakers.isEmpty ? [c.defaultSpeaker] : speakers).map { "  - \($0)" }
         if let language = c.language { lines.append("language: \(language)") }
         if let engine = c.engine { lines.append("engine: \(engine)") }
         if c.interrupted { lines.append("interrupted: true") }
@@ -67,9 +71,24 @@ enum MeetingFileWriter {
         return url
     }
 
+    /// Where a re-processed Meeting file goes when the user edited `edited`: `<stem>-2.md`, `-3`, … beside it.
+    /// Re-processing an edited `-2` sibling counts on from the original, giving `-3`.
+    static func siblingURL(of edited: URL) -> URL {
+        let folder = edited.deletingLastPathComponent()
+        var stem = edited.deletingPathExtension().lastPathComponent
+        if let suffix = stem.range(of: #"-\d+$"#, options: .regularExpression),
+           FileManager.default.fileExists(atPath: folder.appendingPathComponent("\(stem[..<suffix.lowerBound]).md").path) {
+            stem = String(stem[..<suffix.lowerBound])
+        }
+        return freeURL(base: stem, in: folder)
+    }
+
     static func hash(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
+
+    /// A Meeting's length in whole minutes, at least 1: the `duration` field and the meeting list.
+    static func minutes(_ duration: TimeInterval) -> Int { max(1, Int((duration / 60).rounded())) }
 
     static func timestamp(_ t: TimeInterval) -> String {
         let s = Int(max(0, t).rounded(.down))

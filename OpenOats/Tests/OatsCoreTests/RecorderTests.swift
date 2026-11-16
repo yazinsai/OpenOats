@@ -144,6 +144,15 @@ final class EventLog: @unchecked Sendable {
         try recorder.stop()
     }
 
+    @Test func aCaptureThatFailsToStartLeavesNoMeeting() throws {
+        struct BrokenSource: CaptureSource {
+            func start(_ deliver: @escaping @Sendable (CapturedAudio) -> Void) throws { throw FakeError() }
+            func stop() {}
+        }
+        #expect(throws: FakeError.self) { try Recorder.start(store: ws.store, source: BrokenSource(), language: "en") }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: ws.store.root.path).isEmpty)
+    }
+
     @Test func refusesToStartBelow1GBFree() throws {
         disk.bytes = 999_000_000
         #expect(throws: RecorderError.self) { try start() }

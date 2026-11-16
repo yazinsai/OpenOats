@@ -36,7 +36,7 @@ let isVocabularyRequest: @Sendable (String) -> Bool = { $0.contains("JSON array"
     let ws = Workspace()
     deinit { try? FileManager.default.removeItem(at: ws.root) }
 
-    func run(_ tracks: [String: [TimedSegment]], _ notes: ScriptedNotes, vocabulary: [String] = []) async throws -> String {
+    func run(_ tracks: [Track: [TimedSegment]], _ notes: ScriptedNotes, vocabulary: [String] = []) async throws -> String {
         let folder = try ws.recordedMeeting()
         let options = ProcessingOptions(transcription: FakeTranscription(segments: tracks), notes: notes,
                                         notesStep: NotesWriter.step(vocabulary: vocabulary), notesFolder: ws.notesFolder)
@@ -51,8 +51,8 @@ let isVocabularyRequest: @Sendable (String) -> Bool = { $0.contains("JSON array"
                 ? #"Sure: [{"from": "an arai", "to": "almarai"}, {"from": "gonna", "to": "going to"}]"#
                 : "Title: Almarai rollout\n\n## Summary\n\nWe discussed the Almarai rollout."
         }
-        let tracks = ["mic": [seg(0, 3, "So we're gonna ship an arai next week, An Arai's team agreed.")],
-                      "system": [seg(4, 6, "Great, the canary build is ready.")]]
+        let tracks: [Track: [TimedSegment]] = [.mic: [seg(0, 3, "So we're gonna ship an arai next week, An Arai's team agreed.")],
+                      .system: [seg(4, 6, "Great, the canary build is ready.")]]
         let file = try await run(tracks, notes, vocabulary: ["Almarai", "Talabat"])
 
         #expect(file.contains("[00:00:00] **You:** So we're gonna ship Almarai next week, Almarai's team agreed.\n"))
@@ -69,7 +69,7 @@ let isVocabularyRequest: @Sendable (String) -> Bool = { $0.contains("JSON array"
                 ? #"[{"from": "arai milk", "to": "Almarai"}, {"from": "the labar", "to": "Talabat"}]"#
                 : "Title: Groceries\n\n## Summary\n\nOrders."
         }
-        let tracks = ["mic": [seg(0, 3, "Get an arai milk through the labar app.")]]
+        let tracks: [Track: [TimedSegment]] = [.mic: [seg(0, 3, "Get an arai milk through the labar app.")]]
         let file = try await run(tracks, notes, vocabulary: ["Almarai", "Talabat"])
         #expect(file.contains("**You:** Get an arai milk through Talabat app.\n"))
     }
@@ -79,6 +79,8 @@ let isVocabularyRequest: @Sendable (String) -> Bool = { $0.contains("JSON array"
         _ = try await run(basicTracks, notes)
         #expect(notes.requests.count == 1)
         #expect(notes.requests[0].system.hasPrefix(NotesWriter.defaultPrompt))
+        let sections = notes.requests[0].system.components(separatedBy: "\n").filter { $0.hasPrefix("## ") }
+        #expect(sections == ["## Summary", "## Decisions", "## Action Items", "## Open Questions"])
     }
 
     @Test func summarisesLongTranscriptsInPiecesThenCombines() async throws {
@@ -86,7 +88,7 @@ let isVocabularyRequest: @Sendable (String) -> Bool = { $0.contains("JSON array"
         let notes = ScriptedNotes(contextTokens: 3_000) { _, user in
             user.hasPrefix("Here is part") ? "Title: Part\n\n## Summary\n\nPart notes." : "Title: Quarterly Planning\n\n## Summary\n\nCombined notes."
         }
-        let file = try await run(["mic": lines], notes)
+        let file = try await run([.mic: lines], notes)
 
         let parts = notes.requests.filter { $0.user.hasPrefix("Here is part") }
         #expect(parts.count > 1)
@@ -115,7 +117,7 @@ let isVocabularyRequest: @Sendable (String) -> Bool = { $0.contains("JSON array"
                                         notes: ScriptedNotes { _, _ in "Title: X\n\n## Summary\n\n" }, notesFolder: ws.notesFolder)
         let status = try await Processing.run(folder, options: options)
         #expect(status.state == .needsAttention)
-        #expect(status.lastError?.hasPrefix("Notes failed: The model returned empty notes") == true)
+        #expect(status.lastError?.hasPrefix("Needs attention: the Notes weren't written. The model returned empty notes") == true)
     }
 }
 
@@ -197,7 +199,12 @@ let isVocabularyRequest: @Sendable (String) -> Bool = { $0.contains("JSON array"
         _ = try await Processing.run(try ws.recordedMeeting(), options: store.processingOptions())
         let setup = try #require(seen.setups.first)
         #expect(setup.address == "http://localhost:11434/v1" && setup.model == "llama3.2")
-        #expect(setup.apiKey == nil && setup.contextTokens < 100_000)
+        #expect(setup.apiKey == nil && setup.contextTokens == 8_192) // Ollama is sent num_ctx 8192
+
+        settings.notes = try #require(Preset<NotesBackendType>.all.first { $0.name == "LM Studio" }).config
+        store.save(settings)
+        _ = try await Processing.run(try ws.recordedMeeting(), options: store.processingOptions())
+        #expect(seen.setups.last?.contextTokens == 4_096) // a local server's context is unknown; assume a small one
     }
 
     @Test func backendTypeMissingFromThisBuildNeedsAttention() async throws {

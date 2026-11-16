@@ -1,4 +1,5 @@
 import Foundation
+import OatsCore
 import Testing
 
 /// Seam 2 end to end: `oats record` as a child process, killed with SIGKILL, then recovered by `oats recover`.
@@ -12,12 +13,13 @@ import Testing
         return FileManager.default.isExecutableFile(atPath: url.path) ? url.standardizedFileURL : nil
     }
 
-    func launch(_ args: [String], fakeDelay: Double = 0) throws -> (Process, Pipe) {
+    func launch(_ args: [String], fakeDelay: Double = 0, env: [String: String] = [:]) throws -> (Process, Pipe) {
         let process = Process()
         process.executableURL = Self.oats
         process.arguments = args + ["--notes-folder", root.appendingPathComponent("Notes").path]
         process.environment = ProcessInfo.processInfo.environment.merging(
             ["OATS_MEETINGS_DIR": root.appendingPathComponent("Meetings").path, "OATS_FAKE_TRANSCRIPTION": "\(fakeDelay)"]
+                .merging(env) { $1 }
         ) { $1 }
         let out = Pipe()
         process.standardOutput = out
@@ -68,6 +70,30 @@ import Testing
         #expect(file.contains("**You:** Mic track lasted \(String(format: "%.2f", Double(bytes / 2) / 16_000)) s"))
         #expect(file.contains("**Them:** System audio, "))
         #expect(state(folder) == "done")
+    }
+
+    /// The app's launch recovery must leave alone a Meeting that `oats record` is still recording, in the saved language.
+    @Test(.enabled(if: oats != nil)) func aMeetingRecordedByAnotherProcessIsNotRecovered() throws {
+        let suite = "oats-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var settings = Settings()
+        settings.language = "fr"
+        SettingsStore(defaults: defaults, secrets: MemorySecrets()).save(settings)
+        defaults.synchronize()
+
+        let (process, out) = try launch(["record", "--fake-source"], env: ["OATS_DEFAULTS_SUITE": suite])
+        let (folder, _) = try recordingStarted(out)
+        Thread.sleep(forTimeInterval: 1)
+        let store = MeetingStore(root: root.appendingPathComponent("Meetings"))
+        #expect(store.recoverInterruptedMeetings().isEmpty)
+        #expect(state(folder) == "recording")
+        let status = try #require(store.folder(id: folder.lastPathComponent)).readStatus()
+        #expect(status.language == "fr" && !status.interrupted)
+
+        kill(process.processIdentifier, SIGKILL)
+        process.waitUntilExit()
+        #expect(store.recoverInterruptedMeetings().map(\.folder.id) == [folder.lastPathComponent])
     }
 
     @Test(.enabled(if: oats != nil)) func killedMidProcessingResumesOnRecover() throws {

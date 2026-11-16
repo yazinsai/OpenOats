@@ -108,6 +108,12 @@ public struct SettingsStore: @unchecked Sendable {
         return makers.notes[config.type]?(setup(config, Preset.all)) ?? UnavailableBackend(name: config.type.rawValue)
     }
 
+    /// Onboarding shows until the recording-consent acknowledgement is stored.
+    public var consentAcknowledged: Bool {
+        get { defaults.object(forKey: "v2.consentAcknowledged") != nil }
+        nonmutating set { defaults.set(newValue ? Date() : nil, forKey: "v2.consentAcknowledged") }
+    }
+
     /// What `ProcessingQueue` and `oats process` run with, from the saved settings.
     public func processingOptions() -> ProcessingOptions {
         let s = load()
@@ -123,6 +129,6 @@ public struct SettingsStore: @unchecked Sendable {
         let address = config.address ?? preset?.address
         let model = config.model.flatMap { $0.isEmpty ? nil : $0 } ?? preset?.model
         return BackendSetup(type: config.type, address: address, model: model, apiKey: apiKey(for: config),
-                            contextTokens: BackendSetup<K>.isLocal(address) ? 8_192 : 128_000)
+                            contextTokens: BackendSetup<K>.contextTokens(address))
     }
 }
