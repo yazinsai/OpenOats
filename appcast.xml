@@ -6,15 +6,78 @@
     <description>Most recent updates to OpenOats</description>
     <language>en</language>
     <item>
-      <title>Version 1.90.0</title>
-      <pubDate>Tue, 03 Nov 2026 13:07:23 +0000</pubDate>
-      <sparkle:version>1.90.0</sparkle:version>
-      <sparkle:shortVersionString>1.90.0</sparkle:shortVersionString>
+      <title>Version 2.0.0</title>
+      <link>https://github.com/yazinsai/OpenOats/releases/tag/v2.0.0</link>
+      <pubDate>Mon, 16 Nov 2026 16:43:32 GMT</pubDate>
+      <sparkle:version>2.0.0</sparkle:version>
+      <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/yazinsai/OpenOats/releases/download/v1.90.0/OpenOats.dmg"
-       sparkle:edSignature="Dm1rh+e/+6f0w+UVwjRVHCI8rkA/o2+grPHK/BWlErUO4DgXeYNoop3UtyJ3HP4LwiUwKNWIMhjlTTqkNXMAAA=="
-       length="9718975"
-       type="application/octet-stream" />
+      <sparkle:minimumAutoupdateVersion>2.0.0</sparkle:minimumAutoupdateVersion>
+      <sparkle:phasedRolloutInterval>86400</sparkle:phasedRolloutInterval>
+      <description sparkle:format="markdown"><![CDATA[# OpenOats 2.0
+
+OpenOats 2.0 is a different app. It records your meeting and, after you press Stop, turns it into one markdown file: notes at the top, a You/Them transcript underneath. Nothing is transcribed during the call, so the app stays close to idle while it records.
+
+**If you rely on live transcripts, suggestions or the knowledge base, stay on 1.x.** Click "Skip This Version" in the update dialog. 1.x stays downloadable (see below) and gets fixes for a while.
+
+## What's new
+
+- **Better transcripts.** Each side of the call is transcribed as a whole after Stop, instead of in live chunks. Sentences no longer break mid-way and less speech gets dropped.
+- **You and Them come from the audio itself.** Your mic is You, system audio is Them. Echo of the other side picked up by your mic is removed.
+- **Crash-safe recording.** Audio is written to disk every couple of seconds. After a crash, force quit or dead battery, the meeting is recovered on next launch, minus a few seconds at most.
+- **Light on your Mac.** Models load only while a meeting is processed, then unload.
+- **On-device by default.** Parakeet v3 for 25 European languages, Whisper large-v3-turbo for everything else, picked from your language setting. No account or key needed.
+- **Any backend if you want one.** Cloud or self-hosted transcription (OpenAI-style, Groq, ElevenLabs, AssemblyAI, Gemini, a local Whisper server) and an optional notes model (OpenAI-compatible including OpenRouter, Requesty, Ollama, LM Studio; Anthropic; Gemini). The notes model only sees text.
+- **Vocabulary.** Add names and terms, and the notes step fixes them in the transcript.
+- **Import.** Drop an audio file on the window to process it like a meeting.
+- **Command line.** `OpenOats.app/Contents/MacOS/oats` transcribes and processes meetings from the terminal.
+
+## What was removed
+
+These are gone from 2.0, not hidden behind a setting:
+
+- Live transcript and live captions
+- Live suggestions and talking points
+- Knowledge base and embeddings (Voyage AI, Ollama and OpenAI-compatible embeddings)
+- Sidecast
+- Ask
+- Calendar integration and meeting detection (a "Record this meeting?" prompt is planned for 2.1)
+- Webhooks
+- Apple Notes export
+- Granola import
+- Meeting templates (there is one notes prompt, editable under Settings > Advanced)
+- Mini bar and overlays, including hiding the window from screen sharing
+- Transcription models: Bark+, Qwen3 ASR, Parakeet v2, the smaller Whisper models (base, small) and Cohere Arabic. Meetings that used them are transcribed on-device with Parakeet v3 or Whisper large-v3-turbo instead.
+
+## What carries over
+
+On first launch, once, 2.0 reads your 1.x settings and keeps:
+
+- your notes folder, language and Vocabulary (custom words)
+- your API keys, still in the Keychain
+- your LLM provider, mapped to the nearest notes backend; it falls back to no notes when its key is missing
+- your transcription choice, mapped to on-device or the same cloud service
+- the "save audio" choice, as "delete audio after processing"
+
+Meeting files already in your notes folder show up in the meeting list. 1.x session logs are left untouched, and nothing is uploaded or deleted.
+
+1.x model downloads are not removed automatically. To free the space, delete what you no longer need under `~/Library/Application Support/OpenOats/Models/Transcription` (for example `qwen3-asr`, about 4 GB) and `~/Documents/huggingface/models/argmaxinc/whisperkit-coreml`.
+
+## Staying on 1.x
+
+The last 1.x release stays on the [releases page](https://github.com/yazinsai/OpenOats/releases), and the code lives on the [`1.x` branch](https://github.com/yazinsai/OpenOats/tree/1.x). To go back after updating, quit OpenOats, download the latest 1.x DMG and drag it over `/Applications/OpenOats.app`. Your 1.x settings and sessions are still there, since 2.0 only reads them.
+
+## Requirements
+
+Apple Silicon Mac, macOS 14.2 (Sonoma) or later. Microphone and system audio recording permissions.
+
+---
+
+]]></description>
+      <enclosure url="https://github.com/yazinsai/OpenOats/releases/download/v2.0.0/OpenOats.dmg"
+                 sparkle:edSignature="xHWMuqlnJtkTEvJis7En1mnb22ju6QaIsmlWQjr+gKKYj6wRE5SOq9ym2t0Vnn8qJezUWoX32+VJFZ7+8zfxDA=="
+                 length="6618267"
+                 type="application/octet-stream" />
     </item>
   </channel>
 </rss>
