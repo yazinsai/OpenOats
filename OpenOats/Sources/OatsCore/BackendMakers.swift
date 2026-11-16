@@ -39,6 +39,9 @@ public struct BackendMakers: Sendable {
     public static let builtIn = BackendMakers(
         transcription: [
             .openAIStyle: { OpenAIStyleTranscription($0) },
+            .elevenLabs: { ElevenLabsTranscription($0) },
+            .assemblyAI: { AssemblyAITranscription($0) },
+            .gemini: { GeminiTranscription($0) },
         ],
         notes: [
             .openAICompatible: { OpenAICompatibleNotes($0) },
