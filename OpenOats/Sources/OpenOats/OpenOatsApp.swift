@@ -8,6 +8,11 @@ struct OpenOatsApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model = AppModel.shared
 
+    init() {
+        // A UI-test copy launched without its isolation (e.g. by LaunchServices) must never reach the real settings or Keychain.
+        if Bundle.main.bundleIdentifier == "com.openoats.ui-smoke", ProcessInfo.processInfo.environment["OATS_DEFAULTS_SUITE"] == nil { exit(0) }
+    }
+
     var body: some Scene {
         MenuBarExtra {
             MenuView(model: model)

@@ -18,7 +18,7 @@ struct MeetingsWindow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            sidebar.frame(width: 280)
+            sidebar.frame(width: 296)
             Theme.line.frame(width: 1)
             detail.frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.canvas)
         }
@@ -205,7 +205,7 @@ struct MeetingRow: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(entry.title).font(Theme.uiStrong).foregroundStyle(Theme.ink).lineLimit(1).truncationMode(.tail)
             HStack(spacing: Theme.s1 + 2) {
-                Text(entry.date.formatted(recent ? .dateTime.hour().minute() : .dateTime.day().month(.abbreviated).hour().minute()))
+                Text(entry.date.formatted(recent ? .dateTime.hour().minute() : .dateTime.day().month(.abbreviated).hour().minute())).fixedSize()
                 if let minutes = entry.minutes { Text("·").foregroundStyle(Theme.ink3).accessibilityHidden(true); Text("\(minutes) min").fixedSize() }
                 Spacer(minLength: 0)
                 StateBadge(state: entry.state).fixedSize().layoutPriority(1)
@@ -221,7 +221,8 @@ struct MeetingRow: View {
             if selected {
                 RoundedRectangle(cornerRadius: Theme.r2, style: .continuous)
                     .fill(focused ? Theme.accent.opacity(0.14) : Theme.ink.opacity(0.07))
-                    .matchedGeometryEffect(id: "selection", in: namespace)
+                    // One shared highlight slides between rows; with Reduce Motion each row has its own, so it fades.
+                    .matchedGeometryEffect(id: Theme.reduceMotion ? entry.id : "selection", in: namespace)
             } else if hover {
                 RoundedRectangle(cornerRadius: Theme.r2, style: .continuous).fill(Theme.ink.opacity(0.04))
             }
@@ -315,7 +316,7 @@ struct MeetingDetail<Actions: View>: View {
                 }
             }
             .frame(maxWidth: Theme.measure, alignment: .leading)
-            .padding(.horizontal, Theme.s7).padding(.top, 72).padding(.bottom, Theme.s8)
+            .padding(.horizontal, Theme.s6).padding(.top, 72).padding(.bottom, Theme.s8)
             .frame(maxWidth: .infinity)
         }
         .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.06)], startPoint: .top, endPoint: .bottom)
