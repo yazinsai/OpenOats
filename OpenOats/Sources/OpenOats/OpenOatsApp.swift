@@ -18,7 +18,10 @@ struct OpenOatsApp: App {
         Window("OpenOats", id: AppActions.mainWindowID) {
             MeetingsWindow(model: model)
         }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1100, height: 760)
         Window("Welcome to OpenOats", id: OnboardingView.windowID) { OnboardingView(model: .shared) }
+            .windowStyle(.hiddenTitleBar)
             .windowResizability(.contentSize)
         Settings { SettingsView(model: .shared) }
     }
@@ -39,7 +42,8 @@ struct MenuBarLabel: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        Image(systemName: recording ? "record.circle.fill" : "waveform")
+        Image(nsImage: Self.icon(recording: recording))
+            .accessibilityLabel(recording ? "OpenOats, recording" : "OpenOats")
             .onAppear {
                 AppActions.openMainWindow = { [openWindow] in
                     Dock.show()
@@ -54,6 +58,33 @@ struct MenuBarLabel: View {
                     openWindow(id: OnboardingView.windowID)
                 }
             }
+    }
+}
+
+extension MenuBarLabel {
+    /// A template glyph: three waveform bars in an outlined capsule; while recording the capsule fills and the bars
+    /// cut out of it, so the state reads by shape as well as weight.
+    static func icon(recording: Bool) -> NSImage {
+        let image = NSImage(size: NSSize(width: 22, height: 16), flipped: false) { _ in
+            // On the 2x pixel grid: stroke edges and bars land on whole pixels.
+            let capsule = NSBezierPath(roundedRect: NSRect(x: 1.75, y: 1.75, width: 18.5, height: 12.5), xRadius: 6.25, yRadius: 6.25)
+            let bars = NSBezierPath()
+            for (x, h) in [(6.0, 4.0), (10.0, 8.0), (14.0, 6.0)] {
+                bars.append(NSBezierPath(roundedRect: NSRect(x: x, y: 8 - h / 2, width: 2, height: h), xRadius: 1, yRadius: 1))
+            }
+            NSColor.black.set()
+            if recording {
+                capsule.append(bars.reversed)
+                capsule.fill()
+            } else {
+                capsule.lineWidth = 1.5
+                capsule.stroke()
+                bars.fill()
+            }
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 }
 

@@ -19,6 +19,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var startedAt: Date?
     @Published private(set) var queue: [QueuedMeeting] = []
     @Published private(set) var processingID: String?
+    /// Free bytes once the Recorder warns about disk space, until the recording ends.
+    @Published private(set) var lowDiskSpace: Int64?
     /// The Meeting selected in the window (a notification click selects its Meeting).
     @Published var selection: MeetingEntry.ID?
     /// Onboarding's status line for the background `oats download` of the on-device model.
@@ -64,6 +66,7 @@ final class AppModel: ObservableObject {
         guard let recorder else { return }
         self.recorder = nil
         startedAt = nil
+        lowDiskSpace = nil
         do { try recorder.stop() } catch { Notifier.post("The recording didn't close cleanly", error.localizedDescription) }
         enqueue(recorder.folder)
     }
@@ -97,11 +100,13 @@ final class AppModel: ObservableObject {
     private func handle(_ event: RecorderEvent) {
         switch event {
         case let .lowDisk(free):
+            lowDiskSpace = free
             Notifier.post("Low disk space", "\(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) free. Recording stops below 200 MB.")
         case let .stopped(folder, reason):
             if recorder?.folder == folder {
                 recorder = nil
                 startedAt = nil
+                lowDiskSpace = nil
             }
             Notifier.post("Recording stopped", reason)
             enqueue(folder)
