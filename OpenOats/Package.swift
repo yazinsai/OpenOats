@@ -32,7 +32,7 @@ let package = Package(
         .executableTarget(name: "oats", dependencies: ["OatsCore", "OatsOnDevice", "OatsCapture"]),
         .executableTarget(
             name: "OpenOats",
-            dependencies: ["OatsCore", .product(name: "Sparkle", package: "Sparkle")],
+            dependencies: ["OatsCore", "OatsCapture", .product(name: "Sparkle", package: "Sparkle")],
             exclude: ["Info.plist", "OpenOats.entitlements", "Assets"]
         ),
         .testTarget(name: "OatsCoreTests", dependencies: ["OatsCore"]),
