@@ -15,13 +15,12 @@ struct OpenOatsApp: App {
             MenuBarLabel(recording: model.recorder != nil)
         }
         .menuBarExtraStyle(.window)
-        // Placeholders: the meeting window is #762, Settings and onboarding #763.
         Window("OpenOats", id: AppActions.mainWindowID) {
-            Text("Your Meetings will appear here.").frame(minWidth: 640, minHeight: 400)
+            MeetingsWindow(model: model)
         }
-        Settings {
-            Text("Settings").frame(width: 480, height: 320)
-        }
+        Window("Welcome to OpenOats", id: OnboardingView.windowID) { OnboardingView() }
+            .windowResizability(.contentSize)
+        Settings { SettingsView() }
     }
 }
 
@@ -49,6 +48,10 @@ struct MenuBarLabel: View {
                 AppActions.openSettings = { [openSettings] in
                     Dock.show()
                     openSettings()
+                }
+                if !AppModel.shared.onboarded {
+                    Dock.show()
+                    openWindow(id: OnboardingView.windowID)
                 }
             }
     }

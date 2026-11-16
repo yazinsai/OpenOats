@@ -41,7 +41,9 @@ public protocol SecretStore: Sendable {
 
 public struct Keychain: SecretStore {
     public var service = "com.openoats.app"
-    public init() {}
+    public init() {
+        if let suite = ProcessInfo.processInfo.environment["OATS_DEFAULTS_SUITE"] { service += ".\(suite)" }
+    }
 
     public func secret(_ account: String) -> String? {
         var query = base(account)
@@ -68,12 +70,14 @@ public struct Keychain: SecretStore {
 public struct SettingsStore: @unchecked Sendable {
     public static let domain = "com.openoats.app"
     static let key = "v2.settings"
-    let defaults: UserDefaults
+    public let defaults: UserDefaults
     public let secrets: any SecretStore
     public let makers: BackendMakers
 
+    /// `OATS_DEFAULTS_SUITE` (UI tests, manual runs) keeps the app and its `oats` child off the real settings domain.
     public init(defaults: UserDefaults? = nil, secrets: any SecretStore = Keychain(), makers: BackendMakers = .builtIn) {
-        self.defaults = defaults ?? (Bundle.main.bundleIdentifier == Self.domain ? .standard : UserDefaults(suiteName: Self.domain)!)
+        self.defaults = defaults ?? ProcessInfo.processInfo.environment["OATS_DEFAULTS_SUITE"].flatMap(UserDefaults.init(suiteName:))
+            ?? (Bundle.main.bundleIdentifier == Self.domain ? .standard : UserDefaults(suiteName: Self.domain)!)
         self.secrets = secrets
         self.makers = makers
     }
