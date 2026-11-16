@@ -44,6 +44,7 @@ public struct BackendMakers: Sendable {
             .gemini: { GeminiTranscription($0) },
         ],
         notes: [
+            .openAICompatible: { OpenAICompatibleNotes($0) },
             .anthropic: { AnthropicNotes($0) },
             .gemini: { GeminiNotes($0) },
         ]

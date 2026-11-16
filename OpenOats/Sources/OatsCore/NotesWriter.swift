@@ -66,7 +66,7 @@ public enum NotesWriter {
             for pair in pairs {
                 guard let from = pair["from"]?.trimmingCharacters(in: .whitespaces), !from.isEmpty,
                       let term = vocabulary.first(where: { $0.caseInsensitiveCompare(pair["to"] ?? "") == .orderedSame }),
-                      from != term else { continue }
+                      from != term, soundsAlike(from, term) else { continue }
                 replacements[from] = term
             }
         }
@@ -80,6 +80,20 @@ public enum NotesWriter {
             }
             return turn
         }
+    }
+
+    /// A replacement must spell roughly the same letters as the term, so it can't swallow neighbouring words.
+    static func soundsAlike(_ a: String, _ b: String) -> Bool {
+        let x = Array(a.lowercased().filter(\.isLetter)), y = Array(b.lowercased().filter(\.isLetter))
+        var row = Array(0...y.count)
+        for i in 1...max(x.count, 1) where !x.isEmpty {
+            var prev = row[0]; row[0] = i
+            for j in 1...max(y.count, 1) where !y.isEmpty {
+                let cur = row[j]
+                row[j] = min(row[j] + 1, row[j - 1] + 1, prev + (x[i - 1] == y[j - 1] ? 0 : 1)); prev = cur
+            }
+        }
+        return 1 - Double(row[y.count]) / Double(max(x.count, y.count, 1)) >= 0.6
     }
 
     /// Summarises `text` in one call if it fits, else part by part and then combines the partial notes.
