@@ -38,7 +38,7 @@ public struct BackendMakers: Sendable {
 
     public static let builtIn = BackendMakers(
         transcription: [:],
-        notes: [:]
+        notes: [.openAICompatible: { OpenAICompatibleNotes($0) }]
     )
 }
 
