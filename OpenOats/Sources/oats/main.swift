@@ -44,7 +44,7 @@ func run(_ folder: MeetingFolder, _ options: ProcessingOptions) async throws -> 
 
 /// Saved settings, with `--notes-folder` applied. `OATS_FAKE_TRANSCRIPTION=<seconds>` (tests) swaps in the fake
 /// Transcription backend and skips Notes.
-func recordingOptions(_ args: inout [String]) -> ProcessingOptions {
+func processingOptions(_ args: inout [String]) -> ProcessingOptions {
     var options = settings.processingOptions()
     if let i = args.firstIndex(of: "--notes-folder"), i + 1 < args.count {
         options.notesFolder = URL(fileURLWithPath: args[i + 1])
@@ -80,7 +80,7 @@ do {
         // Retry an unfinished Meeting, or re-process a done one (needs its kept audio). Prints the Meeting file path.
         // The app runs this as its Processing child, one Meeting at a time.
         args.removeFirst()
-        let options = recordingOptions(&args)
+        let options = processingOptions(&args)
         guard args.count == 1, let folder = meetingStore.folder(id: args[0]) else { throw CLIError("No Meeting \(args.joined()).") }
         if try folder.readStatus().state == .done { try Processing.prepareReprocess(folder) }
         print(try await run(folder, options))
@@ -88,14 +88,14 @@ do {
     case ("notes", 2): print(try await notesCommand(args[1]), terminator: "")
     case ("recover", _):
         args.removeFirst()
-        try await recoverCommand(options: recordingOptions(&args))
+        try await recoverCommand(options: processingOptions(&args))
     case ("record", _):
         // Mic and system audio, or with --fake-source a deterministic test tone.
         args.removeFirst()
-        let options = recordingOptions(&args)
+        let options = processingOptions(&args)
         let seconds = args.firstIndex(of: "--seconds").flatMap { $0 + 1 < args.count ? Double(args[$0 + 1]) : nil }
         let source: any CaptureSource = args.contains("--fake-source") ? ToneSource() : LiveCapture(onProblem: log)
-        try await recordCommand(source: source, seconds: seconds, options: options)
+        try await recordCommand(source: source, seconds: seconds, language: settings.load().meetingLanguage, options: options)
     default:
         FileHandle.standardError.write(Data("\(usage)\n".utf8))
         exit(2)

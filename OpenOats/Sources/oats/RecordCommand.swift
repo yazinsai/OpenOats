@@ -7,13 +7,13 @@ let meetingStore = ProcessInfo.processInfo.environment["OATS_MEETINGS_DIR"].map 
 
 /// `oats record [--fake-source] [--seconds N]`: records until N seconds or Ctrl-C, then processes. Prints the Meeting id
 /// once recording, then the Meeting file path(s).
-func recordCommand(source: any CaptureSource, seconds: Double?, options: ProcessingOptions) async throws {
+func recordCommand(source: any CaptureSource, seconds: Double?, language: String, options: ProcessingOptions) async throws {
     let stopRequested = Flag()
     signal(SIGINT, SIG_IGN)
     let sigint = DispatchSource.makeSignalSource(signal: SIGINT)
     sigint.setEventHandler { stopRequested.set() }
     sigint.resume()
-    let recorder = try Recorder.start(store: meetingStore, source: source, language: nil, onEvent: { event in
+    let recorder = try Recorder.start(store: meetingStore, source: source, language: language, onEvent: { event in
         switch event {
         case let .lowDisk(free): log("low disk space: \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) free")
         case let .stopped(_, reason): log(reason); stopRequested.set()
