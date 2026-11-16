@@ -42,7 +42,7 @@ That's the whole app. There is nothing to set up before your first meeting and n
 ## Built so you don't lose a meeting
 
 - **Crash-safe.** Audio goes to disk every couple of seconds. If your Mac crashes, the app is force quit or the battery dies, OpenOats recovers the Meeting the next time it opens. In our kill test the recording lost 1.1 seconds.
-- **Quiet while you talk.** Nothing is transcribed during the call. Recording takes about 0.2% CPU, and the app sits at about 19 MB of memory. Speech models load after Stop and unload when they're done.
+- **Quiet while you talk.** Nothing is transcribed during the call. Recording uses under 2% of one CPU core, and the app sits at about 19 MB of memory. Speech models load after Stop and unload when they're done.
 - **Transcripts that read well.** Each side is transcribed as a whole, so sentences don't break halfway and less speech gets lost.
 - **You and Them from the audio itself.** Your mic is You and your Mac's audio is Them. If your mic picks up the other side through your speakers, that echo is removed.
 
