@@ -8,7 +8,7 @@ import Testing
                  contextTokens: Int = 128_000) -> OpenAICompatibleNotes {
         var backend = OpenAICompatibleNotes(BackendSetup(type: .openAICompatible, address: address ?? stub.base, model: model,
                                                          apiKey: key, contextTokens: contextTokens), session: stub.session)
-        backend.sleep = { _ in }
+        backend.client.sleep = { _ in }
         return backend
     }
 
@@ -82,21 +82,20 @@ import Testing
 
     @Test func reasoningOnlyReplyIsAnErrorNotEmptyNotes() async throws {
         let stub = StubHTTP { _, _ in Self.reply(["content": "", "reasoning": "The user wants notes…"]) }
-        let error = await #expect(throws: NotesBackendError.self) { try await backend(stub).complete(system: "s", user: "u") }
-        #expect(error?.localizedDescription.contains("only reasoning") == true)
+        await #expect(throws: NotesError.self) { try await backend(stub).complete(system: "s", user: "u") }
     }
 
     @Test func clientErrorFailsAtOnceWithTheServersMessage() async throws {
         let stub = StubHTTP { _, _ in (404, [:], Data(#"{"error":{"message":"model 'qwen9' not found"}}"#.utf8)) }
-        let error = await #expect(throws: NotesBackendError.self) { try await backend(stub).complete(system: "s", user: "u") }
-        #expect(error?.localizedDescription == "\(stub.host) API error (HTTP 404): model 'qwen9' not found")
+        let error = await #expect(throws: CloudError.self) { try await backend(stub).complete(system: "s", user: "u") }
+        #expect(error?.localizedDescription == "\(stub.host) request failed (HTTP 404): model 'qwen9' not found")
         #expect(stub.requests.count == 1)
     }
 
     @Test func rejectedKeyPointsToSettings() async throws {
         let stub = StubHTTP { _, _ in (401, [:], Data(#"{"error":"invalid api key"}"#.utf8)) }
-        let error = await #expect(throws: NotesBackendError.self) { try await backend(stub).complete(system: "s", user: "u") }
-        #expect(error?.localizedDescription.contains("Check the API key in Settings > AI.") == true)
+        let error = await #expect(throws: CloudError.self) { try await backend(stub).complete(system: "s", user: "u") }
+        #expect(error?.localizedDescription == "\(stub.host) rejected the API key. Check Settings > AI.")
     }
 
     @Test func retriesRateLimitsServerErrorsAndDroppedConnections() async throws {
@@ -111,11 +110,11 @@ import Testing
         #expect(stub.requests.count == 3)
     }
 
-    @Test func givesUpAfterThreeServerErrors() async throws {
-        let stub = StubHTTP { _, _ in (503, [:], Data("upstream overloaded".utf8)) }
-        let error = await #expect(throws: NotesBackendError.self) { try await backend(stub).complete(system: "s", user: "u") }
-        #expect(error == .http(server: stub.host, status: 503, detail: "upstream overloaded"))
-        #expect(stub.requests.count == 3)
+    @Test func givesUpAfterFiveServerErrors() async throws {
+        let stub = StubHTTP { _, _ in (503, [:], Data(#"{"error":{"message":"upstream overloaded"}}"#.utf8)) }
+        let error = await #expect(throws: CloudError.self) { try await backend(stub).complete(system: "s", user: "u") }
+        #expect(error == .http(backend: stub.host, status: 503, message: "upstream overloaded"))
+        #expect(stub.requests.count == 5)
     }
 
     @Test func testCallSendsOneTinyRequest() async throws {

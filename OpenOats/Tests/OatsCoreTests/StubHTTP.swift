@@ -63,3 +63,33 @@ private final class StubProtocol: URLProtocol, @unchecked Sendable {
     }
 }
 
+/// One part of a `multipart/form-data` body.
+struct FormPart {
+    var name: String
+    var filename: String?
+    var data: Data
+    var text: String { String(decoding: data, as: UTF8.self) }
+}
+
+func formParts(of request: URLRequest) -> [FormPart] {
+    guard let type = request.value(forHTTPHeaderField: "Content-Type"),
+          let boundary = type.components(separatedBy: "boundary=").last, let body = request.httpBody else { return [] }
+    let delimiter = Data("--\(boundary)".utf8), separator = Data("\r\n\r\n".utf8)
+    var parts: [FormPart] = []
+    var rest = body[...]
+    while let start = rest.range(of: delimiter) {
+        rest = rest[start.upperBound...]
+        guard let headerEnd = rest.range(of: separator), let next = rest.range(of: delimiter) else { break }
+        let headers = String(decoding: rest[..<headerEnd.lowerBound], as: UTF8.self)
+        func field(_ key: String) -> String? {
+            headers.components(separatedBy: "\(key)=\"").dropFirst().first?.components(separatedBy: "\"").first
+        }
+        parts.append(FormPart(name: field("name") ?? "", filename: field("filename"), data: Data(rest[headerEnd.upperBound..<next.lowerBound].dropLast(2))))
+        rest = rest[next.lowerBound...]
+    }
+    return parts
+}
+
+extension [FormPart] {
+    subscript(_ name: String) -> String? { first { $0.name == name }?.text }
+}
