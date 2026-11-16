@@ -63,7 +63,7 @@ let isVocabularyRequest: @Sendable (String) -> Bool = { $0.contains("JSON array"
         #expect(notes.requests.first.map { $0.system.contains("Almarai, Talabat") } == true)
     }
 
-    @Test func rejectsVocabularyReplacementsThatSwallowNeighbouringWords() async throws {
+    @Test func vocabularyReplacementsNeverSwallowNeighbouringWords() async throws {
         let notes = ScriptedNotes { system, _ in
             isVocabularyRequest(system)
                 ? #"[{"from": "arai milk", "to": "Almarai"}, {"from": "the labar", "to": "Talabat"}]"#
@@ -71,7 +71,17 @@ let isVocabularyRequest: @Sendable (String) -> Bool = { $0.contains("JSON array"
         }
         let tracks: [Track: [TimedSegment]] = [.mic: [seg(0, 3, "Get an arai milk through the labar app.")]]
         let file = try await run(tracks, notes, vocabulary: ["Almarai", "Talabat"])
-        #expect(file.contains("**You:** Get an arai milk through Talabat app.\n"))
+        #expect(file.contains("**You:** Get Almarai milk through Talabat app.\n"))
+    }
+
+    @Test func acceptsAMishearingThatSoundsAlikeButIsSpelledDifferently() async throws {
+        // On-device hears Almarai as "an array" (doubled letters and y for i sound the same); the model points at "array milk".
+        let notes = ScriptedNotes { system, _ in
+            isVocabularyRequest(system) ? #"[{"from": "array milk", "to": "Almarai"}]"# : "Title: Groceries\n\n## Summary\n\nOrders."
+        }
+        let tracks: [Track: [TimedSegment]] = [.mic: [seg(0, 3, "So we would get an array milk.")]]
+        let file = try await run(tracks, notes, vocabulary: ["Almarai", "Talabat"])
+        #expect(file.contains("**You:** So we would get Almarai milk.\n"))
     }
 
     @Test func noVocabularyMeansOneNotesRequest() async throws {

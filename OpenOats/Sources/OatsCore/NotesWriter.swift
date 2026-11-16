@@ -54,9 +54,10 @@ public enum NotesWriter {
         guard !vocabulary.isEmpty, !turns.isEmpty else { return turns }
         let system = """
         You fix speech-recognition mistakes in names and terms. The Vocabulary is: \(vocabulary.joined(separator: ", ")).
-        Find places in the transcript where a Vocabulary term was written wrongly (misspelled, split into other words, or merged). \
-        Reply with only a JSON array like [{"from": "exact wrong text as it appears", "to": "Vocabulary term"}], or [] if there are none. \
-        Never suggest any other change.
+        Find places in the transcript where a Vocabulary term was written wrongly: misspelled, merged, or heard as other \
+        words that sound like it (often ordinary words, e.g. "cooper netties" for "Kubernetes"). \
+        Reply with only a JSON array like [{"from": "exact wrong text as it appears", "to": "Vocabulary term"}], or [] if there \
+        are none. "from" is only the misheard words, never the correct words around them. Never suggest any other change.
         """
         var replacements: [String: String] = [:]
         for piece in chunks(turns.plainText, maxChars: budget(system, backend)) {
@@ -66,8 +67,8 @@ public enum NotesWriter {
             for pair in pairs {
                 guard let from = pair["from"]?.trimmingCharacters(in: .whitespaces), !from.isEmpty,
                       let term = vocabulary.first(where: { $0.caseInsensitiveCompare(pair["to"] ?? "") == .orderedSame }),
-                      from != term, soundsAlike(from, term) else { continue }
-                replacements[from] = term
+                      let misheard = misheard(from, as: term, in: piece), misheard != term else { continue }
+                replacements[misheard] = term
             }
         }
         guard !replacements.isEmpty else { return turns }
@@ -82,9 +83,35 @@ public enum NotesWriter {
         }
     }
 
-    /// A replacement must spell roughly the same letters as the term, so it can't swallow neighbouring words.
-    static func soundsAlike(_ a: String, _ b: String) -> Bool {
-        let x = Array(a.lowercased().filter(\.isLetter)), y = Array(b.lowercased().filter(\.isLetter))
+    /// The words to replace with `term`: `from` if it sounds like the term, else the run of words in or around it in
+    /// `text` that sounds most like it (models often add or drop a neighbouring word: "array milk" for "an array").
+    /// nil if nothing does, so a replacement can't swallow neighbouring words.
+    static func misheard(_ from: String, as term: String, in text: String) -> String? {
+        if similarity(from, term) >= 0.6 { return from }
+        func words(_ s: String) -> [String] {
+            s.components(separatedBy: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "'")).inverted).filter { !$0.isEmpty }
+        }
+        let all = words(text), target = words(from).map { $0.lowercased() }
+        guard !target.isEmpty, all.count >= target.count else { return nil }
+        var best: (span: String, score: Double)?
+        for start in 0...(all.count - target.count) where all[start..<start + target.count].map({ $0.lowercased() }) == target {
+            let end = start + target.count
+            for lo in max(0, start - 1)..<end {
+                for hi in max(lo, start) + 1...min(all.count, end + 1) {
+                    let span = all[lo..<hi].joined(separator: " "), score = similarity(span, term)
+                    if score >= 0.6, score > best?.score ?? 0 { best = (span, score) }
+                }
+            }
+        }
+        return best?.span
+    }
+
+    /// 1 for the same letters, 0 for nothing in common. Doubled letters count once and y counts as i, as they sound the same.
+    static func similarity(_ a: String, _ b: String) -> Double {
+        func letters(_ s: String) -> [Character] {
+            s.lowercased().filter(\.isLetter).map { $0 == "y" ? "i" : $0 }.reduce(into: []) { if $0.last != $1 { $0.append($1) } }
+        }
+        let x = letters(a), y = letters(b)
         var row = Array(0...y.count)
         for i in 1...max(x.count, 1) where !x.isEmpty {
             var prev = row[0]; row[0] = i
@@ -93,7 +120,7 @@ public enum NotesWriter {
                 row[j] = min(row[j] + 1, row[j - 1] + 1, prev + (x[i - 1] == y[j - 1] ? 0 : 1)); prev = cur
             }
         }
-        return 1 - Double(row[y.count]) / Double(max(x.count, y.count, 1)) >= 0.6
+        return 1 - Double(row[y.count]) / Double(max(x.count, y.count, 1))
     }
 
     /// Summarises `text` in one call if it fits, else part by part and then combines the partial notes.
