@@ -11,6 +11,9 @@ set -euo pipefail
 # For smoke checks without code signing or installation:
 #   SKIP_SIGN=1 SKIP_INSTALL=1 ./scripts/build_swift_app.sh
 #
+# To build and sign into dist/OpenOats.app without replacing /Applications/OpenOats.app:
+#   SKIP_INSTALL=1 ./scripts/build_swift_app.sh
+#
 # The bundle version is derived from the latest git tag; override explicitly with:
 #   APP_VERSION=1.82.0 ./scripts/build_swift_app.sh
 #
@@ -29,15 +32,18 @@ SKIP_INSTALL="${SKIP_INSTALL:-0}"
 
 echo "=== Building $APP_NAME (Swift) ==="
 
-# Build release binary
+# Build release binaries: the app and the `oats` CLI it runs Processing in
 cd "$SWIFT_DIR"
 swift build -c release 2>&1
 BINARY_PATH=".build/release/OpenOats"
+OATS_PATH=".build/release/oats"
 
-if [[ ! -f "$BINARY_PATH" ]]; then
-  echo "Build failed: binary not found at $BINARY_PATH"
-  exit 1
-fi
+for binary in "$BINARY_PATH" "$OATS_PATH"; do
+  if [[ ! -f "$binary" ]]; then
+    echo "Build failed: binary not found at $binary"
+    exit 1
+  fi
+done
 
 echo "Binary built: $BINARY_PATH"
 
@@ -48,8 +54,9 @@ mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 mkdir -p "$APP_DIR/Contents/Frameworks"
 
-# Copy binary
+# Copy binaries
 cp "$BINARY_PATH" "$APP_DIR/Contents/MacOS/OpenOats"
+cp "$OATS_PATH" "$APP_DIR/Contents/MacOS/oats"
 
 # Make the SwiftPM-built executable behave like a normal app bundle by
 # teaching dyld to search the app's embedded Frameworks directory.
@@ -87,7 +94,7 @@ if [[ -f "$ICON_PATH" ]]; then
 fi
 
 # Copy Sparkle framework
-SPARKLE_ARTIFACT_DIR="$SWIFT_DIR/.build/artifacts/sparkle"
+SPARKLE_ARTIFACT_DIR="$SWIFT_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64"
 SPARKLE_FW=$(find "$SPARKLE_ARTIFACT_DIR" -name "Sparkle.framework" -type d 2>/dev/null | head -1)
 if [[ -n "$SPARKLE_FW" ]]; then
   cp -R "$SPARKLE_FW" "$APP_DIR/Contents/Frameworks/"
@@ -104,7 +111,7 @@ while IFS= read -r -d '' bundle; do
   rm -rf "$destination"
   cp -R "$bundle" "$destination"
   COPIED_BUNDLES=$((COPIED_BUNDLES + 1))
-done < <(find "$SWIFT_DIR/.build" -path "*/release/*.bundle" -type d -print0)
+done < <(find -L "$SWIFT_DIR/.build/release/" -maxdepth 1 -name "*.bundle" -type d -print0)
 if [[ $COPIED_BUNDLES -gt 0 ]]; then
   echo "Copied $COPIED_BUNDLES SPM resource bundle(s)"
 else
@@ -160,6 +167,9 @@ else
       codesign --force --options runtime --sign "$CODESIGN_IDENTITY" --timestamp "$SPARKLE_FW_BUNDLE/Versions/B/Sparkle"
       codesign --force --options runtime --sign "$CODESIGN_IDENTITY" --timestamp "$SPARKLE_FW_BUNDLE"
     fi
+
+    # Sign the Processing child (no entitlements: it never touches the mic or the Keychain)
+    codesign --force --options runtime --sign "$CODESIGN_IDENTITY" --timestamp "$APP_DIR/Contents/MacOS/oats"
 
     # Sign the main app bundle
     codesign --force --options runtime \
