@@ -4,9 +4,11 @@ import OatsCapture
 import OatsCore
 import SwiftUI
 
-/// What Settings and onboarding bind to. Every change is saved at once; API keys go to the Keychain.
+/// What Settings and onboarding bind to, one instance for both windows. Every change is saved at once; API keys go
+/// to the Keychain.
 @MainActor
 final class SettingsModel: ObservableObject {
+    static let shared = SettingsModel()
     let store = AppModel.shared.settings
     @Published var settings: OatsCore.Settings {
         didSet {
@@ -31,7 +33,7 @@ final class SettingsModel: ObservableObject {
                      "ko", "lt", "lv", "ms", "mt", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "th", "tr", "uk", "ur", "vi", "zh"]
         .sorted { SettingsModel.languageName($0) < SettingsModel.languageName($1) }
 
-    init() {
+    private init() {
         let settings = store.load()
         self.settings = settings
         vocabulary = settings.vocabulary.joined(separator: "\n")
@@ -72,7 +74,7 @@ final class SettingsModel: ObservableObject {
         Task { notesTest = await Self.outcome { try await backend?.test() } }
     }
 
-    /// Sends 1 s of a quiet tone; any reply (even no text) proves the address, key and model.
+    /// Sends 1 s of the test tone; any reply (even no text) proves the address, key and model.
     func testTranscription() {
         transcriptionTest = "Testing…"
         let backend = store.transcriptionBackend(settings.transcription), language = settings.meetingLanguage
@@ -80,8 +82,7 @@ final class SettingsModel: ObservableObject {
             transcriptionTest = await Self.outcome {
                 let url = FileManager.default.temporaryDirectory.appendingPathComponent("oats-test-\(UUID().uuidString).pcm")
                 defer { try? FileManager.default.removeItem(at: url) }
-                let tone = (0..<16_000).map { Int16(3_000 * sin(Double($0) * 2 * .pi * 440 / TrackAudio.sampleRate)) }
-                try tone.withUnsafeBytes { try Data($0).write(to: url) }
+                try ToneSource.tone(440, 0..<Int(TrackAudio.sampleRate)).withUnsafeBytes { try Data($0).write(to: url) }
                 _ = try await backend.transcribe(url, language: language)
             }
         }

@@ -30,13 +30,17 @@ public final class ToneSource: CaptureSource, @unchecked Sendable {
         }
     }
 
+    /// Samples `range` of a sine tone at `hz` (also the Settings Test button's audio).
+    public static func tone(_ hz: Double, _ range: Range<Int>) -> [Int16] {
+        range.map { Int16(sin(2 * .pi * hz * Double($0) / TrackAudio.sampleRate) * 8000) }
+    }
+
     private func tick() {
         guard let deliver else { return }
         let due = Int((ProcessInfo.processInfo.systemUptime - begin) * TrackAudio.sampleRate)
         guard due > sent else { return }
         for (track, hz) in [(Track.mic, 440.0), (.system, 660.0)] {
-            let samples = (sent..<due).map { Int16(sin(2 * .pi * hz * Double($0) / TrackAudio.sampleRate) * 8000) }
-            deliver(CapturedAudio(track: track, samples: samples, hostTime: begin + Double(sent) / TrackAudio.sampleRate))
+            deliver(CapturedAudio(track: track, samples: Self.tone(hz, sent..<due), hostTime: begin + Double(sent) / TrackAudio.sampleRate))
         }
         sent = due
     }

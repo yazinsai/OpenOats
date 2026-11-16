@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Settings: General, AI, Advanced.
 struct SettingsView: View {
-    @StateObject private var model = SettingsModel()
+    @ObservedObject var model: SettingsModel
 
     var body: some View {
         TabView {
@@ -58,14 +58,14 @@ struct AITab: View {
         Form {
             BackendSection(
                 title: "Notes backend", offName: "None", presets: Preset<NotesBackendType>.all,
-                footer: "None: the Meeting file has the Transcript only. A cloud Preset sends the Transcript to that provider.",
+                footer: "None: the Meeting file has the Transcript only. A cloud Preset sends the Transcript to its server.",
                 choice: model.choice(\.notes, presets: Preset<NotesBackendType>.all, off: .none, custom: .openAICompatible),
                 config: $model.settings.notes, key: model.apiKey(\.notes), status: model.notesTest, test: model.testNotes
             )
             .accessibilityIdentifier("settings.notesBackend")
             BackendSection(
                 title: "Transcription backend", offName: "On-device", presets: Preset<TranscriptionBackendType>.all,
-                footer: "On-device: audio never leaves this Mac. A cloud Preset uploads the audio to that provider.",
+                footer: "On-device: audio never leaves this Mac. A cloud Preset uploads the audio to its server.",
                 choice: model.choice(\.transcription, presets: Preset<TranscriptionBackendType>.all, off: .onDevice, custom: .openAIStyle),
                 config: $model.settings.transcription, key: model.apiKey(\.transcription), status: model.transcriptionTest,
                 test: model.testTranscription
@@ -96,13 +96,37 @@ struct BackendSection<Kind: Codable & Sendable & Hashable>: View {
                 let preset = presets.first { $0.name == choice }
                 TextField("Address", text: $config.address.orEmpty, prompt: Text(preset?.address ?? "http://localhost:8000/v1"))
                 TextField("Model", text: $config.model.orEmpty, prompt: Text(preset?.model ?? "Server default"))
-                if preset?.needsKey ?? true { SecureField("API key", text: $key) }
+                if preset?.needsKey ?? true { KeyField(key: $key) }
                 HStack {
                     Button("Test", action: test)
                     if let status { Text(status).foregroundStyle(.secondary).lineLimit(2) }
                 }
             }
         } header: { Text(title) } footer: { Text(footer).foregroundStyle(.secondary) }
+    }
+}
+
+/// The API key, saved on Return, on leaving the field or after a pause in typing, not per keystroke.
+struct KeyField: View {
+    @Binding var key: String
+    @State private var draft: String?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        SecureField("API key", text: Binding { draft ?? key } set: { draft = $0 })
+            .focused($focused)
+            .onSubmit(save)
+            .onChange(of: focused) { if !focused { save() } }
+            .task(id: draft) {
+                guard draft != nil, (try? await Task.sleep(for: .milliseconds(600))) != nil else { return }
+                save()
+            }
+            .onDisappear(perform: save)
+    }
+
+    private func save() {
+        if let draft, draft != key { key = draft }
+        draft = nil
     }
 }
 

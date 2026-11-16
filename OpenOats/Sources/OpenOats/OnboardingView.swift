@@ -3,7 +3,7 @@ import SwiftUI
 /// The one onboarding screen, shown at launch until the recording-consent acknowledgement is stored.
 struct OnboardingView: View {
     static let windowID = "onboarding"
-    @StateObject private var model = SettingsModel()
+    @ObservedObject var model: SettingsModel
     @ObservedObject private var app = AppModel.shared
     @State private var consent = false
     @Environment(\.dismissWindow) private var dismissWindow
