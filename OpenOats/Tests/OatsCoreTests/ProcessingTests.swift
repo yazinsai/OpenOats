@@ -54,6 +54,20 @@ import Testing
         #expect(file.contains("[00:00:15] **You:** Great, what about Talabat?"))
     }
 
+    @Test func dropsEchoesTheMicTrackMisheard() async throws {
+        let folder = try ws.recordedMeeting()
+        let asr = FakeTranscription(segments: [
+            "system": [seg(30, 31, "Choco pic."), seg(40, 43, "It's still intuitive too, man.")],
+            "mic": [seg(30.2, 31.2, "Choco pig."), seg(40.3, 43.2, "It's still in tuitive two man."), seg(44, 45, "Totally, man.")],
+        ])
+        try await Processing.run(folder, options: ws.options(asr))
+
+        let file = try ws.onlyMeetingFile()
+        #expect(!file.contains("**You:** Choco"))
+        #expect(!file.contains("**You:** It's still"))
+        #expect(file.contains("[00:00:44] **You:** Totally, man."))
+    }
+
     @Test func skipsNotesWithoutNotesBackendAndTitlesByDateAndTime() async throws {
         let folder = try ws.recordedMeeting()
         let status = try await Processing.run(folder, options: ws.options(FakeTranscription(segments: basicTracks)))
@@ -187,7 +201,7 @@ import Testing
         #expect(ws.meetingFiles.count == 1)
     }
 
-    @Test func singleMixedImportHasNoYouThemLabels() async throws {
+    @Test func singleMixedImportUsesNeutralSpeakerLabel() async throws {
         let audio = ws.root.appendingPathComponent("call.pcm")
         try FileManager.default.createDirectory(at: ws.root, withIntermediateDirectories: true)
         try ws.pcm(seconds: 1).write(to: audio)
@@ -195,10 +209,23 @@ import Testing
         try await Processing.run(folder, options: ws.options(FakeTranscription(segments: ["mixed": [seg(1, 2, "Hello everyone.")]])))
 
         let file = try ws.onlyMeetingFile()
-        #expect(file.contains("\n[00:00:01] Hello everyone.\n"))
+        #expect(file.contains("\n[00:00:01] **Speaker:** Hello everyone.\n"))
+        #expect(file.contains("participants:\n  - Speaker\n"))
         #expect(!file.contains("**You:**") && !file.contains("**Them:**"))
         #expect(ws.files(in: folder).contains("mixed.m4a"))
         #expect(FileManager.default.fileExists(atPath: audio.path))
+    }
+
+    @Test func singleMixedImportKeepsEachSegmentOnItsOwnLine() async throws {
+        let audio = ws.root.appendingPathComponent("call.pcm")
+        try FileManager.default.createDirectory(at: ws.root, withIntermediateDirectories: true)
+        try ws.pcm(seconds: 1).write(to: audio)
+        let folder = try ws.store.importAudio([audio], startedAt: Workspace.start)
+        let asr = FakeTranscription(segments: ["mixed": [seg(0, 1, "How would you order?"), seg(1.5, 3, "Through the app.")]])
+        try await Processing.run(folder, options: ws.options(asr))
+
+        let file = try ws.onlyMeetingFile()
+        #expect(file.contains("[00:00:00] **Speaker:** How would you order?\n\n[00:00:01] **Speaker:** Through the app."))
     }
 
     @Test func singleMixedImportKeepsLabelsFromDiarizingBackend() async throws {

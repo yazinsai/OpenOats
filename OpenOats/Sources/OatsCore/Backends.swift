@@ -24,10 +24,13 @@ public protocol TranscriptionBackend: Sendable {
     var separatesSpeakers: Bool { get }
     /// `language` is a BCP 47 code or nil for the backend's own detection.
     func transcribe(_ audio: URL, language: String?) async throws -> [TimedSegment]
+    /// Frees loaded models; Processing calls it after the transcribe step.
+    func unload() async
 }
 
 extension TranscriptionBackend {
     public var separatesSpeakers: Bool { false }
+    public func unload() async {}
 }
 
 /// A language model that only ever sees text: system + user prompt in, text out.
