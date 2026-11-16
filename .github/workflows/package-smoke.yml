@@ -31,8 +31,17 @@ jobs:
       - name: Verify app bundle structure
         run: |
           test -f dist/OpenOats.app/Contents/MacOS/OpenOats
+          test -x dist/OpenOats.app/Contents/MacOS/oats
           test -f dist/OpenOats.app/Contents/Info.plist
           test -f dist/OpenOats.app/Contents/PkgInfo
+          test -d dist/OpenOats.app/Contents/Frameworks/Sparkle.framework
+          plutil -lint dist/OpenOats.app/Contents/Info.plist
+          otool -l dist/OpenOats.app/Contents/MacOS/OpenOats | grep -Fq "@executable_path/../Frameworks"
+          # The bundled Processing child must load from inside the app (no arguments: usage, exit 2)
+          status=0
+          dist/OpenOats.app/Contents/MacOS/oats 2> oats-usage.txt || status=$?
+          test "$status" -eq 2
+          grep -q '^usage: oats' oats-usage.txt
           echo "App bundle structure verified"
 
       - name: Verify macOS deployment and release metadata

@@ -180,6 +180,15 @@ else
 
     echo "Code signing complete"
     codesign -vvv "$APP_DIR"
+    codesign --verify --deep --strict "$APP_DIR"
+    # Notarization rejects executables without the hardened runtime
+    for executable in OpenOats oats; do
+      signature="$(codesign -dv "$APP_DIR/Contents/MacOS/$executable" 2>&1)"
+      if [[ "$signature" != *"(runtime)"* ]]; then
+        echo "Hardened runtime missing on Contents/MacOS/$executable"
+        exit 1
+      fi
+    done
   else
     echo "Warning: No signing identity found. App will be unsigned."
   fi
