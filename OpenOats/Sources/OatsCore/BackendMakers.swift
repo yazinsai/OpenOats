@@ -45,6 +45,7 @@ public struct BackendMakers: Sendable {
         ],
         notes: [
             .anthropic: { AnthropicNotes($0) },
+            .gemini: { GeminiNotes($0) },
         ]
     )
 }
