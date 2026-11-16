@@ -21,6 +21,7 @@ struct MeetingsWindow: View {
             List(entries, selection: $selection) { entry in
                 MeetingRow(entry: entry).contextMenu { actions(entry) }
             }
+            .accessibilityIdentifier("meetings.list")
             .navigationSplitViewColumnWidth(min: 220, ideal: 260)
             .overlay {
                 if entries.isEmpty { Text("No Meetings yet. Record one from the menu bar, or drop an audio file here.").multilineTextAlignment(.center).foregroundStyle(.secondary).padding() }

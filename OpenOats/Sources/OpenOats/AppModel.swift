@@ -42,7 +42,9 @@ final class AppModel: ObservableObject {
     func start() {
         guard recorder == nil else { return }
         do {
-            let source = LiveCapture { problem in Task { @MainActor in Notifier.post("Recording problem", "\(problem)") } }
+            // `OATS_FAKE_CAPTURE=1` (UI smoke suite): a test tone instead of the mic and system audio.
+            let source: any CaptureSource = ProcessInfo.processInfo.environment["OATS_FAKE_CAPTURE"] == "1" ? ToneSource()
+                : LiveCapture { problem in Task { @MainActor in Notifier.post("Recording problem", "\(problem)") } }
             recorder = try Recorder.start(store: store, source: source, language: settings.load().meetingLanguage,
                                           onEvent: { event in Task { @MainActor in AppModel.shared.handle(event) } })
             startedAt = Date()

@@ -34,6 +34,7 @@ struct OnboardingView: View {
         }
         .padding(24)
         .frame(width: 480)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("onboarding.root")
         .onAppear { app.downloadModel() }
     }
