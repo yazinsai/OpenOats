@@ -119,13 +119,20 @@ final class SmokeTests: XCTestCase {
         [00:00:01] **You:** Let's look at the numbers.
 
         """.write(to: file, atomically: true, encoding: .utf8)
-        try #"{"state":"done","startedAt":"2026-11-16T10:00:00Z","duration":720,"completedSteps":["transcribe","merge","notes"],"meetingFile":"\#(file.path)"}"#
+        try #"{"state":"done","startedAt":"2026-11-16T10:00:00Z","interrupted":false,"duration":900,"completedSteps":["transcribe","merge","notes"],"meetingFile":"\#(file.path)"}"#
             .write(to: folder.appendingPathComponent("meeting.json"), atomically: true, encoding: .utf8)
+
+        let failed = meetings.appendingPathComponent("2026-11-15-090000-cd34")
+        try FileManager.default.createDirectory(at: failed, withIntermediateDirectories: true)
+        try #"{"state":"needs-attention","startedAt":"2026-11-15T09:00:00Z","interrupted":false,"completedSteps":[],"lastError":"The Transcription backend is unreachable."}"#
+            .write(to: failed.appendingPathComponent("meeting.json"), atomically: true, encoding: .utf8)
 
         app.launch()
         reopen()
         XCTAssertTrue(element("meetings.list").waitForExistence(timeout: 10))
         XCTAssertTrue(text(containing: "Budget review").waitForExistence(timeout: 5))
+        XCTAssertTrue(text(containing: "15 min").exists) // meeting.json says 15, the Meeting file 12: the Meeting folder was read
+        XCTAssertTrue(text(containing: "Needs attention").exists)
         XCTAssertTrue(text(containing: "Let's look at the numbers.").waitForExistence(timeout: 5))
     }
 
