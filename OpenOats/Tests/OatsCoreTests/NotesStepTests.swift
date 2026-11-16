@@ -63,6 +63,17 @@ let isVocabularyRequest: @Sendable (String) -> Bool = { $0.contains("JSON array"
         #expect(notes.requests.first.map { $0.system.contains("Almarai, Talabat") } == true)
     }
 
+    @Test func rejectsVocabularyReplacementsThatSwallowNeighbouringWords() async throws {
+        let notes = ScriptedNotes { system, _ in
+            isVocabularyRequest(system)
+                ? #"[{"from": "arai milk", "to": "Almarai"}, {"from": "the labar", "to": "Talabat"}]"#
+                : "Title: Groceries\n\n## Summary\n\nOrders."
+        }
+        let tracks = ["mic": [seg(0, 3, "Get an arai milk through the labar app.")]]
+        let file = try await run(tracks, notes, vocabulary: ["Almarai", "Talabat"])
+        #expect(file.contains("**You:** Get an arai milk through Talabat app.\n"))
+    }
+
     @Test func noVocabularyMeansOneNotesRequest() async throws {
         let notes = ScriptedNotes { _, _ in "Title: Sync\n\n## Summary\n\nShort." }
         _ = try await run(basicTracks, notes)
