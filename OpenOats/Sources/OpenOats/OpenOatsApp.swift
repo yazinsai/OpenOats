@@ -15,7 +15,6 @@ struct OpenOatsApp: App {
             MenuBarLabel(recording: model.recorder != nil)
         }
         .menuBarExtraStyle(.window)
-        // Placeholder: the meeting window is #762.
         Window("OpenOats", id: AppActions.mainWindowID) {
             MeetingsWindow(model: model)
         }

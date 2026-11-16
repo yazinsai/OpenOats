@@ -87,7 +87,7 @@ struct BackendSection<Kind: Codable & Sendable & Hashable>: View {
 
     var body: some View {
         Section {
-            Picker(title, selection: $choice) {
+            Picker("Backend", selection: $choice) {
                 Text(offName).tag("")
                 ForEach(presets, id: \.name) { Text($0.name).tag($0.name) }
                 Text("Custom server").tag("custom")
