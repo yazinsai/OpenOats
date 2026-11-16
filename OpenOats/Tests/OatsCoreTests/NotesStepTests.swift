@@ -211,7 +211,8 @@ let isVocabularyRequest: @Sendable (String) -> Bool = { $0.contains("JSON array"
                 let local = url?.host() == "localhost"
                 #expect(url?.scheme == (local ? "http" : "https"), "\(preset.name)")
                 #expect(preset.needsKey == !local, "\(preset.name)")
-                #expect(local || preset.model?.isEmpty == false, "cloud Preset \(preset.name) needs a default model")
+                // AssemblyAI picks its current speech model itself (not pinned, so deprecations need no app update).
+                #expect(local || preset.name == "AssemblyAI" || preset.model?.isEmpty == false, "cloud Preset \(preset.name) needs a default model")
                 #expect(preset.config.preset == preset.name)
             }
         }
@@ -221,7 +222,7 @@ let isVocabularyRequest: @Sendable (String) -> Bool = { $0.contains("JSON array"
         #expect(Preset<TranscriptionBackendType>.all.allSatisfy { $0.type != .onDevice })
         let names = Set(Preset<NotesBackendType>.all.map(\.name))
         #expect(names.isSuperset(of: ["OpenAI", "OpenRouter", "Requesty", "Ollama", "LM Studio", "MLX", "llama.cpp"]))
-        #expect(Set(Preset<TranscriptionBackendType>.all.map(\.name)) == ["OpenAI", "Groq", "Self-hosted Whisper", "ElevenLabs"])
+        #expect(Set(Preset<TranscriptionBackendType>.all.map(\.name)) == ["OpenAI", "Groq", "Self-hosted Whisper", "ElevenLabs", "AssemblyAI"])
     }
 }
 

@@ -40,6 +40,7 @@ public struct BackendMakers: Sendable {
         transcription: [
             .openAIStyle: { OpenAIStyleTranscription($0) },
             .elevenLabs: { ElevenLabsTranscription($0) },
+            .assemblyAI: { AssemblyAITranscription($0) },
         ],
         notes: [:]
     )

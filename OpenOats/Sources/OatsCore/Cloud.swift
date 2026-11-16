@@ -6,6 +6,7 @@ public enum CloudError: LocalizedError, Equatable {
     case http(backend: String, status: Int, message: String?)
     case badResponse(backend: String)
     case badAddress(String)
+    case failed(backend: String, message: String)
 
     public var errorDescription: String? {
         switch self {
@@ -13,6 +14,7 @@ public enum CloudError: LocalizedError, Equatable {
         case .http(let backend, let status, let message): "\(backend) request failed (HTTP \(status))" + (message.map { ": \($0)" } ?? ".")
         case .badResponse(let backend): "\(backend) returned a response OpenOats couldn't read."
         case .badAddress(let address): "\"\(address)\" isn't an http(s) address."
+        case .failed(let backend, let message): "\(backend) couldn't transcribe the audio: \(message)"
         }
     }
 }

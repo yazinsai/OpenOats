@@ -35,5 +35,6 @@ extension Preset where Kind == TranscriptionBackendType {
         Preset(name: "Groq", type: .openAIStyle, address: "https://api.groq.com/openai/v1", model: "whisper-large-v3-turbo", needsKey: true),
         Preset(name: "Self-hosted Whisper", type: .openAIStyle, address: "http://localhost:8000/v1", model: "whisper-1", needsKey: false),
         Preset(name: "ElevenLabs", type: .elevenLabs, address: "https://api.elevenlabs.io/v1", model: "scribe_v2", needsKey: true),
+        Preset(name: "AssemblyAI", type: .assemblyAI, address: "https://api.assemblyai.com/v2", model: nil, needsKey: true),
     ]
 }
