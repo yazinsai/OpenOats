@@ -1,240 +1,128 @@
-# OpenOats
+<p align="center">
+  <img src="OpenOats/Sources/OpenOats/Assets/AppIcon.png" width="88" alt="" />
+</p>
 
-[![Auto-Maintainer](https://am.whhite.com/badge/yazinsai/openoats)](https://am.whhite.com)
-
-A meeting note-taker that talks back.
+<h1 align="center">OpenOats</h1>
 
 <p align="center">
-  <a href="https://github.com/yazinsai/OpenOats/releases/latest">
-    <img src="https://img.shields.io/badge/Download_for_Mac-DMG-black?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" />
-  </a>
+  <b>The meeting recorder for Mac that you can forget is running.</b><br />
+  Press Start, have your meeting, press Stop. You get one markdown file: Notes on top, a You/Them transcript underneath.
 </p>
 
 <p align="center">
-  <img src="assets/openoats-film.webp" width="720" alt="OpenOats walkthrough: meeting detection, live transcript, suggestions from your notes, hidden from screen sharing, notes and Ask" />
+  <a href="https://github.com/yazinsai/OpenOats/releases/latest/download/OpenOats.dmg"><img src="https://img.shields.io/badge/Download_for_Mac-DMG-black?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" /></a>
 </p>
 
-<details>
-<summary>Watch with sound (30s)</summary>
-  
-https://github.com/user-attachments/assets/f4e7441b-a70a-4581-b6d1-3de3eb21abef
+<p align="center">
+  Free and open source · Transcribes on your Mac · No account, no bot in your call
+</p>
 
-</details>
-
-OpenOats sits next to your call, transcribes both sides of the conversation in real time, and searches your own notes to surface things worth saying — right when you need them.
-
-> [!NOTE]
-> **Sponsored by Recall.ai — API for desktop recording**
->
-> If you're looking for a hosted desktop recording API, consider checking out [Recall.ai](https://dub.sh/openoats), an API that records Zoom, Google Meet, Microsoft Teams, in-person meetings, and more.
-
-## Features
-
-- **Invisible to the other side** — the app window is hidden from screen sharing by default, so no one knows you're using it
-- **Fully offline transcription** — speech recognition runs entirely on your Mac; no audio ever leaves the device
-- **Runs 100% locally** — pair with [Ollama](https://ollama.com/) for LLM suggestions and local embeddings, and nothing touches the network at all
-- **Pick any LLM** — use [OpenRouter](https://openrouter.ai/) or [Requesty](https://www.requesty.ai/) for cloud models (GPT-4o, Claude, Gemini) or Ollama for local ones (Llama, Qwen, Mistral)
-- **Live transcript** — see both sides of the conversation as it happens, copy the whole thing with one click
-- **Auto-saved sessions** — every conversation is automatically saved as a plain-text transcript and a structured session log, no manual export needed
-- **Knowledge base search** — point it at folders of notes and it pulls in what's relevant using [Voyage AI](https://www.voyageai.com/) embeddings, local Ollama embeddings, or any OpenAI-compatible endpoint (llama.cpp, llamaswap, LiteLLM, vLLM, etc.)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.webp" />
+    <img src="assets/hero-light.webp" width="900" alt="The OpenOats window showing a Meeting file with its Summary, Decisions and Action Items, next to the menu bar panel recording the Mic track and System track" />
+  </picture>
+</p>
 
 ## How it works
 
-1. You start a call and hit **Live**
-2. OpenOats transcribes both speakers locally on your Mac
-3. When the conversation hits a moment that matters — a question, a decision point, a claim worth backing up — it searches your notes and surfaces relevant talking points
-4. You sound prepared because you are
+1. **Press Start.** Click the menu bar icon or press ⌃⌥⌘R from any app. OpenOats records your microphone and your Mac's audio as two separate tracks, so it works with Zoom, Google Meet, Teams, Slack, FaceTime or anything else that plays sound.
+2. **Press Stop.** OpenOats transcribes each track in one pass, on your Mac. An hour of audio takes about a minute on Apple Silicon.
+3. **Read the Meeting file.** A notification tells you it's ready. The file lands in your notes folder: Notes at the top (summary, decisions, action items), the timestamped Transcript below. Here's [an example](docs/example-transcript.md).
 
-## Recording Consent & Legal Disclaimer
+That's the whole app. There is nothing to set up before your first meeting and nothing to watch while it runs.
 
-**Important:** OpenOats records and transcribes audio from your microphone and system audio. Many jurisdictions have laws requiring consent from some or all participants before a conversation may be recorded (e.g., two-party/all-party consent states in the U.S., GDPR in the EU).
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/transcript-dark.webp" />
+    <img src="assets/transcript-light.webp" width="900" alt="The Transcript of a Meeting file: timestamped turns labelled You and Them" />
+  </picture>
+</p>
 
-**By using this software, you acknowledge and agree that:**
+## Built so you don't lose a meeting
 
-- **You are solely responsible** for determining whether recording is lawful in your jurisdiction and for obtaining any required consent from all participants before starting a session.
-- **The developers and contributors of OpenOats provide no legal advice** and make no representations about the legality of recording in any jurisdiction.
-- **The developers accept no liability** for any unauthorized or unlawful recording conducted using this software.
+- **Crash-safe.** Audio goes to disk every couple of seconds. If your Mac crashes, the app is force quit or the battery dies, OpenOats recovers the Meeting the next time it opens. In our kill test the recording lost 1.1 seconds.
+- **Quiet while you talk.** Nothing is transcribed during the call. Recording takes about 0.2% CPU, and the app sits at about 19 MB of memory. Speech models load after Stop and unload when they're done.
+- **Transcripts that read well.** Each side is transcribed as a whole, so sentences don't break halfway and less speech gets lost.
+- **You and Them from the audio itself.** Your mic is You and your Mac's audio is Them. If your mic picks up the other side through your speakers, that echo is removed.
 
-**Do not use this software to record conversations without proper consent where required by law.**
+## Private by default
 
-The app will ask you to acknowledge these obligations before your first recording session.
+- Transcription runs on your Mac: Parakeet v3 for 25 European languages and Whisper large-v3-turbo for the rest, picked from your language setting.
+- Nothing leaves your Mac unless you turn on a cloud service yourself. There is no account to create.
+- API keys you add are stored in the macOS Keychain.
+- Meeting files are plain markdown in a folder you choose. They open in Obsidian or any editor, and action items use Dataview fields (`[owner:: You]`, `[due:: 2026-11-20]`).
+- You can have the audio deleted once the Meeting file is written.
 
-## Download
+## AI, only if you want it
 
-Install via Homebrew:
+Out of the box you get the Transcript with no key and no service. To get Notes as well, pick a Notes backend in Settings › AI:
+
+- **On your Mac:** Ollama, LM Studio, MLX, llama.cpp
+- **In the cloud:** OpenAI, OpenRouter, Requesty, Anthropic, Gemini, or any OpenAI-compatible endpoint
+
+The Notes backend only ever sees text. It writes the summary, decisions and action items, and fixes the spelling of names and terms you add under Vocabulary.
+
+You can also send transcription to a cloud or self-hosted service: OpenAI, Groq, ElevenLabs, AssemblyAI, Gemini or your own Whisper server. Every backend has a Test button.
+
+## Install
+
+Download [OpenOats.dmg](https://github.com/yazinsai/OpenOats/releases/latest/download/OpenOats.dmg), open it and drag OpenOats to Applications. Or use Homebrew:
 
 ```bash
 brew tap yazinsai/openoats https://github.com/yazinsai/OpenOats
-brew install --cask yazinsai/openoats/openoats
+brew install --cask openoats
 ```
 
-To upgrade later:
+The first launch is one screen: allow the microphone, allow system audio recording, pick a notes folder. The on-device speech model downloads in the background while you do that. Updates install from inside the app.
+
+**Requirements:** an Apple Silicon Mac with macOS 14.2 (Sonoma) or later.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/onboarding-dark.webp" />
+    <img src="assets/onboarding-light.webp" width="560" alt="The OpenOats welcome screen: microphone, system audio and notes folder" />
+  </picture>
+</p>
+
+## More
+
+- **Import.** Drop an audio file on the window and it's processed like a Meeting.
+- **Retry.** If a cloud backend fails, the Meeting is marked Needs attention and Retry picks up from the last finished step.
+- **Command line.** The app ships with `oats`, which turns audio files into a Meeting file from the terminal. Run it with no arguments to see the other commands.
+
+  ```bash
+  /Applications/OpenOats.app/Contents/MacOS/oats transcribe mic.wav system.wav > meeting.md
+  ```
+
+## Recording consent
+
+OpenOats records audio from your microphone and from your Mac. Many places require consent from some or all participants before a conversation is recorded (for example, all-party consent states in the U.S., and the GDPR in the EU). You are responsible for knowing the law where you are and for telling people when you record them. The developers give no legal advice and accept no liability for recordings made with OpenOats. The app asks you to confirm this before your first recording.
+
+## Staying on 1.x
+
+OpenOats 2.0 is a different app from 1.x. The live transcript, live suggestions, knowledge base, Sidecast, Ask and calendar integration are gone. If you rely on them, click "Skip This Version" when the update appears. The last 1.x release stays on the [releases page](https://github.com/yazinsai/OpenOats/releases) and the code lives on the [`1.x` branch](https://github.com/yazinsai/OpenOats/tree/1.x). The [2.0 release notes](docs/release-notes-2.0.md) list everything that changed and what carries over.
+
+## Contributing
+
+Bug reports and pull requests are welcome. OpenOats 2.0 is small on purpose (about 4,000 lines of Swift), so read [PLAN.md](PLAN.md) and [GLOSSARY.md](GLOSSARY.md) before proposing a feature.
 
 ```bash
-brew upgrade --cask yazinsai/openoats/openoats
-```
-
-Or grab the latest DMG from the [Releases page](https://github.com/yazinsai/OpenOats/releases/latest).
-
-Or build from source:
-
-```bash
-./scripts/build_swift_app.sh
-```
-
-## Quick start
-
-1. Open the DMG and drag OpenOats to Applications
-2. Launch the app and grant microphone + system audio recording permissions
-3. Open Settings (`Cmd+,`) and pick your providers:
-   - **Cloud**: add your OpenRouter and Voyage AI API keys
-   - **Local**: select Ollama as your LLM and embedding provider (make sure Ollama is running)
-   - **OpenAI-compatible**: select "OpenAI Compatible" as your embedding provider and point it at any `/v1/embeddings` endpoint
-4. Add folders of `.md` or `.txt` files in Settings — that's your knowledge base
-5. Click **Idle** to go live
-
-The first run downloads the local speech model (~600 MB).
-
-## What you need
-
-- Apple Silicon Mac, macOS 14.2 (Sonoma) or later
-- **Building from source only:** Xcode 26 / Swift 6.2 on a macOS version supported by Xcode. The release app runs on macOS 14.2+; you do not need Xcode to use it.
-- **For cloud mode**: [OpenRouter](https://openrouter.ai/) API key + [Voyage AI](https://www.voyageai.com/) API key
-- **For local mode**: [Ollama](https://ollama.com/) running locally with your preferred models (e.g. `qwen3:8b` for suggestions, `nomic-embed-text` for embeddings)
-- **For OpenAI-compatible embeddings**: any server implementing `/v1/embeddings` (llama.cpp, llamaswap, LiteLLM, vLLM, etc.)
-
-### macOS Sonoma support
-
-Parakeet and Whisper transcription work on macOS 14.2+. Qwen3 ASR requires
-macOS 15+ and is only offered on supported systems. A saved Qwen3 selection
-resolves to Parakeet v2 on Sonoma, including batch transcription; choose a
-multilingual model instead if needed. The selected model's actual name is shown
-in Settings and recorded in session metadata.
-
-Grant both microphone and system audio recording access when macOS asks.
-You can start recording after joining a meeting. Select the output device that
-actually carries the call audio, especially when using headphones or an external
-display. See [macOS compatibility and verification](docs/macos-compatibility.md)
-for build checks and a short system-audio test.
-
-## Knowledge base
-
-Add one or more folders of Markdown or plain text files in Settings. Select several folders at once, add more later, or remove any source independently. Existing single-folder settings migrate automatically. Overlapping folders index each file once. Source labels distinguish files with the same name across folders. OpenOats chunks, embeds, and caches them locally. When the conversation shifts, it searches your notes and only surfaces what's actually relevant.
-
-The cache is validated against the selected folders and current file contents before it is restored. Changing the folder list or embedding configuration rebuilds the index. Existing single-folder caches rebuild once after upgrading.
-
-Works well with meeting prep docs, research notes, pitch decks, competitive analysis, customer briefs — anything you'd want at your fingertips during a call.
-
-## Privacy
-
-- Speech is transcribed locally — audio never leaves your Mac
-- **With Ollama**: everything stays on your machine. Zero network calls.
-- **With cloud providers**: KB chunks are sent to Voyage AI (or your chosen OpenAI-compatible endpoint) for embedding (text only, no audio), and conversation context is sent to OpenRouter for suggestions
-- API keys are stored in your Mac's Keychain
-- The app window is hidden from screen sharing by default
-- Transcripts are saved locally to `~/Documents/OpenOats/`
-
-### Cloud mode: what data leaves your Mac
-
-When using cloud providers, OpenOats makes the following network requests. **No audio is ever sent** — only text. In fully-local mode (Ollama for both LLM and embeddings), nothing touches the network at all.
-
-#### 1. Knowledge base indexing — Voyage AI (`api.voyageai.com/v1/embeddings`)
-
-**When:** Each time you index your knowledge base folders (on launch or when files change).
-
-**What is sent:**
-- Text chunks from your `.md` / `.txt` knowledge base files (split by markdown headings, 80–500 words each, with the header breadcrumb prepended)
-- Model name (`voyage-4-lite`) and requested output dimensions (`256`)
-- Input type (`document`)
-
-Chunks are sent in batches of 32. Only new or changed files are embedded — unchanged files use a local cache when the folder list and embedding configuration stay the same. Source labels and document paths relative to the selected folders are included to identify the evidence.
-
-#### 2. Knowledge base search — Voyage AI (`api.voyageai.com/v1/embeddings`)
-
-**When:** Each time the suggestion pipeline runs (triggered by a substantive utterance from the other speaker, subject to a 90-second cooldown).
-
-**What is sent:**
-- 1–4 short query strings derived from the conversation: the latest utterance text, the current conversation topic, a short conversation summary, and the top open question
-- Model name, dimensions, and input type (`query`)
-
-#### 3. Knowledge base reranking — Voyage AI (`api.voyageai.com/v1/rerank`)
-
-**When:** Immediately after step 2, if Voyage AI is the embedding provider.
-
-**What is sent:**
-- The primary search query (the latest utterance text)
-- Up to 10 candidate KB chunk texts (from your own notes) for reranking
-- Model name (`rerank-2.5-lite`)
-
-#### 4. Conversation state update — OpenRouter (`openrouter.ai/api/v1/chat/completions`)
-
-**When:** Periodically during a session when the conversation state needs refreshing.
-
-**What is sent (as an LLM prompt):**
-- The previous conversation state (topic, summary, open questions, tensions, recent decisions, goals — all derived from earlier LLM calls)
-- Recent transcript utterances (both speakers, text only — labeled "You" / "Them")
-- The latest utterance from the other speaker
-- A system prompt instructing the model to update the conversation state
-
-#### 5. Surfacing gate — OpenRouter (`openrouter.ai/api/v1/chat/completions`)
-
-**When:** After the KB search returns relevant results, to decide whether a suggestion is worth showing.
-
-**What is sent (as an LLM prompt):**
-- The latest utterance from the other speaker
-- Recent transcript exchange (both speakers, text only)
-- Current conversation state (topic, summary, open questions, tensions)
-- The detected trigger type and excerpt
-- Up to 5 KB evidence chunks (text from your notes, with source file and header, plus relevance scores)
-- Recently shown suggestion angles (short strings, to avoid repeats)
-
-#### 6. Suggestion generation — OpenRouter (`openrouter.ai/api/v1/chat/completions`)
-
-**When:** Only if the surfacing gate approves (all quality scores above threshold).
-
-**What is sent (as an LLM prompt):**
-- The latest utterance from the other speaker
-- Current conversation state (topic and summary)
-- The gate's reasoning string
-- Up to 3 KB evidence chunks (text from your notes, with source file and header)
-
-#### 7. Meeting notes generation — OpenRouter (`openrouter.ai/api/v1/chat/completions`)
-
-**When:** When you click "Generate Notes" after a session.
-
-**What is sent (as an LLM prompt):**
-- The full session transcript (both speakers, with timestamps, labeled "You" / "Them") — truncated to ~60,000 characters if very long
-- The meeting template's system prompt (e.g., instructions for formatting notes)
-
-#### What is never sent
-
-- **Audio** — transcription is always on-device via Apple Speech
-- **Absolute file paths from your system** (only paths relative to your knowledge base folders appear, prefixed with the folder name when you add more than one)
-- **Your API keys to anyone other than the respective provider** (OpenRouter key to OpenRouter, Voyage key to Voyage)
-- **Any data when using Ollama** — all requests go to your local machine
-
-## Build
-
-```bash
-# Full build: compile, assemble dist/OpenOats.app (with the bundled oats CLI), sign, install to /Applications
+# Build dist/OpenOats.app (with the bundled oats CLI), sign it and install it to /Applications
 ./scripts/build_swift_app.sh
 
-# Build and sign into dist/ only, or skip signing too
+# Build into dist/ only, with or without signing
 SKIP_INSTALL=1 ./scripts/build_swift_app.sh
 SKIP_SIGN=1 SKIP_INSTALL=1 ./scripts/build_swift_app.sh
 
 # Dev build and tests
 cd OpenOats && swift build && swift test
 
-# Package DMG (needs dist/OpenOats.app)
+# Package a DMG (needs dist/OpenOats.app)
 ./scripts/make_dmg.sh
 ```
 
-Optional env vars for code signing and notarization: `CODESIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`. `APP_VERSION` overrides the bundle version (default: latest git tag).
-
-The on-device golden tests (`OnDeviceGoldenTests`) are skipped unless a recording exists at `OATS_GOLDEN_CLIP` (default `/tmp/oatbench/clip.wav`).
-
-## Repo layout
+Building needs Xcode 26 (Swift 6.2). Optional environment variables for signing and notarization: `CODESIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`. `APP_VERSION` overrides the bundle version (default: the latest git tag). The on-device golden tests (`OnDeviceGoldenTests`) are skipped unless a recording exists at `OATS_GOLDEN_CLIP`.
 
 ```
 OpenOats/                     Swift package
@@ -243,12 +131,15 @@ OpenOats/                     Swift package
   Sources/OatsCapture/        Mic track and System track capture
   Sources/oats/               CLI, also the app's Processing child (Contents/MacOS/oats)
   Sources/OpenOats/           SwiftUI menu bar app, Info.plist, entitlements, icon
-  Tests/OatsCoreTests/        Core tests (fake backends, stubbed HTTP)
-  Tests/OnDeviceGoldenTests/  Opt-in golden tests on a real recording
-UITests/                      UI smoke suite (Xcode host project)
+  Tests/                      Core tests and opt-in golden tests
+UITests/                      UI smoke suite
 scripts/                      Build, sign, package, appcast and cask scripts
 docs/                         Meeting file format, ADRs, release notes
 ```
+
+> [!NOTE]
+> **Sponsored by Recall.ai, an API for desktop recording.**
+> If you need a hosted recording API, [Recall.ai](https://dub.sh/openoats) records Zoom, Google Meet, Microsoft Teams, in-person meetings and more.
 
 ## License
 
