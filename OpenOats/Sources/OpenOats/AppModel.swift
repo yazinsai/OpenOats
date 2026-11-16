@@ -33,7 +33,9 @@ final class AppModel: ObservableObject {
     func start() {
         guard recorder == nil else { return }
         do {
-            recorder = try Recorder.start(store: store, source: LiveCapture(), language: settings.load().meetingLanguage,
+            recorder = try Recorder.start(store: store, source: LiveCapture { problem in
+                Task { @MainActor in Notifier.post("Recording problem", "\(problem)") }
+            }, language: settings.load().meetingLanguage,
                                       onEvent: { event in Task { @MainActor in AppModel.shared.handle(event) } })
             startedAt = Date()
         } catch {
@@ -137,8 +139,9 @@ final class AppModel: ObservableObject {
     }
 }
 
-/// Placeholder until real capture (#760): silence on both tracks, in real time.
+/// Placeholder until real capture (#760, `OatsCapture.LiveCapture`, same initializer): silence on both tracks, in real time.
 final class LiveCapture: CaptureSource, @unchecked Sendable {
+    init(onProblem: @escaping @Sendable (String) -> Void) {}
     private let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "openoats.capture"))
 
     func start(_ deliver: @escaping @Sendable (CapturedAudio) -> Void) throws {
