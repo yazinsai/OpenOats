@@ -43,7 +43,9 @@ public struct BackendMakers: Sendable {
             .assemblyAI: { AssemblyAITranscription($0) },
             .gemini: { GeminiTranscription($0) },
         ],
-        notes: [:]
+        notes: [
+            .anthropic: { AnthropicNotes($0) },
+        ]
     )
 }
 
