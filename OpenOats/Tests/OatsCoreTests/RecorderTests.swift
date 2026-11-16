@@ -117,6 +117,21 @@ final class EventLog: @unchecked Sendable {
         #expect(mic[31_999] == 100 && mic[32_000] == 101 && mic[39_999] == 101 && mic[40_000] == 102)
     }
 
+    @Test func systemTrackStartsAtItsFirstAudioWhenNothingPlaysAtFirst() throws {
+        let recorder = try start()
+        // The process tap delivers nothing while the output device is idle; then a meeting app starts playing,
+        // and the default output changes (AirPods) mid-way.
+        source.send(.mic, 100, seconds: 4, at: 0)
+        source.send(.system, 200, seconds: 1, at: 1.5)
+        source.send(.system, 201, seconds: 0.5, at: 3)
+        let folder = try recorder.stop()
+
+        let system = try samples(folder.systemTrackURL)
+        #expect(system.count == 56_000)
+        #expect(system[23_999] == 0 && system[24_000] == 200 && system[39_999] == 200)
+        #expect(system[40_000] == 0 && system[47_999] == 0 && system[48_000] == 201)
+    }
+
     @Test func flushesToDiskWhileRecording() async throws {
         let recorder = try start(flushInterval: 0.05)
         source.send(.mic, 100, seconds: 1, at: 0)
