@@ -1,0 +1,87 @@
+import Foundation
+import OatsCore
+
+/// Meetings root; `OATS_MEETINGS_DIR` overrides it (tests).
+let meetingStore = ProcessInfo.processInfo.environment["OATS_MEETINGS_DIR"].map { MeetingStore(root: URL(fileURLWithPath: $0)) }
+    ?? MeetingStore()
+
+/// `oats record --fake-source [--seconds N]`: records until N seconds or Ctrl-C, then processes. Prints the Meeting id
+/// once recording, then the Meeting file path(s).
+func recordCommand(seconds: Double?, transcription: any TranscriptionBackend, notesFolder: URL) async throws {
+    let stopRequested = Flag()
+    signal(SIGINT, SIG_IGN)
+    let sigint = DispatchSource.makeSignalSource(signal: SIGINT)
+    sigint.setEventHandler { stopRequested.set() }
+    sigint.resume()
+    let recorder = try Recorder.start(store: meetingStore, source: ToneSource(), language: nil, onEvent: { event in
+        switch event {
+        case let .lowDisk(free): log("low disk space: \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) free")
+        case let .stopped(_, reason): log(reason); stopRequested.set()
+        }
+    })
+    print("recording \(recorder.folder.id)")
+    fflush(stdout)
+    let start = Date()
+    while !stopRequested.isSet, seconds.map({ Date().timeIntervalSince(start) < $0 }) ?? true {
+        try await Task.sleep(for: .milliseconds(50))
+    }
+    try recorder.stop()
+    try await recoverCommand(transcription: transcription, notesFolder: notesFolder)
+}
+
+/// `oats recover`: what the app does on launch. Closes Interrupted meetings, then runs every queued Meeting.
+func recoverCommand(transcription: any TranscriptionBackend, notesFolder: URL) async throws {
+    for meeting in meetingStore.recoverInterruptedMeetings() { log(meeting.message) }
+    let queue = ProcessingQueue(store: meetingStore) { ProcessingOptions(transcription: transcription, notesFolder: notesFolder) }
+    let before = Set(meetingStore.list().filter { (try? $0.readStatus().state) == .processing }.map(\.id))
+    await queue.resumePending()
+    await queue.waitUntilIdle()
+    for folder in meetingStore.list() where before.contains(folder.id) {
+        let status = try folder.readStatus()
+        print(status.meetingFile ?? "\(folder.id): \(status.lastError ?? status.state.rawValue)")
+    }
+}
+
+func log(_ message: String) { FileHandle.standardError.write(Data("oats: \(message)\n".utf8)) }
+
+final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.withLock { value } }
+    func set() { lock.withLock { value = true } }
+}
+
+/// Deterministic test capture: a 440 Hz tone on the Mic track and 660 Hz on the System track, in real time.
+final class ToneSource: CaptureSource, @unchecked Sendable {
+    private let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "oats.tone"))
+    private var sent = 0
+
+    func start(_ deliver: @escaping @Sendable (CapturedAudio) -> Void) throws {
+        let start = ProcessInfo.processInfo.systemUptime
+        timer.schedule(deadline: .now(), repeating: 0.1)
+        timer.setEventHandler { [self] in
+            let due = Int((ProcessInfo.processInfo.systemUptime - start) * TrackAudio.sampleRate)
+            for (track, hz) in [(Track.mic, 440.0), (.system, 660.0)] where due > sent {
+                let samples = (sent..<due).map { Int16(sin(2 * .pi * hz * Double($0) / TrackAudio.sampleRate) * 8000) }
+                deliver(CapturedAudio(track: track, samples: samples, hostTime: start + Double(sent) / TrackAudio.sampleRate))
+            }
+            sent = max(sent, due)
+        }
+        timer.resume()
+    }
+
+    func stop() { timer.cancel() }
+}
+
+/// `OATS_FAKE_TRANSCRIPTION=<seconds>` (tests): waits that long per track, then returns one segment giving its length
+/// (worded differently per track so echo removal keeps both).
+struct FakeTranscription: TranscriptionBackend {
+    var name = "fake"
+    var delay: Double
+
+    func transcribe(_ audio: URL, language: String?) async throws -> [TimedSegment] {
+        try await Task.sleep(for: .seconds(delay))
+        let seconds = TrackAudio.duration(of: audio)
+        return [TimedSegment(start: 0, end: seconds, text: (audio.lastPathComponent.hasPrefix("mic") ? "Mic track lasted " : "System audio, ") + String(format: "%.2f s", seconds))]
+    }
+}
