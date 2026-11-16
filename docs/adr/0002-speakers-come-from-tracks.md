@@ -1,0 +1,3 @@
+# Speakers come from tracks, not diarization
+
+v2 records the Mic track and System track as separate files and labels speech You or Them by which track it came from. 1.x mixed both into one mono file, so any second pass lost who said what. Track separation is free, exact for the common 1:1 call, and works with every Transcription backend, including ones that don't diarize. When the user is on speakers rather than headphones, the Mic track also hears Them; Processing removes those duplicates by matching against the System track. Splitting Them into multiple people is left to backends that diarize natively, and to later work.
