@@ -18,7 +18,7 @@ public struct MeetingEntry: Identifiable, Sendable, Equatable {
     /// The duration in whole minutes, as the Meeting file's `duration` field gives it.
     public var minutes: Int? { duration.map(MeetingFileWriter.minutes) }
     /// Rename, Delete and Re-process wait until recording and Processing are over.
-    public var isBusy: Bool { state == .recording || state == .processing || folder?.isBusy == true }
+    public var isBusy: Bool { state == .recording || state == .processing }
 }
 
 extension MeetingStore {

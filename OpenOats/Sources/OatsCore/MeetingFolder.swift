@@ -44,13 +44,16 @@ public enum MeetingError: LocalizedError {
 public final class MeetingLock: Sendable {
     private let fd: Int32
 
-    init?(_ url: URL) {
+    /// `attempts` > 1 waits up to that many × 20 ms, over someone else's brief `isBusy` check.
+    init?(_ url: URL, attempts: Int = 1) {
         fd = open(url.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard fd >= 0 else { return nil }
-        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
-            close(fd)
-            return nil
+        for attempt in 1...attempts {
+            if flock(fd, LOCK_EX | LOCK_NB) == 0 { return }
+            if attempt < attempts { usleep(20_000) }
         }
+        close(fd)
+        return nil
     }
 
     deinit { close(fd) }
@@ -88,7 +91,7 @@ public struct MeetingFolder: Sendable, Hashable {
 
     /// Takes the Meeting's lock, or throws `MeetingError.busy` if another recorder or Processing holds it.
     public func lock() throws -> MeetingLock {
-        guard let lock = MeetingLock(url) else {
+        guard let lock = MeetingLock(url, attempts: 10) else {
             throw FileManager.default.fileExists(atPath: url.path) ? MeetingError.busy : CocoaError(.fileNoSuchFile)
         }
         return lock
