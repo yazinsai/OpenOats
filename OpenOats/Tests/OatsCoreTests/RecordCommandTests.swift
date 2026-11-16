@@ -16,7 +16,9 @@ import Testing
         let process = Process()
         process.executableURL = Self.oats
         process.arguments = args + ["--notes-folder", root.appendingPathComponent("Notes").path]
-        process.environment = ["OATS_MEETINGS_DIR": root.appendingPathComponent("Meetings").path, "OATS_FAKE_TRANSCRIPTION": "\(fakeDelay)"]
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            ["OATS_MEETINGS_DIR": root.appendingPathComponent("Meetings").path, "OATS_FAKE_TRANSCRIPTION": "\(fakeDelay)"]
+        ) { $1 }
         let out = Pipe()
         process.standardOutput = out
         process.standardError = FileHandle.nullDevice

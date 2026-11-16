@@ -85,11 +85,17 @@ public enum Processing {
             if !status.completedSteps.contains(.transcribe) {
                 let durations = roles.flatMap(folder.trackFiles).map(TrackAudio.duration)
                 guard !durations.isEmpty else { throw ProcessingError.noTracks }
-                for role in roles where folder.readCheckpoint(role, as: [TimedSegment].self) == nil {
-                    guard let track = folder.trackFiles(role).first else { continue }
-                    let segments = try await options.transcription.transcribe(track, language: status.language)
-                    try folder.writeCheckpoint(role, segments)
+                do {
+                    for role in roles where folder.readCheckpoint(role, as: [TimedSegment].self) == nil {
+                        guard let track = folder.trackFiles(role).first else { continue }
+                        let segments = try await options.transcription.transcribe(track, language: status.language)
+                        try folder.writeCheckpoint(role, segments)
+                    }
+                } catch {
+                    await options.transcription.unload()
+                    throw error
                 }
+                await options.transcription.unload()
                 status.duration = durations.max()
                 status.transcriptionBackend = options.transcription.name
                 status.completedSteps.append(.transcribe)

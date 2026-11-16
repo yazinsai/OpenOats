@@ -7,7 +7,7 @@ let meetingStore = ProcessInfo.processInfo.environment["OATS_MEETINGS_DIR"].map 
 
 /// `oats record --fake-source [--seconds N]`: records until N seconds or Ctrl-C, then processes. Prints the Meeting id
 /// once recording, then the Meeting file path(s).
-func recordCommand(seconds: Double?, transcription: any TranscriptionBackend, notesFolder: URL) async throws {
+func recordCommand(seconds: Double?, options: ProcessingOptions) async throws {
     let stopRequested = Flag()
     signal(SIGINT, SIG_IGN)
     let sigint = DispatchSource.makeSignalSource(signal: SIGINT)
@@ -26,13 +26,13 @@ func recordCommand(seconds: Double?, transcription: any TranscriptionBackend, no
         try await Task.sleep(for: .milliseconds(50))
     }
     try recorder.stop()
-    try await recoverCommand(transcription: transcription, notesFolder: notesFolder)
+    try await recoverCommand(options: options)
 }
 
 /// `oats recover`: what the app does on launch. Closes Interrupted meetings, then runs every queued Meeting.
-func recoverCommand(transcription: any TranscriptionBackend, notesFolder: URL) async throws {
+func recoverCommand(options: ProcessingOptions) async throws {
     for meeting in meetingStore.recoverInterruptedMeetings() { log(meeting.message) }
-    let queue = ProcessingQueue(store: meetingStore) { ProcessingOptions(transcription: transcription, notesFolder: notesFolder) }
+    let queue = ProcessingQueue(store: meetingStore) { options }
     let before = Set(meetingStore.list().filter { (try? $0.readStatus().state) == .processing }.map(\.id))
     await queue.resumePending()
     await queue.waitUntilIdle()
@@ -73,7 +73,7 @@ final class ToneSource: CaptureSource, @unchecked Sendable {
     func stop() { timer.cancel() }
 }
 
-/// `OATS_FAKE_TRANSCRIPTION=<seconds>` (tests): waits that long per track, then returns one segment giving its length
+/// Test Transcription backend: waits that long per track, then returns one segment giving its length
 /// (worded differently per track so echo removal keeps both).
 struct FakeTranscription: TranscriptionBackend {
     var name = "fake"
