@@ -16,6 +16,7 @@ final class SettingsModel: ObservableObject {
             store.save(settings)
             if settings.notes != oldValue.notes { notesTest = nil }
             if settings.transcription != oldValue.transcription { transcriptionTest = nil }
+            if settings.askToRecordCalls != oldValue.askToRecordCalls { AppModel.shared.watchCalls() }
         }
     }
     @Published var hotkey = Hotkey.saved { didSet { Hotkey.saved = hotkey } }

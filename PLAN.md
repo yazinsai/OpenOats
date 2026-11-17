@@ -25,6 +25,8 @@ OpenOats 2.0 records a meeting and, after Stop, turns it into one markdown file:
 **Menu bar** (the app has no Dock icon unless the window is open):
 Start / Stop, elapsed time and two level meters while recording, the Processing queue, Open OpenOats, Settings, Quit. A global hotkey toggles recording.
 
+**Meeting detection** (2.1, on by default): when a Call app records from the mic for 5 s while it plays audio or a camera is on (the camera never prompts alone), one "Record this meeting?" notification (click or Record; "Don't Ask for <app>"), and the menu's button reads "Record <app> Call". A recording started that way stops when the app leaves the mic for 20 s. Settings → General turns it off and lists ignored apps.
+
 **After Stop:** a notification when the Meeting file is ready; clicking opens it.
 
 **Window** (freely resizable): a meeting list on the left (title, date, duration, state: Recording, Processing, Needs attention, Interrupted), the rendered Meeting file on the right. Actions: Rename, Copy, Open in editor, Show in Finder, Show audio in Finder, Re-process, Delete. Drop an audio file anywhere to import it.
@@ -105,7 +107,7 @@ Each milestone ends with something runnable and its checks passing.
 
 ## Out of scope for 2.0
 
-Live transcript or captions, suggestions, knowledge base, embeddings, Sidecast, Ask, calendar, webhooks, Apple Notes, Granola import, templates, mini bar and overlays, splitting Them into named people. Meeting detection returns in 2.1 as a "Record this meeting?" prompt.
+Live transcript or captions, suggestions, knowledge base, embeddings, Sidecast, Ask, calendar, webhooks, Apple Notes, Granola import, templates, mini bar and overlays, splitting Them into named people. Meeting detection returns in 2.1 as a "Record this meeting?" prompt ([ADR 0005](docs/adr/0005-meeting-detection-asks-about-the-app-on-the-mic.md)).
 
 ## Risks
 

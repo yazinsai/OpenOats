@@ -97,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if Bundle.main.bundleIdentifier != nil {
             UNUserNotificationCenter.current().delegate = self
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+            CallPrompt.register()
         }
         AppModel.shared.launch()
     }
@@ -129,10 +130,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions { [.banner, .list] }
 
-    /// A click opens the window, with the notification's Meeting selected.
+    /// A click opens the window, with the notification's Meeting selected. A click on a Call prompt records the Call.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
     ) async {
+        if let call = (response.notification.request.content.userInfo["call"] as? String).flatMap(CallApp.named) {
+            let ignore = response.actionIdentifier == CallPrompt.ignoreAction
+            return await MainActor.run { ignore ? AppModel.shared.ignore(call) : AppModel.shared.record(call) }
+        }
         let meeting = response.notification.request.content.userInfo["meeting"] as? String
         await MainActor.run {
             if let meeting { AppModel.shared.selection = meeting }
@@ -149,6 +154,38 @@ enum Notifier {
         content.body = body
         if let meeting { content.userInfo = ["meeting": meeting] }
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+}
+
+/// The "Record this meeting?" notification, one per Call. Clicking it (or Record) records; it is withdrawn when
+/// the Call ends or a recording starts, so a stale prompt can't start one.
+enum CallPrompt {
+    static let recordAction = "call.record"
+    static let ignoreAction = "call.ignore"
+
+    /// A category per Call app, so the second action can name it.
+    static func register() {
+        UNUserNotificationCenter.current().setNotificationCategories(Set(CallApp.known.map { app in
+            UNNotificationCategory(identifier: "call.\(app.id)", actions: [
+                UNNotificationAction(identifier: recordAction, title: "Record"),
+                UNNotificationAction(identifier: ignoreAction, title: "Don't Ask for \(app.name)"),
+            ], intentIdentifiers: [])
+        }))
+    }
+
+    static func post(_ call: CallApp) {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Record this meeting?"
+        content.body = "\(call.name) is on a call. Click to record it."
+        content.categoryIdentifier = "call.\(call.id)"
+        content.userInfo = ["call": call.id]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "call.\(call.id)", content: content, trigger: nil))
+    }
+
+    static func withdraw(_ calls: [CallApp]) {
+        guard Bundle.main.bundleIdentifier != nil, !calls.isEmpty else { return }
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: calls.map { "call.\($0.id)" })
     }
 }
 

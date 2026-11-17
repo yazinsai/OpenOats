@@ -8,6 +8,14 @@ OpenOats records a meeting on a Mac and turns it into a markdown file: notes on 
 One recorded conversation, from Start to Stop, and everything produced from it.
 _Avoid_: Session, call, recording (when you mean the whole thing)
 
+**Call**:
+Another app using the microphone along with the speakers or a camera, such as a Zoom meeting or a Meet tab. Meeting detection asks whether to record a Call; recording it makes a Meeting.
+_Avoid_: Meeting (before anything is recorded), session
+
+**Call app**:
+An app whose Calls OpenOats asks about: a meeting app, a messenger with calls, or a browser.
+_Avoid_: Meeting app (1.x), allowlist entry
+
 **Mic track**:
 The audio captured from the user's microphone during a Meeting.
 _Avoid_: Input, local audio
