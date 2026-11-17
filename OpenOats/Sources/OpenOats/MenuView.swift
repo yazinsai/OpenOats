@@ -271,18 +271,18 @@ struct ProcessingBar: View {
     }
 }
 
-/// The OpenOats mark: three bars of a waveform on a moss tile.
+/// The OpenOats mark, as in the app icon: two concentric white rings on a black tile.
 struct OatMark: View {
     var size: CGFloat
 
     var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-            .fill(Theme.accent)
+        RoundedRectangle(cornerRadius: size * 0.225, style: .continuous)
+            .fill(.black)
             .overlay {
-                HStack(spacing: size * 0.08) {
-                    ForEach([0.26, 0.56, 0.4, 0.2], id: \.self) { h in
-                        Capsule().fill(Theme.onFill).frame(width: size * 0.1, height: size * h)
-                    }
+                ZStack {
+                    // Ring centrelines and widths measured from AppIcon.png (1024 px).
+                    Circle().strokeBorder(.white, lineWidth: size * 0.081).frame(width: size * 0.664, height: size * 0.664)
+                    Circle().strokeBorder(.white, lineWidth: size * 0.07).frame(width: size * 0.344, height: size * 0.344)
                 }
             }
             .frame(width: size, height: size)

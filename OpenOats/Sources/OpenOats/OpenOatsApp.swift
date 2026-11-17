@@ -67,24 +67,21 @@ struct MenuBarLabel: View {
 }
 
 extension MenuBarLabel {
-    /// A template glyph: three waveform bars in an outlined capsule; while recording the capsule fills and the bars
-    /// cut out of it, so the state reads by shape as well as weight.
+    /// A template glyph of the logo: two concentric rings. While recording the inner ring fills to a dot,
+    /// so the state reads by shape as well as weight.
     static func icon(recording: Bool) -> NSImage {
-        let image = NSImage(size: NSSize(width: 22, height: 16), flipped: false) { _ in
-            // On the 2x pixel grid: stroke edges and bars land on whole pixels.
-            let capsule = NSBezierPath(roundedRect: NSRect(x: 1.75, y: 1.75, width: 18.5, height: 12.5), xRadius: 6.25, yRadius: 6.25)
-            let bars = NSBezierPath()
-            for (x, h) in [(6.0, 4.0), (10.0, 8.0), (14.0, 6.0)] {
-                bars.append(NSBezierPath(roundedRect: NSRect(x: x, y: 8 - h / 2, width: 2, height: h), xRadius: 1, yRadius: 1))
-            }
+        let image = NSImage(size: NSSize(width: 18, height: 16), flipped: false) { _ in
+            // On the 2x pixel grid: stroke edges land on whole pixels.
             NSColor.black.set()
+            let outer = NSBezierPath(ovalIn: NSRect(x: 2.25, y: 1.25, width: 13.5, height: 13.5))
+            outer.lineWidth = 1.5
+            outer.stroke()
             if recording {
-                capsule.append(bars.reversed)
-                capsule.fill()
+                NSBezierPath(ovalIn: NSRect(x: 5.5, y: 4.5, width: 7, height: 7)).fill()
             } else {
-                capsule.lineWidth = 1.5
-                capsule.stroke()
-                bars.fill()
+                let inner = NSBezierPath(ovalIn: NSRect(x: 6.25, y: 5.25, width: 5.5, height: 5.5))
+                inner.lineWidth = 1.5
+                inner.stroke()
             }
             return true
         }
