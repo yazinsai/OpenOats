@@ -110,6 +110,18 @@ import Testing
         #expect(stub.requests.count == 3)
     }
 
+    @Test func retriesWhileTheMacIsStillOfflineAfterWake() async throws {
+        let stub = StubHTTP { _, attempt in
+            switch attempt {
+            case 1: throw URLError(.notConnectedToInternet)
+            case 2: throw URLError(.dnsLookupFailed)
+            default: Self.reply(["content": "ok"])
+            }
+        }
+        #expect(try await backend(stub).complete(system: "s", user: "u") == "ok")
+        #expect(stub.requests.count == 3)
+    }
+
     @Test func givesUpAfterFiveServerErrors() async throws {
         let stub = StubHTTP { _, _ in (503, [:], Data(#"{"error":{"message":"upstream overloaded"}}"#.utf8)) }
         let error = await #expect(throws: CloudError.self) { try await backend(stub).complete(system: "s", user: "u") }
