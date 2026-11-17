@@ -6,28 +6,25 @@
     <description>Most recent updates to OpenOats</description>
     <language>en</language>
     <item>
-      <title>Version 2.1.0</title>
-      <link>https://github.com/yazinsai/OpenOats/releases/tag/v2.1.0</link>
-      <pubDate>Tue, 17 Nov 2026 06:41:14 GMT</pubDate>
-      <sparkle:version>2.1.0</sparkle:version>
-      <sparkle:shortVersionString>2.1.0</sparkle:shortVersionString>
+      <title>Version 2.1.1</title>
+      <link>https://github.com/yazinsai/OpenOats/releases/tag/v2.1.1</link>
+      <pubDate>Tue, 17 Nov 2026 09:23:41 GMT</pubDate>
+      <sparkle:version>2.1.1</sparkle:version>
+      <sparkle:shortVersionString>2.1.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
       <sparkle:minimumAutoupdateVersion>2.0.0</sparkle:minimumAutoupdateVersion>
       <sparkle:phasedRolloutInterval>86400</sparkle:phasedRolloutInterval>
-      <description sparkle:format="markdown"><![CDATA[## New
+      <description sparkle:format="markdown"><![CDATA[## Fixed
 
-- **Meeting detection is back.** When a call starts, OpenOats asks "Record this meeting?" Click the notification (or Record) and it records; when the call ends, the recording stops by itself and is processed as usual.
-- **It asks about real calls only.** A call is an app like Zoom, Teams, FaceTime, Slack, WhatsApp or a browser using your microphone along with your speakers or camera. Dictation apps, voice notes and a camera on its own don't count, and the prompt names the app that's actually on the call.
-- **Browser calls are detected.** A Meet, Teams or Zoom call in Chrome, Arc, Safari, Brave, Edge, Firefox and other browsers now gets the prompt too.
-- **One prompt per call.** It disappears when the call ends or you start recording. "Don't Ask for <app>" stops prompts for that app; Settings → General turns detection off or asks again for apps you ignored.
-- While a call is on, the menu bar shows it and the button reads "Record <app> Call".
+- **Closing the lid stops the recording.** When your Mac goes to sleep, OpenOats stops recording and processes the meeting as usual; it finishes when you open the lid again. Before, the recording picked up again on wake and kept going into the same meeting.
+- **A call that's still on after wake asks again.** If you open the lid mid-call, you get the "Record this meeting?" prompt again.
+- **Processing right after wake no longer fails while Wi-Fi reconnects.** Cloud transcription and notes now retry for a few seconds when the Mac is briefly offline, instead of marking the meeting as needing attention.
 
-Detection only reads which apps use the mic, speakers and camera, never the audio or video, and needs no new permission. Recordings you start yourself still never stop on their own.
-
+(#780)
 ]]></description>
-      <enclosure url="https://github.com/yazinsai/OpenOats/releases/download/v2.1.0/OpenOats.dmg"
-                 sparkle:edSignature="eJp251ViI2Q2rtcI4rCFSD5dGKIK4Eyp9J6DyOa1HcOUAKS5YgdO0PNj1vAA7yrU2IYxym0oaOAqSVShaDPVAw=="
-                 length="6711192"
+      <enclosure url="https://github.com/yazinsai/OpenOats/releases/download/v2.1.1/OpenOats.dmg"
+                 sparkle:edSignature="xp600qG1YBfIeFmgR+Qa3TXQP9+IMhSkXfpTkpCG+Phzoq/0bhPw0/384JDEJg34Lq+BVlL9u9Q/2H16f5sIBg=="
+                 length="6713489"
                  type="application/octet-stream" />
     </item>
   </channel>
