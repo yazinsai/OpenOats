@@ -41,6 +41,19 @@ struct GeneralTab: View {
                 }
             }
             Section {
+                Toggle("Ask to record when a call starts", isOn: $model.settings.askToRecordCalls)
+                    .accessibilityIdentifier("settings.askToRecordCalls")
+                ForEach(model.settings.ignoredCallApps, id: \.self) { id in
+                    LabeledContent("Not asking for \(CallApp.named(id)?.name ?? id)") {
+                        Button("Ask Again") { model.settings.ignoredCallApps.removeAll { $0 == id } }
+                    }
+                }
+            } header: { Text("Meeting detection") } footer: {
+                Text("Asks when Zoom, Teams, FaceTime, Slack, a browser tab or another call app uses your microphone along with your speakers or camera. "
+                    + "A recording started from the prompt stops when the call ends.")
+                    .foregroundStyle(.secondary)
+            }
+            Section {
                 TextEditor(text: $model.vocabulary).font(.body).frame(height: 110)
             } header: { Text("Vocabulary") } footer: {
                 Text("Names and terms, one per line. They fix misheard words in the Transcript when a Notes backend is set.")

@@ -29,7 +29,7 @@ These are gone from 2.0, not hidden behind a setting:
 - Knowledge base and embeddings (Voyage AI, Ollama and OpenAI-compatible embeddings)
 - Sidecast
 - Ask
-- Calendar integration and meeting detection (a "Record this meeting?" prompt is planned for 2.1)
+- Calendar integration and meeting detection (meeting detection is back in 2.1 as a "Record this meeting?" prompt)
 - Webhooks
 - Apple Notes export
 - Granola import

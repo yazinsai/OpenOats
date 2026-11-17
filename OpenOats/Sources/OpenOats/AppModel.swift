@@ -25,6 +25,11 @@ final class AppModel: ObservableObject {
     @Published var selection: MeetingEntry.ID?
     /// Onboarding's status line for the background `oats download` of the on-device model.
     @Published private(set) var modelDownload: String?
+    /// Calls in progress, oldest first, without ignored apps.
+    @Published private(set) var calls: [CallApp] = []
+    /// The Call a recording was started for; the recording stops when that Call ends.
+    private var recordingCall: CallApp?
+    private lazy var callWatcher: CallWatcher = CallWatcher { event in Task { @MainActor in AppModel.shared.handle(event) } }
     private lazy var processing: ProcessingQueue = ProcessingQueue(store: store) { folder in await AppModel.shared.runChild(folder) }
     private var child: Process?
     private var quitting = false
@@ -44,6 +49,48 @@ final class AppModel: ObservableObject {
             await processing.resumePending()
             refreshQueue()
         }
+        watchCalls()
+    }
+
+    /// Meeting detection follows its setting. Off in the UI smoke suite, whose fake capture has no Calls.
+    func watchCalls() {
+        if settings.load().askToRecordCalls, ProcessInfo.processInfo.environment["OATS_FAKE_CAPTURE"] != "1" {
+            callWatcher.start()
+        } else {
+            callWatcher.stop()
+            CallPrompt.withdraw(calls)
+            calls = []
+        }
+    }
+
+    /// Records a Call from its prompt or the menu, if it is still on.
+    func record(_ call: CallApp) {
+        guard calls.contains(call), recorder == nil else { return }
+        start()
+        if recorder != nil { recordingCall = call }
+    }
+
+    /// "Don't Ask for <app>": its Calls are left alone until Settings asks again.
+    func ignore(_ call: CallApp) {
+        if !SettingsModel.shared.settings.ignoredCallApps.contains(call.id) { SettingsModel.shared.settings.ignoredCallApps.append(call.id) }
+        CallPrompt.withdraw([call])
+        calls.removeAll { $0 == call }
+    }
+
+    private func handle(_ event: CallEvent) {
+        switch event {
+        case let .started(call):
+            guard !settings.load().ignoredCallApps.contains(call.id), !calls.contains(call) else { return }
+            calls.append(call)
+            // One prompt per Call, and none while recording: a Call that was recorded, or answered, isn't asked again.
+            if recorder == nil { CallPrompt.post(call) }
+        case let .ended(call):
+            calls.removeAll { $0 == call }
+            CallPrompt.withdraw([call])
+            guard call == recordingCall, recorder != nil else { return }
+            stop()
+            Notifier.post("Recording stopped", "The \(call.name) call ended.")
+        }
     }
 
     func toggleRecording() { recorder == nil ? start() : stop() }
@@ -57,6 +104,7 @@ final class AppModel: ObservableObject {
             recorder = try Recorder.start(store: store, source: source, language: settings.load().meetingLanguage,
                                           onEvent: { event in Task { @MainActor in AppModel.shared.handle(event) } })
             startedAt = Date()
+            CallPrompt.withdraw(calls)
         } catch {
             Notifier.post("Couldn't start recording", error.localizedDescription)
         }
@@ -67,6 +115,7 @@ final class AppModel: ObservableObject {
         self.recorder = nil
         startedAt = nil
         lowDiskSpace = nil
+        recordingCall = nil
         do { try recorder.stop() } catch { Notifier.post("The recording didn't close cleanly", error.localizedDescription) }
         enqueue(recorder.folder)
     }
@@ -107,6 +156,7 @@ final class AppModel: ObservableObject {
                 recorder = nil
                 startedAt = nil
                 lowDiskSpace = nil
+                recordingCall = nil
             }
             Notifier.post("Recording stopped", reason)
             enqueue(folder)

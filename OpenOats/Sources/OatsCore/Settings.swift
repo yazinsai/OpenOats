@@ -12,6 +12,10 @@ public struct Settings: Codable, Sendable, Equatable {
     /// nil = `NotesWriter.defaultPrompt` (Reset sets it back to nil).
     public var notesPrompt: String?
     public var deleteAudioAfterProcessing = false
+    /// Meeting detection: a "Record this meeting?" prompt when a Call starts.
+    public var askToRecordCalls = true
+    /// `CallApp` ids the user said not to ask about again.
+    public var ignoredCallApps: [String] = []
 
     public init() {}
 
@@ -25,6 +29,8 @@ public struct Settings: Codable, Sendable, Equatable {
         notes = try c.decodeIfPresent(NotesConfig.self, forKey: .notes) ?? d.notes
         notesPrompt = try c.decodeIfPresent(String.self, forKey: .notesPrompt)
         deleteAudioAfterProcessing = try c.decodeIfPresent(Bool.self, forKey: .deleteAudioAfterProcessing) ?? false
+        askToRecordCalls = try c.decodeIfPresent(Bool.self, forKey: .askToRecordCalls) ?? true
+        ignoredCallApps = try c.decodeIfPresent([String].self, forKey: .ignoredCallApps) ?? []
     }
 
     /// The language a new Meeting is recorded in.

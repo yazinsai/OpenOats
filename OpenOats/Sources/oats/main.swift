@@ -10,6 +10,7 @@ usage: oats transcribe <audio> [<system-audio>] [--language <code>] > meeting.md
        oats record [--fake-source] [--seconds <n>] [--notes-folder <dir>]
        oats recover [--notes-folder <dir>]
        oats download
+       oats calls
 """
 
 /// `OATS_APP_CHILD=1`: run as the app's Processing child. API keys come on stdin (JSON account → key), so it never
@@ -96,6 +97,7 @@ do {
         let seconds = args.firstIndex(of: "--seconds").flatMap { $0 + 1 < args.count ? Double(args[$0 + 1]) : nil }
         let source: any CaptureSource = args.contains("--fake-source") ? ToneSource() : LiveCapture(onProblem: log)
         try await recordCommand(source: source, seconds: seconds, language: settings.load().meetingLanguage, options: options)
+    case ("calls", 1): callsCommand()
     default:
         FileHandle.standardError.write(Data("\(usage)\n".utf8))
         exit(2)

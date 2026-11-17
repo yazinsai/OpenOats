@@ -59,7 +59,9 @@ struct MenuView: View {
                 OatMark(size: 32)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("OpenOats").font(Theme.uiStrong).foregroundStyle(Theme.ink)
-                    Text(model.queue.isEmpty ? "Ready when you are" : "Processing in the background").font(Theme.meta).foregroundStyle(Theme.ink2)
+                    Text(model.calls.last.map { "\($0.name) is on a call" }
+                        ?? (model.queue.isEmpty ? "Ready when you are" : "Processing in the background"))
+                        .font(Theme.meta).foregroundStyle(Theme.ink2)
                 }
             }
             startStop(recording: false)
@@ -92,7 +94,8 @@ struct MenuView: View {
     private func startStop(recording: Bool) -> some View {
         Button {
             dismiss()
-            recording ? model.stop() : model.start()
+            // A Call on: record it, so the recording stops with the Call.
+            if recording { model.stop() } else if let call = model.calls.last { model.record(call) } else { model.start() }
         } label: {
             HStack(spacing: Theme.s2) {
                 ZStack {
@@ -100,13 +103,13 @@ struct MenuView: View {
                     RoundedRectangle(cornerRadius: recording ? 2 : 5, style: .continuous)
                         .fill(recording ? Theme.onFill : Theme.recording).frame(width: 10, height: 10)
                 }
-                Text(recording ? "Stop Recording" : "Start Recording")
+                Text(recording ? "Stop Recording" : model.calls.last.map { "Record \($0.name) Call" } ?? "Start Recording")
                 Spacer()
                 if let key = Hotkey.saved?.label { Text(key).font(Theme.meta).opacity(0.75) }
             }
         }
         .buttonStyle(PillButtonStyle(tint: recording ? Theme.recording : Theme.accent, wide: true))
-        .accessibilityLabel(recording ? "Stop Recording" : "Start Recording")
+        .accessibilityLabel(recording ? "Stop Recording" : model.calls.last.map { "Record \($0.name) Call" } ?? "Start Recording")
         .accessibilityHint(Hotkey.saved.map { "Shortcut \($0.label)" } ?? "")
     }
 
