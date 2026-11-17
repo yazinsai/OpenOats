@@ -5,9 +5,13 @@
 <h1 align="center">OpenOats</h1>
 
 <p align="center">
-  <b>The meeting recorder for Mac that you can forget is running.</b><br />
-  Press Start, have your meeting, press Stop. You get one markdown file: Notes on top, a You/Them transcript underneath.
+  <b>A beautiful, minimal meeting recorder for Mac.</b><br />
+  Press Start, have your meeting, press Stop. You get one markdown file: Notes on top, the transcript underneath.
 </p>
+
+> [!NOTE]
+> **Sponsored by Recall.ai, an API for desktop recording.**
+> If you need a hosted recording API, [Recall.ai](https://dub.sh/openoats) records Zoom, Google Meet, Microsoft Teams, in-person meetings and more.
 
 <p align="center">
   <a href="https://github.com/yazinsai/OpenOats/releases/latest/download/OpenOats.dmg"><img src="https://img.shields.io/badge/Download_for_Mac-DMG-black?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" /></a>
@@ -35,7 +39,7 @@ That's the whole app. There is nothing to set up before your first meeting and n
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/transcript-dark.webp" />
-    <img src="assets/transcript-light.webp" width="900" alt="The Transcript of a Meeting file: timestamped turns labelled You and Them" />
+    <img src="assets/transcript-light.webp" width="900" alt="The Transcript of a Meeting file: timestamped turns from both sides of the call" />
   </picture>
 </p>
 
@@ -44,7 +48,7 @@ That's the whole app. There is nothing to set up before your first meeting and n
 - **Crash-safe.** Audio goes to disk every couple of seconds. If your Mac crashes, the app is force quit or the battery dies, OpenOats recovers the Meeting the next time it opens. In our kill test the recording lost 1.1 seconds.
 - **Quiet while you talk.** Nothing is transcribed during the call. Recording uses under 2% of one CPU core, and the app sits at about 19 MB of memory. Speech models load after Stop and unload when they're done.
 - **Transcripts that read well.** Each side is transcribed as a whole, so sentences don't break halfway and less speech gets lost.
-- **You and Them from the audio itself.** Your mic is You and your Mac's audio is Them. If your mic picks up the other side through your speakers, that echo is removed.
+- **Clean audio on both sides.** Your mic and your Mac's audio are recorded as separate tracks. If your mic picks up the other side through your speakers, that echo is removed.
 
 ## Private by default
 
@@ -136,10 +140,6 @@ UITests/                      UI smoke suite
 scripts/                      Build, sign, package, appcast and cask scripts
 docs/                         Meeting file format, ADRs, release notes
 ```
-
-> [!NOTE]
-> **Sponsored by Recall.ai, an API for desktop recording.**
-> If you need a hosted recording API, [Recall.ai](https://dub.sh/openoats) records Zoom, Google Meet, Microsoft Teams, in-person meetings and more.
 
 ## License
 

@@ -4,14 +4,14 @@ section at the end is for the maintainer; delete it from the release body. -->
 
 # OpenOats 2.0
 
-OpenOats 2.0 is a different app. It records your meeting and, after you press Stop, turns it into one markdown file: notes at the top, a You/Them transcript underneath. Nothing is transcribed during the call, so the app stays close to idle while it records.
+OpenOats 2.0 is a different app. It records your meeting and, after you press Stop, turns it into one markdown file: notes at the top, the transcript underneath. Nothing is transcribed during the call, so the app stays close to idle while it records.
 
 **If you rely on live transcripts, suggestions or the knowledge base, stay on 1.x.** Click "Skip This Version" in the update dialog. 1.x stays downloadable (see below) and gets fixes for a while.
 
 ## What's new
 
 - **Better transcripts.** Each side of the call is transcribed as a whole after Stop, instead of in live chunks. Sentences no longer break mid-way and less speech gets dropped.
-- **You and Them come from the audio itself.** Your mic is You, system audio is Them. Echo of the other side picked up by your mic is removed.
+- **Both sides, cleanly.** Your mic and system audio are recorded as separate tracks. Echo of the other side picked up by your mic is removed.
 - **Crash-safe recording.** Audio is written to disk every couple of seconds. After a crash, force quit or dead battery, the meeting is recovered on next launch, minus a few seconds at most.
 - **Light on your Mac.** Models load only while a meeting is processed, then unload.
 - **On-device by default.** Parakeet v3 for 25 European languages, Whisper large-v3-turbo for everything else, picked from your language setting. No account or key needed.

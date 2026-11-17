@@ -4,7 +4,7 @@ cask "openoats" do
 
   url "https://github.com/yazinsai/OpenOats/releases/download/v#{version}/OpenOats.dmg"
   name "OpenOats"
-  desc "Meeting recorder that turns calls into markdown notes and transcripts"
+  desc "Minimal meeting recorder that turns calls into markdown notes and transcripts"
   homepage "https://github.com/yazinsai/OpenOats"
 
   livecheck do
