@@ -33,6 +33,8 @@ final class AppModel: ObservableObject {
     private lazy var processing: ProcessingQueue = ProcessingQueue(store: store) { folder in await AppModel.shared.runChild(folder) }
     private var child: Process?
     private var quitting = false
+    /// A recording was stopped because the Mac went to sleep; on wake, Meeting detection starts over.
+    private var stoppedForSleep = false
 
     var onboarded: Bool {
         get { settings.consentAcknowledged }
@@ -50,6 +52,39 @@ final class AppModel: ObservableObject {
             refreshQueue()
         }
         watchCalls()
+        watchSleep()
+    }
+
+    /// Closing the lid (or any sleep) ends the recording, and the Meeting is processed like any other: the `oats`
+    /// child starts now and carries on when the Mac wakes. Left running, the recording would pick up again on
+    /// wake and keep capturing the room, hours later, into the same Meeting.
+    private func watchSleep() {
+        let center = NSWorkspace.shared.notificationCenter
+        center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { AppModel.shared.systemWillSleep() }
+        }
+        center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { AppModel.shared.systemDidWake() }
+        }
+    }
+
+    func systemWillSleep() {
+        guard recorder != nil else { return }
+        stop()
+        stoppedForSleep = true
+        Notifier.post("Recording stopped", "Your Mac went to sleep. The meeting will be processed as usual.")
+    }
+
+    /// The Call detector still holds the Call recorded before sleep, and asks once per Call, so a Call that is still
+    /// on after wake would never prompt. Starting detection over makes it a new Call that asks again.
+    func systemDidWake() {
+        guard stoppedForSleep else { return }
+        stoppedForSleep = false
+        guard settings.load().askToRecordCalls, ProcessInfo.processInfo.environment["OATS_FAKE_CAPTURE"] != "1" else { return }
+        callWatcher.stop()
+        CallPrompt.withdraw(calls)
+        calls = []
+        callWatcher.start()
     }
 
     /// Meeting detection follows its setting. Off in the UI smoke suite, whose fake capture has no Calls.

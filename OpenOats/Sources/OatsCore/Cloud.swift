@@ -46,12 +46,19 @@ public struct CloudClient: Sendable {
                 if let after = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) {
                     delay = .seconds(min(after, 60))
                 }
-            } catch let error as URLError where !last && [.timedOut, .networkConnectionLost, .cannotConnectToHost].contains(error.code) {}
+            } catch let error as URLError where !last && Self.retriedNetworkErrors.contains(error.code) {}
             try await sleep(delay)
             delay *= 2
         }
         fatalError("unreachable")
     }
+
+    /// Dropped or not-yet-available connections. The offline ones matter after sleep: a Meeting stopped by the lid
+    /// closing is processed as the Mac wakes, often before Wi-Fi has rejoined, and the backoff (~15 s) covers that.
+    static let retriedNetworkErrors: Set<URLError.Code> = [
+        .timedOut, .networkConnectionLost, .cannotConnectToHost,
+        .notConnectedToInternet, .dnsLookupFailed, .cannotFindHost,
+    ]
 
     /// The API's own error message (`error.message`, `detail` or `message`), which describes the request, not the audio.
     static func message(in data: Data) -> String? {
