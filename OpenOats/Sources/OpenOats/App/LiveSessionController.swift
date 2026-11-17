@@ -210,8 +210,20 @@ final class LiveSessionController {
     private var observedMicHasEverCapturedFrames = false
     private var observedSilenceTracking: SilenceTracking = .initial
     private var pendingRecoveryDiagnostics: PendingRecoveryDiagnostics?
-    private var pendingAutoNotesSessionID: String?
-    private var autoGeneratingNotesSessionID: String?
+    private var autoGeneratingNotesSessionIDs: Set<String> = []
+    /// Post-meeting re-transcriptions this controller has queued and not yet
+    /// seen finish.
+    private var inFlightBatchJobCount = 0
+    /// Re-transcriptions cut short because a new meeting started (the live
+    /// transcriber and the batch model would otherwise fight for the same
+    /// hardware). They run again once that meeting is over.
+    private var deferredBatchJobs: [(sessionID: String, settings: AppSettings)] = []
+
+    /// True while a finished meeting is still being re-transcribed or having
+    /// its notes written. Quitting now would silently drop that work.
+    var hasPostMeetingWorkInFlight: Bool {
+        inFlightBatchJobCount > 0 || !autoGeneratingNotesSessionIDs.isEmpty
+    }
 
     init(coordinator: AppCoordinator, container: AppContainer) {
         self.coordinator = coordinator
@@ -328,8 +340,6 @@ final class LiveSessionController {
                         }
                     }
                 }
-
-                resumePendingAutoNotesIfNeeded(for: status, settings: settings)
             }
 
             syncProjectedState(settings: settings)
@@ -652,7 +662,10 @@ final class LiveSessionController {
             container.ensureMeetingServicesInitialized(settings: settings, coordinator: coordinator)
         }
         if let batchAudioTranscriber = coordinator.batchAudioTranscriber {
-            await batchAudioTranscriber.cancel()
+            let interrupted = await batchAudioTranscriber.cancel()
+            if let settings {
+                deferBatchJobs(interrupted, settings: settings)
+            }
         }
 
         coordinator.lastEndedSession = nil
@@ -1049,27 +1062,14 @@ final class LiveSessionController {
             )
         }
 
-        // 9. Kick off batch transcription if enabled
-        if let settings, willRunBatchRetranscription, let batchAudioTranscriber = coordinator.batchAudioTranscriber {
-            let batchSessionID = sessionID
-            let batchModel = settings.batchTranscriptionModel
-            let batchLocale = settings.locale
-            let notesDir = URL(fileURLWithPath: settings.notesFolderPath)
-            let repo = coordinator.sessionRepository
-            let diarize = settings.enableDiarization
-            let diarizeVariant = settings.diarizationVariant
-            Task.detached { [batchAudioTranscriber] in
-                await batchAudioTranscriber.process(
-                    sessionID: batchSessionID,
-                    model: batchModel,
-                    locale: batchLocale,
-                    sessionRepository: repo,
-                    notesDirectory: notesDir,
-                    enableDiarization: diarize,
-                    diarizationVariant: diarizeVariant
-                )
-            }
+        // 9. Kick off batch transcription if enabled. Notes for this session
+        // wait for it (scheduled above with waitForBatch).
+        if let settings, willRunBatchRetranscription {
+            runBatchThenNotes(sessionID: sessionID, settings: settings)
         }
+
+        // 10. Resume re-transcriptions an earlier meeting start interrupted.
+        resumeDeferredBatchJobs()
     }
 
     /// The calendar event the finished session should be bound to.
@@ -1110,43 +1110,74 @@ final class LiveSessionController {
         settings: AppSettings,
         waitForBatch: Bool
     ) {
-        guard settings.canAutoGeneratePostMeetingNotes else {
-            pendingAutoNotesSessionID = nil
-            return
-        }
+        guard settings.canAutoGeneratePostMeetingNotes else { return }
 
-        if waitForBatch {
-            pendingAutoNotesSessionID = session.id
-            return
-        }
+        // With a batch run queued, runBatchThenNotes starts the notes once it
+        // finishes, so they are written from the better transcript.
+        if waitForBatch { return }
 
         guard session.utteranceCount > 0 else { return }
         startAutoNotesGeneration(sessionID: session.id, settings: settings)
     }
 
-    private func resumePendingAutoNotesIfNeeded(
-        for status: BatchAudioTranscriber.Status,
-        settings: AppSettings
-    ) {
-        guard let pendingSessionID = pendingAutoNotesSessionID else { return }
+    /// Queue a re-transcription for a finished session, then write its notes
+    /// once that run is over.
+    ///
+    /// The notes are tied to this session's own job outcome rather than the
+    /// transcriber's shared status, which a later queued job may overwrite
+    /// before the UI poll sees it. A failed run still gets notes (from the
+    /// live transcript); a cancelled one was interrupted by a new meeting and
+    /// is queued again via `deferredBatchJobs`.
+    private func runBatchThenNotes(sessionID: String, settings: AppSettings) {
+        guard let batchAudioTranscriber = coordinator.batchAudioTranscriber else { return }
+        let model = settings.batchTranscriptionModel
+        let locale = settings.locale
+        let notesDir = URL(fileURLWithPath: settings.notesFolderPath)
+        let repo = coordinator.sessionRepository
+        let diarize = settings.enableDiarization
+        let diarizeVariant = settings.diarizationVariant
 
-        switch status {
-        case .completed(let sessionID) where sessionID == pendingSessionID:
-            pendingAutoNotesSessionID = nil
-            startAutoNotesGeneration(sessionID: sessionID, settings: settings)
-        case .failed, .cancelled:
-            pendingAutoNotesSessionID = nil
-            startAutoNotesGeneration(sessionID: pendingSessionID, settings: settings)
-        default:
-            break
+        inFlightBatchJobCount += 1
+        Task { [weak self, batchAudioTranscriber] in
+            let outcome = await batchAudioTranscriber.process(
+                sessionID: sessionID,
+                model: model,
+                locale: locale,
+                sessionRepository: repo,
+                notesDirectory: notesDir,
+                enableDiarization: diarize,
+                diarizationVariant: diarizeVariant
+            )
+            guard let self else { return }
+            self.inFlightBatchJobCount -= 1
+            if outcome == .cancelled { return }
+            self.startAutoNotesGeneration(sessionID: sessionID, settings: settings)
+        }
+    }
+
+    private func deferBatchJobs(_ sessionIDs: [String], settings: AppSettings) {
+        for sessionID in sessionIDs where !deferredBatchJobs.contains(where: { $0.sessionID == sessionID }) {
+            deferredBatchJobs.append((sessionID: sessionID, settings: settings))
+            DiagnosticsSupport.record(
+                category: "batch",
+                message: "Deferred batch transcription for \(sessionID) until the current meeting ends"
+            )
+        }
+    }
+
+    private func resumeDeferredBatchJobs() {
+        let jobs = deferredBatchJobs
+        deferredBatchJobs.removeAll()
+        for job in jobs {
+            runBatchThenNotes(sessionID: job.sessionID, settings: job.settings)
         }
     }
 
     private func startAutoNotesGeneration(sessionID: String, settings: AppSettings) {
         guard settings.canAutoGeneratePostMeetingNotes else { return }
-        guard autoGeneratingNotesSessionID != sessionID else { return }
+        guard !autoGeneratingNotesSessionIDs.contains(sessionID) else { return }
 
-        autoGeneratingNotesSessionID = sessionID
+        autoGeneratingNotesSessionIDs.insert(sessionID)
         Task { [weak self] in
             await self?.generatePostMeetingNotes(sessionID: sessionID, settings: settings)
         }
@@ -1154,9 +1185,7 @@ final class LiveSessionController {
 
     private func generatePostMeetingNotes(sessionID: String, settings: AppSettings) async {
         defer {
-            if autoGeneratingNotesSessionID == sessionID {
-                autoGeneratingNotesSessionID = nil
-            }
+            autoGeneratingNotesSessionIDs.remove(sessionID)
         }
 
         let sessionDetail = await coordinator.sessionRepository.loadSession(id: sessionID)
@@ -1591,6 +1620,8 @@ final class LiveSessionController {
         Task {
             await coordinator.sessionRepository.endSession()
         }
+        // The discarded meeting may have interrupted earlier re-transcriptions.
+        resumeDeferredBatchJobs()
     }
 
     // MARK: - State Refresh

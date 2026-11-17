@@ -96,6 +96,75 @@ final class EventCollector: @unchecked Sendable {
 
 final class MeetingDetectorTests: XCTestCase {
 
+    // MARK: - Wake Tests
+
+    func testRearmAfterWakeReportsCallStillRunning() async throws {
+        let audio = MockAudioSignalSource()
+        let camera = MockCameraSignalSource()
+        let detector = MeetingDetector(audioSource: audio, cameraSource: camera)
+        let collector = EventCollector()
+
+        let stream = await detector.events
+        let listenTask = Task {
+            for await event in stream {
+                collector.append(event)
+            }
+        }
+
+        await detector.start()
+        camera.emit(true)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(collector.events.count, 1, "Camera should trigger one detection")
+
+        // Sleep stopped the session; the camera is still on after wake.
+        await detector.rearmAfterWake()
+        try await Task.sleep(for: .milliseconds(100))
+
+        let events = collector.events
+        XCTAssertEqual(events.count, 2, "Re-arming should report the ongoing call again")
+        XCTAssertFalse(events.contains { if case .ended = $0 { return true } else { return false } },
+                       "Re-arming must not report the call as ended")
+        let active = await detector.isActive
+        XCTAssertTrue(active)
+
+        await detector.stop()
+        audio.finish()
+        camera.finish()
+        listenTask.cancel()
+    }
+
+    func testRearmAfterWakeStaysQuietWhenNothingIsActive() async throws {
+        let audio = MockAudioSignalSource()
+        let camera = MockCameraSignalSource()
+        let detector = MeetingDetector(audioSource: audio, cameraSource: camera)
+        let collector = EventCollector()
+
+        let stream = await detector.events
+        let listenTask = Task {
+            for await event in stream {
+                collector.append(event)
+            }
+        }
+
+        await detector.start()
+        camera.emit(true)
+        try await Task.sleep(for: .milliseconds(300))
+        camera.emit(false)
+        try await Task.sleep(for: .milliseconds(100))
+
+        await detector.rearmAfterWake()
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(collector.events.count, 1, "No new detection when the call ended during sleep")
+        let active = await detector.isActive
+        XCTAssertFalse(active)
+
+        await detector.stop()
+        audio.finish()
+        camera.finish()
+        listenTask.cancel()
+    }
+
     // MARK: - Lifecycle Tests
 
     func testStartIsIdempotent() async {

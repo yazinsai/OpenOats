@@ -18,6 +18,41 @@ final class BatchAudioTranscriberTests: XCTestCase {
         super.tearDown()
     }
 
+    func testBackToBackJobsQueueInsteadOfCancellingEachOther() async {
+        let transcriber = BatchAudioTranscriber()
+        let repository = SessionRepository(rootDirectory: tempDir)
+        let notesDirectory = tempDir.appendingPathComponent("notes", isDirectory: true)
+
+        // Neither session has retained audio, so each job fails fast. Before
+        // queuing, the second job cancelled the first, which then never
+        // reported an outcome of its own.
+        async let first = transcriber.process(
+            sessionID: "session_first",
+            model: .parakeetV3,
+            locale: Locale(identifier: "en-US"),
+            sessionRepository: repository,
+            notesDirectory: notesDirectory
+        )
+        async let second = transcriber.process(
+            sessionID: "session_second",
+            model: .parakeetV3,
+            locale: Locale(identifier: "en-US"),
+            sessionRepository: repository,
+            notesDirectory: notesDirectory
+        )
+        let outcomes = await [first, second]
+
+        XCTAssertEqual(outcomes, [.failed("No audio files found"), .failed("No audio files found")])
+        let hasPendingWork = await transcriber.hasPendingWork
+        XCTAssertFalse(hasPendingWork)
+    }
+
+    func testCancelWithNothingQueuedReportsNoInterruptedSessions() async {
+        let transcriber = BatchAudioTranscriber()
+        let interrupted = await transcriber.cancel()
+        XCTAssertEqual(interrupted, [])
+    }
+
     func testReadAllHonorsOverrideSampleRateForMismatchedBatchAudio() throws {
         let audioURL = tempDir.appendingPathComponent("sys.caf")
         let declaredRate = 48_000.0

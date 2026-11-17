@@ -247,7 +247,7 @@ extension OpenOatsRootApp {
                 )
             )
 
-            await batchAudioTranscriber.importFile(
+            let status = await batchAudioTranscriber.importFile(
                 url: fileURL,
                 sessionID: sessionID,
                 model: model,
@@ -258,8 +258,6 @@ extension OpenOatsRootApp {
                 sessionRepository: repo
             )
 
-            // Check result
-            let status = await batchAudioTranscriber.status
             if case .completed = status {
                 await coordinator.loadHistory()
                 coordinator.queueHomeSessionSelection(sessionID)
@@ -307,6 +305,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var windowObserver: Any?
     private var menuBarController: MenuBarController?
     private var isTerminating = false
+    private var powerMonitor: SystemPowerMonitor?
+    private var powerOffObserver: Any?
+    /// Set when macOS announces logout, restart or shutdown. No modal prompts
+    /// then: nobody may be at the screen, and an alert would block the
+    /// shutdown until someone answers it.
+    private var isPoweringOff = false
     var coordinator: AppCoordinator?
     var settings: AppSettings?
     var container: AppContainer?
@@ -338,6 +342,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 message: "Configuring menu bar controller from app delegate activationPolicy=\(activationPolicyDescription())"
             )
             setupMenuBarIfNeeded(coordinator: coordinator, settings: settings)
+            startPowerObservation()
+        }
+    }
+
+    // MARK: - Sleep, Wake and Power Off
+
+    private func startPowerObservation() {
+        guard powerMonitor == nil else { return }
+        let monitor = SystemPowerMonitor()
+        monitor.onWillSleep = { [weak self] allowSleep in
+            guard let self else {
+                allowSleep()
+                return
+            }
+            self.handleSystemWillSleep(allowSleep: allowSleep)
+        }
+        monitor.onDidWake = { [weak self] in
+            Log.power.info("System woke")
+            self?.container?.detectionController?.handleSystemDidWake()
+        }
+        monitor.start()
+        powerMonitor = monitor
+
+        powerOffObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.willPowerOffNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.isPoweringOff = true
+            }
+        }
+    }
+
+    /// Stop any recording and let it finish saving before the Mac sleeps.
+    ///
+    /// Applies to every recording, not only auto-detected ones: a manual
+    /// recording left running across sleep would resume capture into the same
+    /// session hours later. Sleep is held (macOS allows ~30s) until the session
+    /// is saved, so it is not frozen half-written.
+    private func handleSystemWillSleep(allowSleep: @escaping @MainActor () -> Void) {
+        guard let coordinator else {
+            allowSleep()
+            return
+        }
+        if coordinator.isRecording {
+            Log.power.info("System sleeping, stopping recording")
+            DiagnosticsSupport.record(category: "meeting", message: "System sleep stopped the recording")
+            container?.detectionController?.stopSilenceMonitoring()
+            container?.detectionController?.stopAppExitMonitoring()
+            coordinator.handle(.userStopped, settings: settings)
+        }
+        guard coordinator.state != .idle else {
+            allowSleep()
+            return
+        }
+        Task { @MainActor in
+            let deadline = Date().addingTimeInterval(20)
+            while Date() < deadline, coordinator.state != .idle {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            if coordinator.state != .idle {
+                Log.power.error("Session still saving at sleep deadline; allowing sleep anyway")
+            }
+            allowSleep()
         }
     }
 
@@ -459,25 +528,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return .terminateNow
         }
 
-        guard coordinator.isRecording else {
-            return .terminateNow
+        switch coordinator.state {
+        case .recording:
+            if !isPoweringOff {
+                let alert = NSAlert()
+                alert.messageText = "Recording in Progress"
+                alert.informativeText = "Stop recording and quit?"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Stop & Quit")
+                alert.addButton(withTitle: "Cancel")
+
+                let response = alert.runModal()
+                guard response == .alertFirstButtonReturn else {
+                    return .terminateCancel
+                }
+            }
+            isTerminating = true
+            coordinator.handle(.userStopped, settings: settings)
+            return terminateWhenSessionSaved(coordinator)
+
+        case .ending:
+            // Stop was just pressed and the session is still being written.
+            // Quitting now would cut the save off; wait for it instead.
+            isTerminating = true
+            return terminateWhenSessionSaved(coordinator)
+
+        case .idle:
+            guard !isPoweringOff,
+                  coordinator.liveSessionController?.hasPostMeetingWorkInFlight == true else {
+                return .terminateNow
+            }
+            let alert = NSAlert()
+            alert.messageText = "Still Processing a Meeting"
+            alert.informativeText = "The transcript is saved, but the improved transcript or notes for your last meeting aren't finished yet. If you quit now, they won't be completed."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Keep Running")
+            alert.addButton(withTitle: "Quit Anyway")
+
+            let response = alert.runModal()
+            return response == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
         }
+    }
 
-        let alert = NSAlert()
-        alert.messageText = "Recording in Progress"
-        alert.informativeText = "Stop recording and quit?"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Stop & Quit")
-        alert.addButton(withTitle: "Cancel")
-
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else {
-            return .terminateCancel
-        }
-
-        isTerminating = true
-        coordinator.handle(.userStopped, settings: settings)
-
+    private func terminateWhenSessionSaved(_ coordinator: AppCoordinator) -> NSApplication.TerminateReply {
         Task { @MainActor [weak self] in
             let deadline = Date().addingTimeInterval(30)
             while Date() < deadline {

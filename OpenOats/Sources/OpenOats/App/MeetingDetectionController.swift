@@ -10,7 +10,6 @@ enum DetectionEvent: Sendable {
     case timeout
     case meetingAppExited
     case silenceTimeout
-    case systemSleep
 }
 
 struct DetectionSnapshot: Sendable {
@@ -72,9 +71,8 @@ final class MeetingDetectionController {
 
     /// Task polling for meeting app process exit during recording.
     private var appExitMonitorTask: Task<Void, Never>?
-
-    /// Observer token for system sleep notifications.
-    private var sleepObserver: Any?
+    /// Re-arms detection after the Mac wakes.
+    private var wakeRearmTask: Task<Void, Never>?
 
     /// Timestamp of the last utterance, used for silence timeout.
     private var lastUtteranceAt: Date?
@@ -189,8 +187,6 @@ final class MeetingDetectionController {
             }
         }
 
-        installSleepObserver()
-
         if settings.detectionLogEnabled {
             Log.meetingDetection.info("Detection system started")
         }
@@ -207,6 +203,9 @@ final class MeetingDetectionController {
 
         appExitMonitorTask?.cancel()
         appExitMonitorTask = nil
+
+        wakeRearmTask?.cancel()
+        wakeRearmTask = nil
 
         // Capture the detector first: the task body reads its captures when it
         // runs, which is after this method returns, so reading the property
@@ -229,11 +228,6 @@ final class MeetingDetectionController {
         notificationService?.clearAutoRecordingStarted()
         notificationService = nil
 
-        if let observer = sleepObserver {
-            NotificationCenter.default.removeObserver(observer)
-            sleepObserver = nil
-        }
-
         dismissedEvents.removeAll()
         calendarManager = nil
         activeSettings = nil
@@ -252,21 +246,30 @@ final class MeetingDetectionController {
         dismissedEvents.formUnion(events)
     }
 
-    // MARK: - Sleep Observer
+    // MARK: - Sleep / Wake
 
-    private func installSleepObserver() {
-        sleepObserver = NotificationCenter.default.addObserver(
-            forName: NSWorkspace.willSleepNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if self.activeSettings?.detectionLogEnabled == true {
-                    Log.meetingDetection.info("System sleep detected, yielding event")
-                }
-                self.eventContinuation.yield(.systemSleep)
+    /// Recording stops when the Mac sleeps (see `AppDelegate`), but the
+    /// detector still believes the call it saw before sleep is in progress and
+    /// only reports a call when one *starts*. If the call is still going when
+    /// the lid opens, nothing would prompt or auto-record. Re-arm the detector
+    /// once the stopped session has finished saving so a live call is picked
+    /// up again.
+    func handleSystemDidWake() {
+        guard isEnabled else { return }
+        wakeRearmTask?.cancel()
+        wakeRearmTask = Task { [weak self] in
+            // Give the session that sleep stopped time to finish saving; a
+            // detection while it is still .ending would be suppressed.
+            for _ in 0..<60 {
+                guard let self, !Task.isCancelled else { return }
+                if !self.isSessionActive() { break }
+                try? await Task.sleep(for: .milliseconds(500))
             }
+            guard let self, !Task.isCancelled, !self.isSessionActive() else { return }
+            if self.activeSettings?.detectionLogEnabled == true {
+                Log.meetingDetection.info("System woke, re-arming meeting detection")
+            }
+            await self.meetingDetector?.rearmAfterWake()
         }
     }
 

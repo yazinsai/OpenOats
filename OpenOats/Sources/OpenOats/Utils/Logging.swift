@@ -24,6 +24,7 @@ enum Log {
     static let sidecast = Logger(subsystem: subsystem, category: "SidecastEngine")
     static let templateStore = Logger(subsystem: subsystem, category: "TemplateStore")
     static let diagnostics = Logger(subsystem: subsystem, category: "Diagnostics")
+    static let power = Logger(subsystem: subsystem, category: "SystemPower")
 
     private static let subsystem = Bundle(for: BundleToken.self).bundleIdentifier ?? "com.openoats.app"
 }

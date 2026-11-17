@@ -307,9 +307,31 @@ actor BatchAudioTranscriber {
     /// True when the current batch job is an audio file import (affects UI copy).
     private(set) var isImporting: Bool = false
     private(set) var activeSessionID: String?
-    private var currentTask: Task<Void, Never>?
+
+    /// A queued or running job. Jobs run one at a time, in the order they
+    /// were submitted: a meeting that ends while an earlier meeting is still
+    /// being re-transcribed waits its turn instead of cancelling it.
+    private struct Job {
+        let sequence: Int
+        let sessionID: String
+        let isImport: Bool
+        let task: Task<Status, Never>
+    }
+
+    private var jobs: [Int: Job] = [:]
+    private var nextJobSequence = 0
+    /// The most recently submitted job. Each new job waits for it to finish.
+    private var tailTask: Task<Status, Never>?
+
+    /// True while any job is queued or running.
+    var hasPendingWork: Bool { !jobs.isEmpty }
 
     /// Process batch transcription for a completed session.
+    ///
+    /// Queues behind any job already running and returns that job's own
+    /// outcome, so callers never have to infer it from the shared `status`
+    /// (which the next queued job may already have overwritten).
+    @discardableResult
     func process(
         sessionID: String,
         model: TranscriptionModel,
@@ -318,53 +340,115 @@ actor BatchAudioTranscriber {
         notesDirectory: URL,
         enableDiarization: Bool = false,
         diarizationVariant: DiarizationVariant = .dihard3
-    ) async {
-        // Cancel any existing task
-        currentTask?.cancel()
-        activeSessionID = sessionID
-        isImporting = false
-
-        let task = Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.runTranscription(
-                    sessionID: sessionID,
-                    model: model,
-                    locale: locale,
-                    sessionRepository: sessionRepository,
-                    notesDirectory: notesDirectory,
-                    enableDiarization: enableDiarization,
-                    diarizationVariant: diarizationVariant
-                )
-            } catch is CancellationError {
-                await self.setStatus(.cancelled)
-                await self.setActiveSessionID(nil)
-                DiagnosticsSupport.record(category: "batch", message: "Batch transcription cancelled for \(sessionID)")
-                Log.batchTranscription.info("Batch transcription cancelled for \(sessionID, privacy: .public)")
-            } catch {
-                await self.setStatus(.failed(error.localizedDescription))
-                await self.setActiveSessionID(nil)
-                DiagnosticsSupport.record(category: "batch", message: "Batch transcription failed for \(sessionID): \(error.localizedDescription)")
-                Log.batchTranscription.error("Batch transcription failed: \(error, privacy: .public)")
-            }
+    ) async -> Status {
+        await enqueue(sessionID: sessionID, isImport: false) { [weak self] in
+            guard let self else { return .cancelled }
+            return await self.runProcessJob(
+                sessionID: sessionID,
+                model: model,
+                locale: locale,
+                sessionRepository: sessionRepository,
+                notesDirectory: notesDirectory,
+                enableDiarization: enableDiarization,
+                diarizationVariant: diarizationVariant
+            )
         }
-        currentTask = task
-        await task.value
     }
 
-    func cancel() async {
-        let task = currentTask
-        currentTask = nil
-        task?.cancel()
-        await task?.value
+    /// Cancel every queued and running job.
+    ///
+    /// Returns the sessions whose re-transcription was cut short, oldest
+    /// first, so the caller can queue them again later. Imports are not
+    /// returned: a cancelled import is discarded by its caller.
+    @discardableResult
+    func cancel() async -> [String] {
+        let pending = jobs.values.sorted { $0.sequence < $1.sequence }
+        for job in pending {
+            job.task.cancel()
+        }
+        var interrupted: [String] = []
+        for job in pending {
+            let outcome = await job.task.value
+            if !job.isImport, outcome == .cancelled {
+                interrupted.append(job.sessionID)
+            }
+        }
         status = .cancelled
         isImporting = false
         activeSessionID = nil
+        return interrupted
+    }
+
+    private func enqueue(
+        sessionID: String,
+        isImport: Bool,
+        work: @escaping @Sendable () async -> Status
+    ) async -> Status {
+        let previous = tailTask
+        let sequence = nextJobSequence
+        nextJobSequence += 1
+
+        let task = Task<Status, Never> {
+            _ = await previous?.value
+            // Cancelled while it was still waiting its turn: never started,
+            // so leave the shared status to whichever job is current.
+            if Task.isCancelled { return .cancelled }
+            return await work()
+        }
+        tailTask = task
+        jobs[sequence] = Job(sequence: sequence, sessionID: sessionID, isImport: isImport, task: task)
+
+        let outcome = await task.value
+        jobs[sequence] = nil
+        if jobs.isEmpty {
+            tailTask = nil
+        }
+        return outcome
+    }
+
+    private func runProcessJob(
+        sessionID: String,
+        model: TranscriptionModel,
+        locale: Locale,
+        sessionRepository: SessionRepository,
+        notesDirectory: URL,
+        enableDiarization: Bool,
+        diarizationVariant: DiarizationVariant
+    ) async -> Status {
+        activeSessionID = sessionID
+        isImporting = false
+        do {
+            try await runTranscription(
+                sessionID: sessionID,
+                model: model,
+                locale: locale,
+                sessionRepository: sessionRepository,
+                notesDirectory: notesDirectory,
+                enableDiarization: enableDiarization,
+                diarizationVariant: diarizationVariant
+            )
+            let outcome = status
+            setStatus(outcome)
+            return outcome
+        } catch is CancellationError {
+            setStatus(.cancelled)
+            DiagnosticsSupport.record(category: "batch", message: "Batch transcription cancelled for \(sessionID)")
+            Log.batchTranscription.info("Batch transcription cancelled for \(sessionID, privacy: .public)")
+            return .cancelled
+        } catch {
+            let outcome = Status.failed(error.localizedDescription)
+            setStatus(outcome)
+            DiagnosticsSupport.record(category: "batch", message: "Batch transcription failed for \(sessionID): \(error.localizedDescription)")
+            Log.batchTranscription.error("Batch transcription failed: \(error, privacy: .public)")
+            return outcome
+        }
     }
 
     // MARK: - Audio Import
 
     /// Import and transcribe an external audio file (meeting recording).
+    /// Queues behind any running job and returns the import's own outcome.
+    @discardableResult
     func importFile(
         url: URL,
         sessionID: String,
@@ -374,40 +458,63 @@ actor BatchAudioTranscriber {
         apiKey: String,
         removeFillerWords: Bool,
         sessionRepository: SessionRepository
-    ) async {
-        currentTask?.cancel()
+    ) async -> Status {
+        await enqueue(sessionID: sessionID, isImport: true) { [weak self] in
+            guard let self else { return .cancelled }
+            return await self.runImportJob(
+                url: url,
+                sessionID: sessionID,
+                model: model,
+                locale: locale,
+                customVocabulary: customVocabulary,
+                apiKey: apiKey,
+                removeFillerWords: removeFillerWords,
+                sessionRepository: sessionRepository
+            )
+        }
+    }
+
+    private func runImportJob(
+        url: URL,
+        sessionID: String,
+        model: TranscriptionModel,
+        locale: Locale,
+        customVocabulary: String,
+        apiKey: String,
+        removeFillerWords: Bool,
+        sessionRepository: SessionRepository
+    ) async -> Status {
         isImporting = true
         activeSessionID = sessionID
-
-        let task = Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.runImport(
-                    url: url,
-                    sessionID: sessionID,
-                    model: model,
-                    locale: locale,
-                    customVocabulary: customVocabulary,
-                    apiKey: apiKey,
-                    removeFillerWords: removeFillerWords,
-                    sessionRepository: sessionRepository
-                )
-            } catch is CancellationError {
-                await self.setStatus(.cancelled)
-                await self.setIsImporting(false)
-                await self.setActiveSessionID(nil)
-                DiagnosticsSupport.record(category: "batch", message: "Audio import cancelled for \(sessionID)")
-                Log.batchTranscription.info("Audio import cancelled for \(sessionID, privacy: .public)")
-            } catch {
-                await self.setStatus(.failed(error.localizedDescription))
-                await self.setIsImporting(false)
-                await self.setActiveSessionID(nil)
-                DiagnosticsSupport.record(category: "batch", message: "Audio import failed for \(sessionID): \(error.localizedDescription)")
-                Log.batchTranscription.error("Audio import failed: \(error, privacy: .public)")
-            }
+        do {
+            try await runImport(
+                url: url,
+                sessionID: sessionID,
+                model: model,
+                locale: locale,
+                customVocabulary: customVocabulary,
+                apiKey: apiKey,
+                removeFillerWords: removeFillerWords,
+                sessionRepository: sessionRepository
+            )
+            let outcome = status
+            setStatus(outcome)
+            isImporting = false
+            return outcome
+        } catch is CancellationError {
+            setStatus(.cancelled)
+            isImporting = false
+            DiagnosticsSupport.record(category: "batch", message: "Audio import cancelled for \(sessionID)")
+            Log.batchTranscription.info("Audio import cancelled for \(sessionID, privacy: .public)")
+            return .cancelled
+        } catch {
+            let outcome = Status.failed(error.localizedDescription)
+            setStatus(outcome)
+            isImporting = false
+            DiagnosticsSupport.record(category: "batch", message: "Audio import failed for \(sessionID): \(error.localizedDescription)")
+            Log.batchTranscription.error("Audio import failed: \(error, privacy: .public)")
+            return outcome
         }
-        currentTask = task
-        await task.value
     }
 
     private func runImport(
@@ -509,14 +616,6 @@ actor BatchAudioTranscriber {
         case .loading, .transcribing:
             break
         }
-    }
-
-    private func setIsImporting(_ value: Bool) {
-        isImporting = value
-    }
-
-    private func setActiveSessionID(_ value: String?) {
-        activeSessionID = value
     }
 
     private func runTranscription(

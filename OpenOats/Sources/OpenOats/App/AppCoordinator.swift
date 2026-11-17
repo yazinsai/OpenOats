@@ -205,7 +205,11 @@ final class AppCoordinator {
 
         case .userStopped:
             finalizationTimeoutTask = Task {
-                try? await Task.sleep(for: .seconds(30))
+                // Suspending clock: time the Mac spends asleep must not count.
+                // Closing the lid mid-save freezes the save; on a continuous
+                // clock this timer would fire the moment the lid opens and
+                // declare the session finished while it is still writing.
+                try? await Task.sleep(for: .seconds(30), tolerance: nil, clock: .suspending)
                 guard !Task.isCancelled else { return }
                 finalizationTask?.cancel()
                 handle(.finalizationTimeout)
@@ -357,12 +361,6 @@ final class AppCoordinator {
                         }
                     }
                 case .silenceTimeout:
-                    if case .recording = self.state {
-                        controller.stopSilenceMonitoring()
-                        controller.stopAppExitMonitoring()
-                        self.handle(.userStopped)
-                    }
-                case .systemSleep:
                     if case .recording = self.state {
                         controller.stopSilenceMonitoring()
                         controller.stopAppExitMonitoring()

@@ -295,6 +295,28 @@ actor MeetingDetector {
         isMicActive = false
     }
 
+    /// Forget the call seen before sleep and re-read the mic and camera, so a
+    /// call still running after wake is reported as a fresh detection.
+    ///
+    /// No `.ended` is emitted for the forgotten call: the session it fed was
+    /// already stopped by sleep, and `.ended` would be read as the meeting app
+    /// exiting.
+    func rearmAfterWake() async {
+        guard micMonitorTask != nil else { return }
+        cameraHysteresisTask?.cancel()
+        cameraHysteresisTask = nil
+        isActive = false
+        detectedApp = nil
+        detectionTrigger = nil
+        micActiveAt = nil
+
+        if cameraSource.isActive {
+            await handleCameraSignal(true)
+        } else if audioSource.isActive {
+            await handleMicSignal(true)
+        }
+    }
+
     // MARK: - Query
 
     func queryCurrentState() async -> (micActive: Bool, cameraActive: Bool, meetingApp: MeetingApp?) {
