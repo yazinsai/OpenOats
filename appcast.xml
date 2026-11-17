@@ -6,24 +6,28 @@
     <description>Most recent updates to OpenOats</description>
     <language>en</language>
     <item>
-      <title>Version 2.0.1</title>
-      <link>https://github.com/yazinsai/OpenOats/releases/tag/v2.0.1</link>
-      <pubDate>Tue, 17 Nov 2026 04:48:45 GMT</pubDate>
-      <sparkle:version>2.0.1</sparkle:version>
-      <sparkle:shortVersionString>2.0.1</sparkle:shortVersionString>
+      <title>Version 2.1.0</title>
+      <link>https://github.com/yazinsai/OpenOats/releases/tag/v2.1.0</link>
+      <pubDate>Tue, 17 Nov 2026 06:41:14 GMT</pubDate>
+      <sparkle:version>2.1.0</sparkle:version>
+      <sparkle:shortVersionString>2.1.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
       <sparkle:minimumAutoupdateVersion>2.0.0</sparkle:minimumAutoupdateVersion>
       <sparkle:phasedRolloutInterval>86400</sparkle:phasedRolloutInterval>
-      <description sparkle:format="markdown"><![CDATA[## Changed
+      <description sparkle:format="markdown"><![CDATA[## New
 
-- **The real OpenOats logo, everywhere.** The menu panel, welcome screen and empty Meetings view now show the app icon's mark: two concentric rings on a black tile.
-- **New menu bar icon.** It's the same two rings. While recording, the inner ring fills in to a dot, so you can tell at a glance that OpenOats is recording.
+- **Meeting detection is back.** When a call starts, OpenOats asks "Record this meeting?" Click the notification (or Record) and it records; when the call ends, the recording stops by itself and is processed as usual.
+- **It asks about real calls only.** A call is an app like Zoom, Teams, FaceTime, Slack, WhatsApp or a browser using your microphone along with your speakers or camera. Dictation apps, voice notes and a camera on its own don't count, and the prompt names the app that's actually on the call.
+- **Browser calls are detected.** A Meet, Teams or Zoom call in Chrome, Arc, Safari, Brave, Edge, Firefox and other browsers now gets the prompt too.
+- **One prompt per call.** It disappears when the call ends or you start recording. "Don't Ask for <app>" stops prompts for that app; Settings → General turns detection off or asks again for apps you ignored.
+- While a call is on, the menu bar shows it and the button reads "Record <app> Call".
 
-No changes to recording, transcription or your Meeting files.
+Detection only reads which apps use the mic, speakers and camera, never the audio or video, and needs no new permission. Recordings you start yourself still never stop on their own.
+
 ]]></description>
-      <enclosure url="https://github.com/yazinsai/OpenOats/releases/download/v2.0.1/OpenOats.dmg"
-                 sparkle:edSignature="5OWXXYkCTnax6X/mv0gLPK8m7jbpaBzK6cuXfBQyfj2lVxXeOecYwt+vr4kSiy/2yyMcUr7OYZlmXGrmHlVQCA=="
-                 length="6619137"
+      <enclosure url="https://github.com/yazinsai/OpenOats/releases/download/v2.1.0/OpenOats.dmg"
+                 sparkle:edSignature="eJp251ViI2Q2rtcI4rCFSD5dGKIK4Eyp9J6DyOa1HcOUAKS5YgdO0PNj1vAA7yrU2IYxym0oaOAqSVShaDPVAw=="
+                 length="6711192"
                  type="application/octet-stream" />
     </item>
   </channel>
