@@ -117,6 +117,30 @@ final class EventLog: @unchecked Sendable {
         #expect(mic[31_999] == 100 && mic[32_000] == 101 && mic[39_999] == 101 && mic[40_000] == 102)
     }
 
+    @Test func padsATrackThatStoppedDeliveringToTheEndOfTheRecording() throws {
+        let recorder = try start()
+        source.send(.system, 200, seconds: 2, at: 0)
+        // The mic goes silent after a second and delivers nothing more before Stop at 3 s.
+        source.send(.mic, 100, seconds: 1, at: 0)
+        source.now = 1003
+        let folder = try recorder.stop()
+
+        let mic = try samples(folder.micTrackURL), system = try samples(folder.systemTrackURL)
+        #expect(mic.count == 48_000 && system.count == 48_000)
+        #expect(mic[15_999] == 100 && mic[16_000] == 0 && mic[47_999] == 0)
+        #expect(system[31_999] == 200 && system[32_000] == 0)
+    }
+
+    @Test func leavesATrackThatNeverDeliveredEmpty() throws {
+        let recorder = try start()
+        source.send(.mic, 100, seconds: 1, at: 0)
+        source.now = 1002
+        let folder = try recorder.stop()
+
+        #expect(try samples(folder.micTrackURL).count == 32_000)
+        #expect(try samples(folder.systemTrackURL).isEmpty)
+    }
+
     @Test func systemTrackStartsAtItsFirstAudioWhenNothingPlaysAtFirst() throws {
         let recorder = try start()
         // The process tap delivers nothing while the output device is idle; then a meeting app starts playing,

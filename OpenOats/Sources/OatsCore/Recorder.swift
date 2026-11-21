@@ -142,7 +142,17 @@ public final class Recorder: @unchecked Sendable {
     @discardableResult
     public func stop() throws -> MeetingFolder {
         source.stop()
-        try queue.sync { try finish() }
+        try queue.sync {
+            guard !finished else { return }
+            // A track that stopped delivering before Stop (a mic gone silent) ends with silence, like a gap, so the
+            // tracks end together. One that never delivered stays empty.
+            let end = Int(((clock() - startTime) * TrackAudio.sampleRate).rounded())
+            for (track, var writer) in writers where writer.position > 0 && writer.position < end {
+                writer.pending += repeatElement(0, count: end - writer.position)
+                writers[track] = writer
+            }
+            try finish()
+        }
         return folder
     }
 
