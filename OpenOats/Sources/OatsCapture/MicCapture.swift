@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import CoreAudio
 import OatsCore
+import OatsObjC
 
 /// The Mic track: an AVAudioEngine input tap on one device. Used on the LiveCapture queue only.
 final class MicCapture: @unchecked Sendable {
@@ -15,54 +16,79 @@ final class MicCapture: @unchecked Sendable {
 
     init(queue: DispatchQueue) { self.queue = queue }
 
-    /// Builds a fresh engine on `device`, replacing any running one.
+    /// Builds a fresh engine on `device`, replacing any running one. On failure the engine is retired again.
     func start(device: AudioDeviceID, _ deliver: @escaping @Sendable (CapturedAudio) -> Void) throws {
         stop()
         self.device = device
         activity.touch(delivered: false)
         let engine = AVAudioEngine()
         self.engine = engine
+        do {
+            try build(engine, device: device, deliver)
+        } catch {
+            stop()
+            throw error
+        }
+    }
+
+    private func build(_ engine: AVAudioEngine, device: AudioDeviceID, _ deliver: @escaping @Sendable (CapturedAudio) -> Void) throws {
         let input = engine.inputNode
         // Order matters: prepare, set the device, then read the format.
-        engine.prepare()
+        try Self.guarded { engine.prepare() }
         guard let unit = input.audioUnit else { throw CaptureError.micFailed("no input unit") }
         var id = device
         AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &id,
                              UInt32(MemoryLayout<AudioDeviceID>.size))
-        let format = input.outputFormat(forBus: 0)
-        // The node's format can lag a device switch (USB mic at 48 kHz while the node says 44.1 kHz).
-        let rate = AudioDevices.nominalSampleRate(device).flatMap { $0 > 0 ? $0 : nil } ?? format.sampleRate
-        guard rate > 0, format.channelCount > 0 else { throw CaptureError.micFailed("no usable input format") }
-        let tapFormat = AVAudioFormat(standardFormatWithSampleRate: rate, channels: format.channelCount)
-            ?? AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: format.channelCount) ?? format
+        // The tap must run at the engine's input hardware rate, or AVFAudio raises. The node's output format can lag a
+        // device switch (#70: USB mic at 48 kHz, node at 44.1 kHz), and the device's nominal rate can disagree with the
+        // hardware mid Bluetooth A2DP ↔ HFP switch, so both are only fallbacks. The Resampler takes any rate.
+        let hardware = input.inputFormat(forBus: 0), output = input.outputFormat(forBus: 0)
+        let usable = hardware.sampleRate > 0 && hardware.channelCount > 0
+        let rate = usable ? hardware.sampleRate
+            : AudioDevices.nominalSampleRate(device).flatMap { $0 > 0 ? $0 : nil } ?? output.sampleRate
+        let channels = usable ? hardware.channelCount : output.channelCount
+        guard rate > 0, channels > 0, let tapFormat = AVAudioFormat(standardFormatWithSampleRate: rate, channels: channels)
+        else { throw CaptureError.micFailed("no usable input format") }
         let resampler = Resampler(.mic, deliver)
         let activity = activity
-        input.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { buffer, when in
-            activity.touch()
-            resampler.convert(buffer, hostTime: when.isHostTimeValid ? when.hostTime : 0)
+        try Self.guarded {
+            input.installTap(onBus: 0, bufferSize: 4096, format: tapFormat) { buffer, when in
+                activity.touch()
+                resampler.convert(buffer, hostTime: when.isHostTimeValid ? when.hostTime : 0)
+            }
         }
-        // The engine stops silently when another app grabs the mic or the graph renegotiates; restart it. If it
-        // then runs but stays silent, the LiveCapture watchdog rebuilds it.
+        // The engine stops silently when another app grabs the mic or the graph renegotiates; restart it. If that
+        // fails, or it runs but stays silent, the mic stops delivering and the LiveCapture watchdog rebuilds it.
         observer = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine,
                                                           queue: nil) { [weak self] _ in
             self?.queue.async { [weak self] in
                 guard let engine = self?.engine, !engine.isRunning else { return }
-                try? engine.start()
+                try? Self.guarded { try engine.start() }
             }
         }
-        do { try engine.start() } catch { throw CaptureError.micFailed(error.localizedDescription) }
+        try Self.guarded { try engine.start() }
     }
 
     func stop() {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
         guard let engine else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        engine.reset()
+        _ = OatsCatchException { engine.inputNode.removeTap(onBus: 0) }
+        _ = OatsCatchException { engine.stop() }
+        _ = OatsCatchException { engine.reset() }
         retired.append(engine)
         if retired.count > 8 { retired.removeFirst() }
         self.engine = nil
+    }
+
+    /// Runs an AVFAudio call, turning a thrown error or a raised NSException (which Swift can't catch) into `micFailed`.
+    static func guarded<T>(_ body: () throws -> T) throws -> T {
+        var result: Result<T, any Error>?
+        if let exception = OatsCatchException({ result = Result(catching: body) }) {
+            throw CaptureError.micFailed(exception.localizedDescription)
+        }
+        guard let result else { throw CaptureError.micFailed("no result") }
+        do { return try result.get() } catch { throw CaptureError.micFailed(error.localizedDescription) }
     }
 }
 
