@@ -23,7 +23,8 @@ public final class LiveCapture: CaptureSource, @unchecked Sendable {
     private var lastProblem: [Track: String] = [:]
     private var assertion: IOPMAssertionID = 0
 
-    /// `onProblem` gets mid-recording trouble (a track that can't be rebuilt), on a background thread.
+    /// `onProblem` gets trouble that doesn't stop the recording (a mic that can't start, a track that can't be rebuilt),
+    /// on a background thread or, for the mic at start, on the caller's.
     public init(onProblem: @escaping @Sendable (String) -> Void = { _ in }) {
         self.onProblem = onProblem
     }
@@ -32,12 +33,17 @@ public final class LiveCapture: CaptureSource, @unchecked Sendable {
         try queue.sync {
             guard self.deliver == nil else { return }
             self.deliver = deliver
-            do {
-                try startMic()
-                try system.start(deliver)
-            } catch {
+            // A mic that can't start (input mid Bluetooth A2DP ↔ HFP switch) doesn't lose the meeting: record system
+            // audio and let the watchdog retry the mic. No system audio is fatal.
+            var micProblem: String?
+            do { try startMic() } catch { micProblem = error.localizedDescription }
+            do { try system.start(deliver) } catch {
                 teardown()
                 throw error
+            }
+            if let micProblem {
+                lastProblem[.mic] = micProblem
+                onProblem(micProblem)
             }
             IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
                                         "OpenOats is recording a meeting" as CFString, &assertion)
