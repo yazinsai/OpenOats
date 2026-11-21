@@ -12,7 +12,7 @@ public final class LiveCapture: CaptureSource, @unchecked Sendable {
     static let stallAfter: TimeInterval = 4
     private let queue = DispatchQueue(label: "openoats.capture", qos: .userInitiated)
     private let onProblem: @Sendable (String) -> Void
-    private lazy var mic = MicCapture(queue: queue)
+    private lazy var mic = MicCapture(queue: queue) { [weak self] in self?.routeChanged(rebuildMic: true) }
     private let system = SystemAudioCapture()
     private var deliver: (@Sendable (CapturedAudio) -> Void)?
     private var listeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
@@ -20,6 +20,9 @@ public final class LiveCapture: CaptureSource, @unchecked Sendable {
     private var watchdog: DispatchSourceTimer?
     /// Mics that went silent since the last default-input change; skipped when picking the next one.
     private var stalledMics: Set<AudioDeviceID> = []
+    /// Last default-device change or mic hardware format change, on the `Activity` clock.
+    private var routeChangedAt = -TimeInterval.infinity
+    private var micRebuiltAt = -TimeInterval.infinity
     private var lastProblem: [Track: String] = [:]
     private var assertion: IOPMAssertionID = 0
 
@@ -47,12 +50,12 @@ public final class LiveCapture: CaptureSource, @unchecked Sendable {
             }
             IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
                                         "OpenOats is recording a meeting" as CFString, &assertion)
-            listen(kAudioHardwarePropertyDefaultInputDevice) { $0.rebuild(.mic, deviceChanged: true) }
+            listen(kAudioHardwarePropertyDefaultInputDevice) { $0.routeChanged(rebuildMic: true) }
             // The tap is bound to the output device's UID. Output changes (Bluetooth A2DP ↔ HFP) can also silence the
             // mic; rebuilding it here would cost ~0.5 s of speech each time, so the watchdog handles that, with every mic
             // eligible again.
             listen(kAudioHardwarePropertyDefaultOutputDevice) {
-                $0.stalledMics = []
+                $0.routeChanged(rebuildMic: false)
                 $0.rebuild(.system, deviceChanged: true)
             }
             let timer = DispatchSource.makeTimerSource(queue: queue)
@@ -91,13 +94,33 @@ public final class LiveCapture: CaptureSource, @unchecked Sendable {
         }
     }
 
+    /// A default device or the mic's hardware format changed: every mic is eligible again, and silence that follows
+    /// isn't held against the mic.
+    private func routeChanged(rebuildMic: Bool) {
+        let now = ProcessInfo.processInfo.systemUptime
+        routeChangedAt = now
+        stalledMics = []
+        if rebuildMic { rebuild(.mic, deviceChanged: true, after: Self.routeRebuildDelay(sinceLast: now - micRebuiltAt)) }
+    }
+
+    /// A burst of notifications causes one rebuild; and if AVFAudio keeps rebinding fresh engines, at most one every 2 s.
+    static func routeRebuildDelay(sinceLast: TimeInterval) -> TimeInterval {
+        max(0.5, 2 - sinceLast)
+    }
+
+    /// Whether a mic silent for `silentFor` seconds is to blame: not if a route changed shortly before it went silent.
+    static func blamesMic(silentFor: TimeInterval, sinceRouteChange: TimeInterval) -> Bool {
+        sinceRouteChange > silentFor + 2
+    }
+
     /// Rebuilds `track` after a short pause, so a burst of device notifications causes one rebuild.
-    private func rebuild(_ track: Track, deviceChanged: Bool) {
+    private func rebuild(_ track: Track, deviceChanged: Bool, after delay: TimeInterval? = nil) {
         if deviceChanged, track == .mic { stalledMics = [] }
         pending[track]?.cancel()
         let item = DispatchWorkItem { [weak self] in
             guard let self, let deliver else { return }
             pending[track] = nil
+            if track == .mic { micRebuiltAt = ProcessInfo.processInfo.systemUptime }
             do {
                 if track == .mic { try startMic() } else { try system.start(deliver) }
                 lastProblem[track] = nil
@@ -109,7 +132,7 @@ public final class LiveCapture: CaptureSource, @unchecked Sendable {
             }
         }
         pending[track] = item
-        queue.asyncAfter(deadline: .now() + (deviceChanged ? 0.5 : 0), execute: item)
+        queue.asyncAfter(deadline: .now() + (delay ?? (deviceChanged ? 0.5 : 0)), execute: item)
     }
 
     /// CoreAudio can announce a new default device before a Bluetooth device has finished connecting, or a mic can go
@@ -117,8 +140,15 @@ public final class LiveCapture: CaptureSource, @unchecked Sendable {
     /// delivers while the output device runs, so an idle one isn't stalled; nor is one that never delivered (the
     /// system-audio permission prompt may be up, and Core Audio blocks teardown until it is answered).
     private func checkStalls() {
-        if mic.activity.age >= Self.stallAfter, pending[.mic] == nil {
-            stalledMics.insert(mic.device)
+        let silent = mic.activity.age
+        // AVFAudio rebinds the input unit with no notification at times; a silent mic that is no longer bound the way
+        // its tap was made is rebuilt at once, as a route change. A fresh engine is never rebound, so this can't loop.
+        if silent >= 1, pending[.mic] == nil, mic.isRebound {
+            routeChanged(rebuildMic: true)
+        } else if silent >= Self.stallAfter, pending[.mic] == nil {
+            if Self.blamesMic(silentFor: silent, sinceRouteChange: ProcessInfo.processInfo.systemUptime - routeChangedAt) {
+                stalledMics.insert(mic.device)
+            }
             rebuild(.mic, deviceChanged: false)
         }
         let outputRunning = AudioDevices.defaultOutput.flatMap { AudioDevices.value($0, kAudioDevicePropertyDeviceIsRunningSomewhere, UInt32(0)) } == 1
