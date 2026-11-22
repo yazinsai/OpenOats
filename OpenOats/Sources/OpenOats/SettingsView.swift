@@ -54,6 +54,19 @@ struct GeneralTab: View {
                     .foregroundStyle(.secondary)
             }
             Section {
+                Toggle("Name Meetings after calendar events", isOn: model.calendarTitles)
+                    .accessibilityIdentifier("settings.titleFromCalendar")
+                if model.calendarDenied {
+                    LabeledContent("OpenOats isn't allowed to read your calendar.") {
+                        Button("Open System Settings") { NSWorkspace.shared.open(CalendarTitles.privacySettings) }
+                    }
+                }
+            } header: { Text("Calendar") } footer: {
+                Text("Optional. After a recording, OpenOats titles the Meeting after the event you were in, one with other people "
+                    + "or a call link. Your calendar is read on this Mac and isn't sent anywhere.")
+                    .foregroundStyle(.secondary)
+            }
+            Section {
                 TextEditor(text: $model.vocabulary).font(.body).frame(height: 110)
             } header: { Text("Vocabulary") } footer: {
                 Text("Names and terms, one per line. They fix misheard words in the Transcript when a Notes backend is set.")
@@ -61,6 +74,8 @@ struct GeneralTab: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear(perform: model.refreshCalendarAccess)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refreshCalendarAccess() }
     }
 }
 

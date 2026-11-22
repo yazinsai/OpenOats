@@ -27,6 +27,8 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var mic = AVCaptureDevice.authorizationStatus(for: .audio)
     /// nil until asked; then "" (asked) or the reason capture couldn't start.
     @Published private(set) var systemAudio: String?
+    @Published private(set) var calendarAllowed = CalendarTitles.allowed
+    @Published private(set) var calendarDenied = CalendarTitles.denied
     private var monitor: Any?
 
     /// Parakeet's languages plus common Whisper ones; "" = the system language.
@@ -124,6 +126,26 @@ final class SettingsModel: ObservableObject {
         monitor = nil
         recordingHotkey = false
         HotkeyMonitor.register(hotkey)
+    }
+
+    /// The "Name Meetings after calendar events" switch. Turning it on asks for calendar access the first time and
+    /// stays on only once access is granted; a declined prompt saves "off", so nothing asks again.
+    var calendarTitles: Binding<Bool> {
+        Binding { self.settings.titleFromCalendar == true } set: { self.setCalendarTitles($0) }
+    }
+
+    func setCalendarTitles(_ on: Bool) {
+        guard on else { return settings.titleFromCalendar = false }
+        Task {
+            settings.titleFromCalendar = await CalendarTitles.requestAccess()
+            refreshCalendarAccess()
+        }
+    }
+
+    /// Calendar access can change in System Settings at any time; re-read it whenever a view shows it.
+    func refreshCalendarAccess() {
+        calendarAllowed = CalendarTitles.allowed
+        calendarDenied = CalendarTitles.denied
     }
 
     func requestMic() {

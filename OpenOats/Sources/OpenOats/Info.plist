@@ -35,6 +35,8 @@
     <string>OpenOats needs microphone access to record your side of a meeting.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>OpenOats needs system audio recording access to record the other side of a meeting.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>OpenOats names each meeting after the calendar event it happened in. Your calendar stays on this Mac.</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>LSMultipleInstancesProhibited</key>

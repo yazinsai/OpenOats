@@ -45,6 +45,7 @@ final class AppModel: ObservableObject {
     func launch() {
         Migration.runIfNeeded(settings)
         for meeting in store.recoverInterruptedMeetings() {
+            nameFromCalendar(meeting.folder)
             Notifier.post(meeting.message, "Its Meeting file will be marked as interrupted.", meeting: meeting.folder.id)
         }
         Task {
@@ -152,7 +153,17 @@ final class AppModel: ObservableObject {
         lowDiskSpace = nil
         recordingCall = nil
         do { try recorder.stop() } catch { Notifier.post("The recording didn't close cleanly", error.localizedDescription) }
+        nameFromCalendar(recorder.folder)
         enqueue(recorder.folder)
+    }
+
+    /// With "Name Meetings from your calendar" on, titles a just-recorded Meeting after the event it was part of,
+    /// before Processing writes its Meeting file. Without a matching event the Notes title is used, as always.
+    private func nameFromCalendar(_ folder: MeetingFolder) {
+        guard settings.load().titleFromCalendar == true, let status = try? folder.readStatus(), status.title == nil,
+              let end = status.endedAt, end > status.startedAt,
+              let title = CalendarTitles.title(for: DateInterval(start: status.startedAt, end: end)) else { return }
+        _ = try? folder.updateStatus { $0.title = title }
     }
 
     /// Queues a Meeting (after Stop, Retry, re-process, import).
@@ -194,6 +205,7 @@ final class AppModel: ObservableObject {
                 recordingCall = nil
             }
             Notifier.post("Recording stopped", reason)
+            nameFromCalendar(folder)
             enqueue(folder)
         }
     }

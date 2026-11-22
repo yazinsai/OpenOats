@@ -17,7 +17,7 @@ Asking which process holds the mic, and requiring that same app to also play aud
 
 - Keep 1.x's mic + running-app rule with a bigger dictation denylist: rejected, it can't name the right app or cover browsers.
 - Camera as a trigger on its own (1.x): rejected; it can't say which app, and every video call also uses the mic, so it adds noise without finding Calls the mic misses.
-- Calendar events: out of scope for 2.x (no calendar access).
+- Calendar events as a trigger: out of scope (calendars name Meetings instead, ADR 0006).
 - Record automatically: rejected; a prompt costs one click, a false recording costs the user's trust.
 - Polling the process list all the time: rejected for idle cost; input devices' running state wakes the watcher, and it samples every 2 s only while some mic is in use.
 
