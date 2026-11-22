@@ -6,25 +6,26 @@
     <description>Most recent updates to OpenOats</description>
     <language>en</language>
     <item>
-      <title>Version 2.1.1</title>
-      <link>https://github.com/yazinsai/OpenOats/releases/tag/v2.1.1</link>
-      <pubDate>Tue, 17 Nov 2026 09:23:41 GMT</pubDate>
-      <sparkle:version>2.1.1</sparkle:version>
-      <sparkle:shortVersionString>2.1.1</sparkle:shortVersionString>
+      <title>Version 2.2.0</title>
+      <link>https://github.com/yazinsai/OpenOats/releases/tag/v2.2.0</link>
+      <pubDate>Sun, 22 Nov 2026 10:03:11 GMT</pubDate>
+      <sparkle:version>2.2.0</sparkle:version>
+      <sparkle:shortVersionString>2.2.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
       <sparkle:minimumAutoupdateVersion>2.0.0</sparkle:minimumAutoupdateVersion>
       <sparkle:phasedRolloutInterval>86400</sparkle:phasedRolloutInterval>
-      <description sparkle:format="markdown"><![CDATA[## Fixed
+      <description sparkle:format="markdown"><![CDATA[## New
 
-- **Closing the lid stops the recording.** When your Mac goes to sleep, OpenOats stops recording and processes the meeting as usual; it finishes when you open the lid again. Before, the recording picked up again on wake and kept going into the same meeting.
-- **A call that's still on after wake asks again.** If you open the lid mid-call, you get the "Record this meeting?" prompt again.
-- **Processing right after wake no longer fails while Wi-Fi reconnects.** Cloud transcription and notes now retry for a few seconds when the Mac is briefly offline, instead of marking the meeting as needing attention.
+- **Meetings can be named after your calendar event.** Turn on "Name Meetings after calendar events" (Settings → General), and a Meeting recorded during "Design review" is called "Design review" in the list and its Meeting file, instead of a date or a guessed title.
+- **It picks the real meeting.** Only events with other people or a call link (Meet, Zoom, Teams, …) count, so "Focus" or "Lunch" blocks never name a Meeting. The event is matched against the whole recording, so joining a few minutes early doesn't name it after the previous meeting. All-day, cancelled and declined events are skipped.
+- **Optional, and asked once.** OpenOats asks for calendar access only when you turn it on: from Settings, the optional Calendar row in onboarding, or a one-line tip on a finished Meeting ("Turn On · Not Now"). Say Not Now and it won't ask again.
 
-(#780)
+Your calendar is read on this Mac when a recording stops and isn't sent anywhere. With the setting off, nothing changes. A title you set by renaming still wins.
+
 ]]></description>
-      <enclosure url="https://github.com/yazinsai/OpenOats/releases/download/v2.1.1/OpenOats.dmg"
-                 sparkle:edSignature="xp600qG1YBfIeFmgR+Qa3TXQP9+IMhSkXfpTkpCG+Phzoq/0bhPw0/384JDEJg34Lq+BVlL9u9Q/2H16f5sIBg=="
-                 length="6713489"
+      <enclosure url="https://github.com/yazinsai/OpenOats/releases/download/v2.2.0/OpenOats.dmg"
+                 sparkle:edSignature="/fPm8GLQq3IA0vhabcd3cDgPnxzDSOVK95M4Vn9jcDVeyrVPdzNT1ILgIjC505jzh73vthGyUubz6Y9UrWRRCw=="
+                 length="6748105"
                  type="application/octet-stream" />
     </item>
   </channel>
