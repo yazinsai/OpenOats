@@ -45,6 +45,8 @@
     <true/>
     <key>SUPublicEDKey</key>
     <string>RMSxoyjk8gEBvqmECGMvBLYQ7Kl7ptbacDBWSbsdgeI=</string>
+    <key>NSUserNotificationAlertStyle</key>
+    <string>alert</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSAppTransportSecurity</key>
