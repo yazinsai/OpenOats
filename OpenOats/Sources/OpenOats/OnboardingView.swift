@@ -25,6 +25,12 @@ struct OnboardingView: View {
                 Theme.line.frame(height: 1).padding(.leading, 56)
                 step(3, "Notes folder", model.settings.notesFolder.path(percentEncoded: false), done: false, button: "Choose…",
                      action: model.chooseNotesFolder)
+                Theme.line.frame(height: 1).padding(.leading, 56)
+                step(4, "Calendar (optional)", model.calendarDenied ? "Allow OpenOats in System Settings › Privacy & Security › Calendars."
+                        : "Names each Meeting after the calendar event it happened in.",
+                     done: model.settings.titleFromCalendar == true && model.calendarAllowed, button: model.calendarDenied ? "Open Settings" : "Allow") {
+                    if model.calendarDenied { NSWorkspace.shared.open(CalendarTitles.privacySettings) } else { model.setCalendarTitles(true) }
+                }
             }
             .background(RoundedRectangle(cornerRadius: Theme.r3, style: .continuous).fill(Theme.sidebar))
             .overlay(RoundedRectangle(cornerRadius: Theme.r3, style: .continuous).strokeBorder(Theme.line, lineWidth: 1))
@@ -58,7 +64,9 @@ struct OnboardingView: View {
         .background(Theme.canvas.ignoresSafeArea())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("onboarding.root")
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refreshCalendarAccess() }
         .onAppear {
+            model.refreshCalendarAccess()
             app.downloadModel()
             withAnimation(Theme.gentle) { appeared = true }
         }

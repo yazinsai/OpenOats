@@ -16,6 +16,8 @@ public struct Settings: Codable, Sendable, Equatable {
     public var askToRecordCalls = true
     /// `CallApp` ids the user said not to ask about again.
     public var ignoredCallApps: [String] = []
+    /// Name Meetings after the calendar event they happened in. nil until the user chooses, so the app can offer it once.
+    public var titleFromCalendar: Bool?
 
     public init() {}
 
@@ -31,6 +33,7 @@ public struct Settings: Codable, Sendable, Equatable {
         deleteAudioAfterProcessing = try c.decodeIfPresent(Bool.self, forKey: .deleteAudioAfterProcessing) ?? false
         askToRecordCalls = try c.decodeIfPresent(Bool.self, forKey: .askToRecordCalls) ?? true
         ignoredCallApps = try c.decodeIfPresent([String].self, forKey: .ignoredCallApps) ?? []
+        titleFromCalendar = try c.decodeIfPresent(Bool.self, forKey: .titleFromCalendar)
     }
 
     /// The language a new Meeting is recorded in.

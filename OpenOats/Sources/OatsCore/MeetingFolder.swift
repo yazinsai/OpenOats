@@ -20,7 +20,7 @@ public struct MeetingStatus: Codable, Sendable, Equatable {
     /// The Meeting file last written and the SHA-256 of what was written, for the re-process rule.
     public var meetingFile: String?
     public var meetingFileHash: String?
-    /// Set by Rename; wins over the Notes title when the Meeting file is written again.
+    /// Set by Rename or from the calendar event at Stop; wins over the Notes title when the Meeting file is written again.
     public var title: String?
 
     public init(state: State, startedAt: Date, language: String? = nil) {

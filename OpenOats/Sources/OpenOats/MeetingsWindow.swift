@@ -303,11 +303,13 @@ struct MeetingDetail<Actions: View>: View {
     @State private var draft = ""
     @State private var copied = false
     @FocusState private var titleFocused: Bool
+    @ObservedObject private var settings = SettingsModel.shared
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header.padding(.bottom, Theme.s5)
+                if showsCalendarTip { calendarTip.padding(.bottom, Theme.s5).transition(.opacity) }
                 banner
                 if let file {
                     file.transition(.opacity)
@@ -355,6 +357,27 @@ struct MeetingDetail<Actions: View>: View {
                     .accessibilityAddTraits(.isHeader)
             }
         }
+    }
+
+    /// Offered once, on a finished Meeting, until the user turns calendar titles on or says Not Now.
+    private var showsCalendarTip: Bool {
+        settings.settings.titleFromCalendar == nil && !settings.calendarDenied && entry.state == .done && entry.folder != nil && !renaming
+    }
+
+    private var calendarTip: some View {
+        HStack(spacing: Theme.s3) {
+            Label("Name Meetings after your calendar events?", systemImage: "calendar").foregroundStyle(Theme.ink2)
+            Button("Turn On") { withAnimation(Theme.gentle) { settings.setCalendarTitles(true) } }
+                .foregroundStyle(Theme.accent).fontWeight(.medium)
+            Button("Not Now") { withAnimation(Theme.gentle) { settings.setCalendarTitles(false) } }
+                .foregroundStyle(Theme.ink3)
+        }
+        .font(Theme.meta)
+        .buttonStyle(.plain)
+        .lineLimit(1)
+        .fixedSize()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("meeting.calendarTip")
     }
 
     @ViewBuilder private var banner: some View {
