@@ -142,8 +142,28 @@ public final class Recorder: @unchecked Sendable {
     @discardableResult
     public func stop() throws -> MeetingFolder {
         source.stop()
-        try queue.sync { try finish() }
+        try queue.sync {
+            guard !finished else { return }
+            try padStoppedTracks()
+            try finish()
+        }
         return folder
+    }
+
+    /// A track that stopped delivering before Stop (a mic gone silent) ends with silence, like a gap, so the tracks end
+    /// together. One that never delivered stays empty. Written 10 s at a time, so a long silence stays small in memory.
+    private func padStoppedTracks() throws {
+        try write()
+        let end = Int(((clock() - startTime) * TrackAudio.sampleRate).rounded())
+        let chunk = 10 * Int(TrackAudio.sampleRate), zeros = Data(count: 2 * chunk)
+        for (track, var writer) in writers where writer.written > 0 && writer.written < end {
+            while writer.written < end {
+                let count = min(chunk, end - writer.written)
+                try writer.handle.write(contentsOf: zeros.prefix(2 * count))
+                writer.written += count
+            }
+            writers[track] = writer
+        }
     }
 
     private func append(_ chunk: CapturedAudio) {

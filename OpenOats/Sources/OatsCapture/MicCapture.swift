@@ -5,8 +5,16 @@ import OatsObjC
 
 /// The Mic track: an AVAudioEngine input tap on one device. Used on the LiveCapture queue only.
 final class MicCapture: @unchecked Sendable {
+    /// What a tap was made for: the input unit's device and the hardware format.
+    struct Binding: Equatable {
+        var device: AudioDeviceID
+        var rate: Double
+        var channels: AVAudioChannelCount
+    }
+
     private let queue: DispatchQueue
     private var engine: AVAudioEngine?
+    private var bound: Binding?
     /// AVAudioEngine teardown races AVAudioIOUnit callbacks during route changes (AirPods); keep recently
     /// stopped engines alive so AVFAudio's internal queues can drain.
     private var retired: [AVAudioEngine] = []
@@ -15,6 +23,29 @@ final class MicCapture: @unchecked Sendable {
     let activity = Activity()
 
     init(queue: DispatchQueue) { self.queue = queue }
+
+    /// True when the input unit moved to another device, or the hardware has a usable format other than the tap's. An
+    /// unknown device or unusable format (mid switch) is left to the restart and the watchdog.
+    static func rebound(_ tap: Binding, now: Binding) -> Bool {
+        (now.device != kAudioObjectUnknown && now.device != tap.device)
+            || (now.rate > 0 && now.channels > 0 && (now.rate != tap.rate || now.channels != tap.channels))
+    }
+
+    /// Whether the running engine is no longer bound the way its tap was made. Cheap; reads the unit and node.
+    var isRebound: Bool {
+        guard let engine, let bound, let unit = engine.inputNode.audioUnit else { return false }
+        let hardware = try? Self.guarded { engine.inputNode.inputFormat(forBus: 0) }
+        let now = Binding(device: Self.device(of: unit) ?? AudioDeviceID(kAudioObjectUnknown),
+                          rate: hardware?.sampleRate ?? 0, channels: hardware?.channelCount ?? 0)
+        return Self.rebound(bound, now: now)
+    }
+
+    private static func device(of unit: AudioUnit) -> AudioDeviceID? {
+        var id = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &id, &size)
+        return status == noErr && id != kAudioObjectUnknown ? id : nil
+    }
 
     /// Builds a fresh engine on `device`, replacing any running one. On failure the engine is retired again.
     func start(device: AudioDeviceID, _ deliver: @escaping @Sendable (CapturedAudio) -> Void) throws {
@@ -49,6 +80,8 @@ final class MicCapture: @unchecked Sendable {
         let channels = usable ? hardware.channelCount : output.channelCount
         guard rate > 0, channels > 0, let tapFormat = AVAudioFormat(standardFormatWithSampleRate: rate, channels: channels)
         else { throw CaptureError.micFailed("no usable input format") }
+        // Read back, so a fresh engine is never rebound by construction.
+        bound = Binding(device: Self.device(of: unit) ?? device, rate: rate, channels: channels)
         let resampler = Resampler(.mic, deliver)
         let activity = activity
         try Self.guarded {
@@ -72,6 +105,7 @@ final class MicCapture: @unchecked Sendable {
     func stop() {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
+        bound = nil
         guard let engine else { return }
         _ = OatsCatchException { engine.inputNode.removeTap(onBus: 0) }
         _ = OatsCatchException { engine.stop() }
