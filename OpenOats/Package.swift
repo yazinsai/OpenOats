@@ -28,7 +28,8 @@ let package = Package(
                 .product(name: "WhisperKit", package: "WhisperKit"),
             ]
         ),
-        .target(name: "OatsCapture", dependencies: ["OatsCore"]),
+        .target(name: "OatsObjC"),
+        .target(name: "OatsCapture", dependencies: ["OatsCore", "OatsObjC"]),
         .executableTarget(name: "oats", dependencies: ["OatsCore", "OatsOnDevice", "OatsCapture"]),
         .executableTarget(
             name: "OpenOats",
@@ -36,6 +37,7 @@ let package = Package(
             exclude: ["Info.plist", "OpenOats.entitlements", "Assets"]
         ),
         .testTarget(name: "OatsCoreTests", dependencies: ["OatsCore"]),
+        .testTarget(name: "OatsCaptureTests", dependencies: ["OatsCapture", "OatsObjC"]),
         .testTarget(name: "OnDeviceGoldenTests", dependencies: ["OatsCore", "OatsOnDevice"]),
     ]
 )
